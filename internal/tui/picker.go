@@ -521,7 +521,7 @@ func (m *model) finderLines(w, h int) []string {
 	for k := first; k < min(first+n, len(rows)); k++ {
 		body = append(body, m.finderRow(rows[k], k == at, left))
 	}
-	var preview [][]span
+	var preview [][]chunk
 	if at >= 0 {
 		preview = m.previewLines(rows[at], right-2)
 	}
@@ -603,23 +603,23 @@ func (m *model) finderRow(r pickRow, highlighted bool, w int) string {
 // previewLines returns the preview of row r of the open model finder, w cells wide: the
 // model's name and ID, and what picking it does, which is true of a and of c alike. A model
 // the review used tells which session used it.
-func (m *model) previewLines(r pickRow, w int) [][]span {
+func (m *model) previewLines(r pickRow, w int) [][]chunk {
 	t := &m.theme
 	p := m.entry.picker
 	agentName := review.Visible(p.agent)
-	wrap := func(text string, c color.Color) [][]span {
-		var lines [][]span
+	wrap := func(text string, c color.Color) [][]chunk {
+		var lines [][]chunk
 		for _, l := range strings.Split(ansi.Wrap(text, max(w, 1), ""), "\n") {
-			lines = append(lines, []span{{text: l, color: c}})
+			lines = append(lines, []chunk{{text: l, color: c}})
 		}
 		return lines
 	}
 	id := review.Visible(r.id)
 	if r.typed {
-		return slices.Concat([][]span{{{text: id, color: t.strong, bold: true}}, {{text: "not in the list of " + agentName + " models", color: t.muted}}, nil},
+		return slices.Concat([][]chunk{{{text: id, color: t.strong, bold: true}}, {{text: "not in the list of " + agentName + " models", color: t.muted}}, nil},
 			wrap("dr passes it to "+agentName+" as typed. If "+agentName+" has no such model, its error comes back in place of an answer.", t.fg))
 	}
-	lines := [][]span{{{text: cmp.Or(review.Visible(r.name), id), color: t.strong, bold: true}}, {{text: id, color: t.muted}}, nil}
+	lines := [][]chunk{{{text: cmp.Or(review.Visible(r.name), id), color: t.strong, bold: true}}, {{text: id, color: t.muted}}, nil}
 	if r.tag == "session" {
 		does := "Picking it asks the way a always does."
 		if m.drafting != nil {
@@ -628,8 +628,8 @@ func (m *model) previewLines(r pickRow, w int) [][]span {
 		return append(lines, wrap("The session's own model. "+does, t.fg)...)
 	}
 	if s, ok := p.by[r.id]; ok {
-		by := span{text: review.Visible(review.Who(s.agent, s.id, m.short)), color: m.sessionColor(s)}
-		lines = append(lines, []span{{text: "used in this review by ", color: t.subtle}, by}, nil)
+		by := chunk{text: review.Visible(review.Who(s.agent, s.id, m.short)), color: m.sessionColor(s)}
+		lines = append(lines, []chunk{{text: "used in this review by ", color: t.subtle}, by}, nil)
 	}
 	own := "the session's model"
 	if p.own != "" {
@@ -639,5 +639,5 @@ func (m *model) previewLines(r pickRow, w int) [][]span {
 	if m.drafting != nil {
 		only = "For this comment only. :submit asks for its fix with this model; the other comments keep theirs."
 	}
-	return slices.Concat(lines, wrap(only, t.fg), [][]span{nil}, wrap("The session's reasoning effort is left out.", t.muted))
+	return slices.Concat(lines, wrap(only, t.fg), [][]chunk{nil}, wrap("The session's reasoning effort is left out.", t.muted))
 }

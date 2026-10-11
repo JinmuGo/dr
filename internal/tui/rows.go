@@ -237,15 +237,15 @@ func (m *model) originOf(e *agent.Edit) (dot, tag, about string, c color.Color) 
 // rail returns the rail of line k of model.lines, the cell between its line numbers and its
 // sign: a bar in the color of its origin for a changed line, a dashed one for a changed line
 // without an origin, and blank for an unchanged line.
-func (m *model) rail(k int) span {
+func (m *model) rail(k int) chunk {
 	l := m.lines[k]
 	switch {
 	case l.Old > 0 && l.New > 0:
-		return span{text: " "}
+		return chunk{text: " "}
 	case l.Edit == nil:
-		return span{text: "┆", color: m.theme.subtle}
+		return chunk{text: "┆", color: m.theme.subtle}
 	}
-	return span{text: "▎", color: m.originColor(l.Edit)}
+	return chunk{text: "▎", color: m.originColor(l.Edit)}
 }
 
 // place lays out the rows of both views, the unified and the split one: for each file a

@@ -78,8 +78,8 @@ func (m *model) treeWidth() int {
 // countWidth returns the width of the count of file i's comments in the file tree, with the
 // space before it, and 0 when it has none.
 func (m *model) countWidth(i int) int {
-	if spans := m.commentSpans(m.files[i].key); spans != nil {
-		return 1 + spansWidth(spans)
+	if chunks := m.commentChunks(m.files[i].key); chunks != nil {
+		return 1 + chunksWidth(chunks)
 	}
 	return 0
 }
@@ -186,7 +186,7 @@ func (m *model) treeLine(r treeRow, w int, current bool) string {
 		name = style(t.subtle)
 	}
 	l.add(ansi.Truncate(r.name, max(l.free-3-m.countWidth(r.file), 0), "…"), name)
-	for _, s := range m.commentSpans(f.key) {
+	for _, s := range m.commentChunks(f.key) {
 		l.add(" "+s.text, style(s.color))
 	}
 	mark, markColor := "", color.Color(nil)

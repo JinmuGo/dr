@@ -204,7 +204,7 @@ func (m *model) entryTop(w int) string {
 	chip, chipColor := m.modelChip()
 	chip = " " + chip + " "
 	room := w - 4 - ansi.StringWidth(pill) // "╭─" and "─╮"
-	titleWidth := spansWidth(title) + 2    // a space on each side
+	titleWidth := chunksWidth(title) + 2   // a space on each side
 	switch {
 	case titleWidth+ansi.StringWidth(chip)+1 <= room: // a line at least between them
 	case titleWidth <= room:
@@ -212,7 +212,7 @@ func (m *model) entryTop(w int) string {
 	case room < 4: // the pill alone, or not even that
 		chip, title = "", nil
 	default:
-		chip, title = "", append(cutSpans(title, room-3), span{text: "…", color: t.muted})
+		chip, title = "", append(cutChunks(title, room-3), chunk{text: "…", color: t.muted})
 	}
 	l := newLine(w - 1) // the corner comes after
 	l.add(f.tl+f.h, border)
@@ -250,20 +250,20 @@ func (m *model) entryPill() string {
 // its origin and how the session relates to the lines, whether it follows up the questions
 // in the origin box, and where its lines are, "claude c1a0 #1 · L48"; for c whom the comment
 // goes to, its tag in the color of its session, and its range, "→ claude c1a0 · L19-21".
-func (m *model) entryTitle() []span {
+func (m *model) entryTitle() []chunk {
 	t := &m.theme
-	sep := span{text: " · ", color: t.muted}
+	sep := chunk{text: " · ", color: t.muted}
 	if a := m.asking; a != nil {
 		tag := review.Visible(a.tag)
 		c := m.boxColor(a.Ask.Agent, a.Ask.Session)
 		if a.Relation == review.Author && a.Edit != nil {
 			c = m.originColor(a.Edit) // the tag names its request, a fix dr applied too
 		}
-		title := []span{{text: tag, color: c, bold: true}, {text: strings.TrimPrefix(review.Visible(a.label), tag), color: t.fg}}
+		title := []chunk{{text: tag, color: c, bold: true}, {text: strings.TrimPrefix(review.Visible(a.label), tag), color: t.fg}}
 		if a.followUp {
-			title = append(title, sep, span{text: "follow-up", color: t.fg})
+			title = append(title, sep, chunk{text: "follow-up", color: t.fg})
 		}
-		return append(title, sep, span{text: m.lineLabel(a.lines), color: t.fg})
+		return append(title, sep, chunk{text: m.lineLabel(a.lines), color: t.fg})
 	}
 	in := m.drafting
 	agentName, id := in.target.Ask.Agent, in.target.Ask.Session
@@ -271,7 +271,7 @@ func (m *model) entryTitle() []span {
 		agentName, id = c.Agent, c.Session
 	}
 	tag := review.Visible(review.Who(agentName, id, m.short))
-	return []span{
+	return []chunk{
 		{text: "→ ", color: t.subtle}, {text: tag, color: m.boxColor(agentName, id), bold: true}, {text: strings.TrimPrefix(in.who, tag), color: t.fg},
 		sep, {text: "L" + lineRange(in.from, in.to), color: t.fg},
 	}

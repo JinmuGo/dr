@@ -1,7 +1,6 @@
 package tui
 
 import (
-	"image/color"
 	"slices"
 	"strings"
 	"unicode/utf8"
@@ -25,13 +24,6 @@ func keepEnd(s string, w int) string {
 		cut = ansi.TruncateLeft(s, n-w+2, "…")
 	}
 	return cut
-}
-
-// span is text in a color on a band.
-type span struct {
-	text  string
-	color color.Color
-	bold  bool
 }
 
 // seg is a piece of a row of the screen: text in a style, which row may cut to fit when cut
@@ -169,19 +161,10 @@ func (l *line) fill(st lipgloss.Style) string {
 	return l.b.String()
 }
 
-// spansWidth returns the width of spans in cells.
-func spansWidth(spans []span) int {
-	w := 0
-	for _, s := range spans {
-		w += ansi.StringWidth(s.text)
-	}
-	return w
-}
-
-// cutSpans returns spans cut to w cells, without splitting a wide character.
-func cutSpans(spans []span, w int) []span {
-	var out []span
-	for _, s := range spans {
+// cutChunks returns chunks cut to w cells, without splitting a wide character.
+func cutChunks(chunks []chunk, w int) []chunk {
+	var out []chunk
+	for _, s := range chunks {
 		s.text = ansi.Truncate(s.text, max(w, 0), "")
 		w -= ansi.StringWidth(s.text)
 		out = append(out, s)
