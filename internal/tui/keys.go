@@ -266,3 +266,107 @@ func (m *model) jump(count, dir int, ok func(i int) bool) {
 	}
 	m.jumpTo(to)
 }
+
+// helpGroup is a group of keys in the key help: its name and each key with what it does.
+type helpGroup struct {
+	name string
+	keys [][2]string
+}
+
+// helpColumns are the groups of the key help, in its two columns, left and right. What a key
+// does is short, so that both columns fit on a screen 80 cells wide.
+var helpColumns = [2][]helpGroup{
+	{
+		{"MOVE", [][2]string{
+			{"j k", "line down, up · 5j"}, {"d u J K", "half a page down, up"}, {"gg G", "top, bottom · 12G"},
+			{"} {", "next, previous change"}, {"l h", "next, previous file · 3l"}, {"/ n N", "search, next, previous"},
+		}},
+		{"REVIEW", [][2]string{
+			{"⏎", "origin; j k scroll it"}, {"v", "mark the file viewed"}, {"V", "select lines"},
+			{"s", "split or unified"},
+		}},
+		{"MOUSE", [][2]string{
+			{"drag", "resize the tree"}, {"wheel", "scroll three lines"}, {"click", "a file, or a Viewed box"},
+			{"⇧ drag", "select text (⌥ on macOS)"},
+		}},
+	},
+	{
+		{"ASK AND FIX", [][2]string{
+			{"a", "ask who wrote it"}, {"ga", "open it in the agent"}, {"c", "leave a change comment"},
+			{":submit", "send every comment"}, {"y x", "apply, drop a fix"}, {":undo", "revert the last fix"},
+			{"e", "edit in $EDITOR"},
+		}},
+		{"IN A BOX", [][2]string{
+			{"⏎", "send or save"}, {"⇧⏎", "new line (⌥⏎, ^J)"}, {"^", "pick a model, word start"},
+			{"esc ^C", "cancel"},
+		}},
+		{"OTHER", [][2]string{{"?", "this help"}, {"esc", "clear a count or search"}, {"q", "quit"}}},
+	},
+}
+
+// keycap is a key and what it does, as the key row shows it.
+type keycap struct {
+	key, does string
+}
+
+// keycaps returns the keys of the current mode for the key row, the most used first. On a
+// selection that mixes sessions, a and c say only ask and comment, as keyRow dims them.
+func (m *model) keycaps() []keycap {
+	switch m.mode() {
+	case "HELP":
+		return []keycap{{"any key", "close"}}
+	case "SEARCH": // n and N type into the query here
+		return []keycap{{"⏎", "search"}, {"esc", "cancel"}}
+	case "COMMAND":
+		return []keycap{{"↑ ↓", "choose"}, {"tab", "complete"}, {"⏎", "run"}, {"esc", "cancel"}}
+	case "ASK", "COMMENT":
+		if m.entry.picker != nil {
+			back := "back to the question"
+			if m.drafting != nil {
+				back = "back to the comment"
+			}
+			return []keycap{{"↑ ↓ ^N ^P", "move"}, {"⏎ tab", "pick"}, {"^U", "clear"}, {"esc", back}}
+		}
+		verb, newline := "save", "⌥⏎"
+		if m.asking != nil {
+			verb = "send"
+		}
+		if m.shiftEnter {
+			newline = "⇧⏎"
+		}
+		return []keycap{{"⏎", verb}, {newline, "new line"}, {"^", "pick a model"}, {"esc", "cancel"}}
+	case "ORIGIN":
+		// a asks from the box where its title offers it: on a changed line, or a line with
+		// questions, which a follows up.
+		keys := []keycap{{"j k", "scroll"}}
+		switch {
+		case m.hasQuestions(m.cursor):
+			keys = append(keys, keycap{"a", "ask a follow-up"})
+		case m.rows[m.cursor].isChange():
+			keys = append(keys, keycap{"a", "ask"})
+		}
+		return append(keys, keycap{"⏎ esc", "close"})
+	case "VISUAL":
+		if m.mixed() {
+			return []keycap{{"a", "ask"}, {"c", "comment"}, {"j k", "extend"}, {"V esc", "stop selecting"}}
+		}
+		n := countOf(len(m.selectedRows()), "line")
+		return []keycap{{"a", "ask about " + n}, {"c", "comment on " + n}, {"j k", "extend"}, {"V esc", "stop selecting"}}
+	}
+	if len(m.rows) == 0 {
+		return []keycap{{":", "command"}, {"?", "help"}, {"q", "quit"}}
+	}
+	keys := []keycap{
+		{"a", "ask"}, {"c", "comment"}, {"e", "edit"}, {"⏎", "origin"}, {"v", "viewed"},
+		{"V", "select"}, {"s", "split"}, {"/", "search"}, {":", "command"}, {"?", "help"},
+	}
+	if c := m.commentOn(m.cursor); c != nil && c.fix != nil {
+		keys = append([]keycap{{"y", "apply"}, {"x", "drop"}}, keys...)
+	}
+	return keys
+}
+
+// readHint returns the hint of a notice that Enter reads: Enter to read it, Esc to dismiss.
+func (m *model) readHint() []chunk {
+	return m.keys([2]string{"⏎", "to read"}, [2]string{"esc", "dismiss"})
+}

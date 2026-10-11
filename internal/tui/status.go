@@ -313,68 +313,6 @@ func (m *model) pendingCount() int {
 	return n
 }
 
-// keycap is a key and what it does, as the key row shows it.
-type keycap struct {
-	key, does string
-}
-
-// keycaps returns the keys of the current mode for the key row, the most used first. On a
-// selection that mixes sessions, a and c say only ask and comment, as keyRow dims them.
-func (m *model) keycaps() []keycap {
-	switch m.mode() {
-	case "HELP":
-		return []keycap{{"any key", "close"}}
-	case "SEARCH": // n and N type into the query here
-		return []keycap{{"⏎", "search"}, {"esc", "cancel"}}
-	case "COMMAND":
-		return []keycap{{"↑ ↓", "choose"}, {"tab", "complete"}, {"⏎", "run"}, {"esc", "cancel"}}
-	case "ASK", "COMMENT":
-		if m.entry.picker != nil {
-			back := "back to the question"
-			if m.drafting != nil {
-				back = "back to the comment"
-			}
-			return []keycap{{"↑ ↓ ^N ^P", "move"}, {"⏎ tab", "pick"}, {"^U", "clear"}, {"esc", back}}
-		}
-		verb, newline := "save", "⌥⏎"
-		if m.asking != nil {
-			verb = "send"
-		}
-		if m.shiftEnter {
-			newline = "⇧⏎"
-		}
-		return []keycap{{"⏎", verb}, {newline, "new line"}, {"^", "pick a model"}, {"esc", "cancel"}}
-	case "ORIGIN":
-		// a asks from the box where its title offers it: on a changed line, or a line with
-		// questions, which a follows up.
-		keys := []keycap{{"j k", "scroll"}}
-		switch {
-		case m.hasQuestions(m.cursor):
-			keys = append(keys, keycap{"a", "ask a follow-up"})
-		case m.rows[m.cursor].isChange():
-			keys = append(keys, keycap{"a", "ask"})
-		}
-		return append(keys, keycap{"⏎ esc", "close"})
-	case "VISUAL":
-		if m.mixed() {
-			return []keycap{{"a", "ask"}, {"c", "comment"}, {"j k", "extend"}, {"V esc", "stop selecting"}}
-		}
-		n := countOf(len(m.selectedRows()), "line")
-		return []keycap{{"a", "ask about " + n}, {"c", "comment on " + n}, {"j k", "extend"}, {"V esc", "stop selecting"}}
-	}
-	if len(m.rows) == 0 {
-		return []keycap{{":", "command"}, {"?", "help"}, {"q", "quit"}}
-	}
-	keys := []keycap{
-		{"a", "ask"}, {"c", "comment"}, {"e", "edit"}, {"⏎", "origin"}, {"v", "viewed"},
-		{"V", "select"}, {"s", "split"}, {"/", "search"}, {":", "command"}, {"?", "help"},
-	}
-	if c := m.commentOn(m.cursor); c != nil && c.fix != nil {
-		keys = append([]keycap{{"y", "apply"}, {"x", "drop"}}, keys...)
-	}
-	return keys
-}
-
 // keyRow draws the key row, the last row of the screen: the keys of the current mode, each
 // on a keycap with what it does, as many as fit, and at the right edge in NORMAL and VISUAL
 // how to quit, or how to send the pending comments when there are some. A key that would
