@@ -131,7 +131,7 @@ func (m *model) key(msg tea.KeyPressMsg) tea.Cmd {
 		return m.read(n.question)
 	case n != nil && k == keyEnter && n.fixes != nil:
 		return m.readFix(n.fixes)
-	case m.reading:
+	case m.originBox.open:
 		return m.readKey(k)
 	case k == keyEsc:
 		m.escKey()
@@ -186,9 +186,9 @@ func (m *model) normalKey(k string) tea.Cmd {
 	case keySearch:
 		m.search.open, m.search.input = true, ""
 	case keyOrigin:
-		m.reading, m.readTop = true, 0
+		m.originBox.open, m.originBox.top = true, 0
 		if qs := m.questionsAt(m.cursor); len(qs) > 0 {
-			m.readTop = m.questionTop(qs[len(qs)-1]) // the newest, which the box opens for
+			m.originBox.top = m.questionTop(qs[len(qs)-1]) // the newest, which the box opens for
 		}
 	case keySplit:
 		m.splitOn = !m.splitOn // Update shows the view that fits
@@ -312,23 +312,23 @@ func (m *model) readKey(k string) tea.Cmd {
 	case keyPrefix:
 		m.pending = k
 	case keyLineDown, keyDown:
-		m.readTop++
+		m.originBox.top++
 	case keyLineUp, keyUp:
-		m.readTop--
+		m.originBox.top--
 	case keyHalfDown, keyHalfDownAlt:
-		m.readTop += half
+		m.originBox.top += half
 	case keyHalfUp, keyHalfUpAlt:
-		m.readTop -= half
+		m.originBox.top -= half
 	case keyTop:
-		m.readTop = 0
+		m.originBox.top = 0
 	case keyBottom:
-		m.readTop = m.blockHeight()
+		m.originBox.top = m.blockHeight()
 	case keyAsk:
 		m.startAsk()
 	case keyOpenSession:
 		return m.openSession()
 	case keyQuit, keyEsc, keyEnter:
-		m.reading = false
+		m.originBox.open = false
 	}
 	return nil
 }

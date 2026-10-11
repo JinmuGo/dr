@@ -15,6 +15,12 @@ import (
 	"github.com/charmbracelet/x/ansi"
 )
 
+// originBox is the state of the origin box, which Enter opens under the cursor row.
+type originBox struct {
+	open bool // the box is open
+	top  int  // the first line of its text on the screen
+}
+
 // askingFor says how long an answer or a fix has been coming, d, after the spinner's frame
 // for it, as the status line turns it: "⠼ asking… 4s".
 func askingFor(d time.Duration) string {
@@ -467,12 +473,12 @@ func (m *model) questionTop(q *question) int {
 }
 
 // box draws the open origin card under the cursor row of a diff w cells wide: its header, its
-// body and the cards of the row's comments, which scroll as one from readTop, and its last
+// body and the cards of the row's comments, which scroll as one from originBox.top, and its last
 // row.
 func (m *model) box(w int) []string {
 	x, width := m.boxLeft(w)
 	c := m.originCard(width)
-	return m.frame(c, x, width, m.block(c, width), m.readTop, m.boxRows())
+	return m.frame(c, x, width, m.block(c, width), m.originBox.top, m.boxRows())
 }
 
 // where returns where the cursor row is: the path of its file, and the line number of the

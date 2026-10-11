@@ -429,7 +429,7 @@ func (m *model) commentHeight(i int) int {
 // here.
 func (m *model) commentLines(i, w int) []string {
 	cs := m.commentsAt(i)
-	if len(cs) == 0 || m.reading && i == m.cursor {
+	if len(cs) == 0 || m.originBox.open && i == m.cursor {
 		return nil
 	}
 	x := m.cardLeft(m.files[m.rows[i].file], w)

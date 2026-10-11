@@ -268,8 +268,8 @@ func TestRebuildCloses(t *testing.T) {
 		m := editScreen(testFiles(), Saved{Reload: reloading(editedFiles())}, &fakeEditor{})
 		typeKeys(m, keys)
 		send(m, editedMsg{})
-		if m.reading || m.selecting || m.typing() || m.entry.text != "" || findRow(m, "+Line 5 edited") < 0 || m.View().Cursor != nil {
-			t.Errorf("%q: origin box open %t, selecting %t, input box open %t with %q after the rebuild", keys, m.reading, m.selecting, m.typing(), m.entry.text)
+		if m.originBox.open || m.selecting || m.typing() || m.entry.text != "" || findRow(m, "+Line 5 edited") < 0 || m.View().Cursor != nil {
+			t.Errorf("%q: origin box open %t, selecting %t, input box open %t with %q after the rebuild", keys, m.originBox.open, m.selecting, m.typing(), m.entry.text)
 		}
 	}
 }
@@ -303,8 +303,8 @@ func TestRebuildQuestions(t *testing.T) {
 		t.Fatalf("the answer did not land: pending %t, answer %v, notice %q", q.pending, q.answer, noticeLines(t, m))
 	}
 	typeKeys(m, "<enter>")
-	if !m.reading || m.cursor != row || !strings.Contains(boxText(m), "토큰 버킷이라") {
-		t.Errorf("Enter: box open %t at row %d with\n%s\nwant it open at row %d with the answer", m.reading, m.cursor, boxText(m), row)
+	if !m.originBox.open || m.cursor != row || !strings.Contains(boxText(m), "토큰 버킷이라") {
+		t.Errorf("Enter: box open %t at row %d with\n%s\nwant it open at row %d with the answer", m.originBox.open, m.cursor, boxText(m), row)
 	}
 }
 
@@ -331,8 +331,8 @@ func TestRebuildQuestionLeaves(t *testing.T) {
 	typeKeys(m, "<esc>e")
 	send(m, cmd())
 	typeKeys(m, "<enter>")
-	if q := m.questions[0]; q.lines != nil || m.cursor != findRow(m, "c/new.go") || !m.reading || !strings.Contains(boxText(m), "토큰 버킷이라") {
-		t.Errorf("lines %v, box open %t on %q with\n%s\nwant it open on the header of c/new.go with the answer", q.lines, m.reading, rowName(m, m.cursor), boxText(m))
+	if q := m.questions[0]; q.lines != nil || m.cursor != findRow(m, "c/new.go") || !m.originBox.open || !strings.Contains(boxText(m), "토큰 버킷이라") {
+		t.Errorf("lines %v, box open %t on %q with\n%s\nwant it open on the header of c/new.go with the answer", q.lines, m.originBox.open, rowName(m, m.cursor), boxText(m))
 	}
 }
 
