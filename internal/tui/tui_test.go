@@ -602,10 +602,10 @@ func TestBoxPlace(t *testing.T) {
 		lines := strings.Split(screen(t, m), "\n")
 		y := cursorLine(m)
 		bottom := y + m.boxHeight()
-		if !strings.Contains(lines[y], tc.row) || !strings.Contains(lines[y+1], tc.top) || !strings.HasSuffix(strings.TrimRight(lines[y+1], " "), "⏎ close") ||
+		if !strings.Contains(lines[y], tc.row) || !strings.Contains(lines[y+1], tc.top) || !strings.HasSuffix(strings.TrimRight(lines[y+1], " "), "⏎ esc close") ||
 			strings.Contains(lines[y+1], "a ask") != tc.ask || bottom >= m.diffHeight() || !strings.HasSuffix(strings.TrimRight(lines[bottom], " "), "▎") ||
 			tc.after != "" && !strings.Contains(lines[bottom+1], tc.after) {
-			t.Errorf("%q: want %q, then a card from %q with a ask %t and ⏎ close to its last row on the screen, then %q:\n%s",
+			t.Errorf("%q: want %q, then a card from %q with a ask %t and ⏎ esc close to its last row on the screen, then %q:\n%s",
 				tc.keys, tc.row, tc.top, tc.ask, tc.after, strings.Join(lines, "\n"))
 		}
 	}
@@ -663,7 +663,7 @@ func TestBox(t *testing.T) {
 			keys      string
 			want, not []string
 		}{
-			{"<enter>", []string{"▎ ● claude c1a0 #3  long.go:1", "⏎ close", "조건 1", "origin 18/47"}, []string{last, reply}},
+			{"<enter>", []string{"▎ ● claude c1a0 #3  long.go:1", "⏎ esc close", "조건 1", "origin 18/47"}, []string{last, reply}},
 			{"k", []string{"REQUEST · #3", "origin 18/47"}, nil}, // the first row stays at the top
 			{"j", []string{"origin 19/47"}, []string{"REQUEST"}},
 			{"d", []string{"origin 28/47"}, nil},

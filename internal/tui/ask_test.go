@@ -726,7 +726,7 @@ func TestAskFromBox(t *testing.T) {
 	top := func() string { return strings.Split(screen(t, m), "\n")[cursorLine(m)+1] }
 	typeKeys(m, "2jVjja<enter>")
 	f.answer.Text = "[chose] 둘 다 버킷 상태라서요."
-	if !strings.Contains(top(), "a follow-up   ⏎ close") {
+	if !strings.Contains(top(), "a follow-up   ⏎ esc close") {
 		t.Errorf("the card's header %q does not tell of a", top())
 	}
 	typeKeys(m, "a")
@@ -759,7 +759,7 @@ func TestAskFromBox(t *testing.T) {
 		}
 	}
 	typeKeys(m, "<esc><esc>gg5j<enter>a")
-	if why := "Move to a changed line to ask"; !m.originBox.open || m.typing() || m.message != why || !strings.Contains(top(), "⏎ close") || strings.Contains(top(), "a ask") {
+	if why := "Move to a changed line to ask"; !m.originBox.open || m.typing() || m.message != why || !strings.Contains(top(), "⏎ esc close") || strings.Contains(top(), "a ask") {
 		t.Errorf("a on an unchanged line: origin box open %t, input box open %t, message %q; want the origin box and %q", m.originBox.open, m.typing(), m.message, why)
 	}
 }

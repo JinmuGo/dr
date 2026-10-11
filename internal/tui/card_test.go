@@ -95,8 +95,8 @@ func TestCardHeader(t *testing.T) {
 		width int
 		want  string
 	}{
-		{100, "a ask   ⏎ close"},
-		{38, "⏎ close"},
+		{100, "a ask   ⏎ esc close"},
+		{42, "⏎ esc close"},
 		{20, ""},
 	} {
 		if got := chunksText(m.originCard(tc.width).head.right); got != tc.want {
