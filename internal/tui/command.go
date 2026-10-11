@@ -136,10 +136,7 @@ func (m *model) drawCommands(lines []string) {
 	}
 	box := m.commandBox(rows, w)
 	box = box[max(len(box)-len(lines), 0):] // a screen too short shows the bottom of the list
-	y := len(lines) - len(box)
-	for k, l := range box {
-		lines[y+k] = overlay(lines[y+k], l, 1, w, m.width)
-	}
+	overlayBox(lines, box, 1, len(lines)-len(box), w, m.width)
 }
 
 // commandBox draws the command list, w cells wide, in a rounded border in the color of
@@ -149,12 +146,7 @@ func (m *model) drawCommands(lines []string) {
 // colors.
 func (m *model) commandBox(rows []command, w int) []string {
 	t := &m.theme
-	border := t.paint(t.line2, t.surface)
-	top := newLine(w - 1)
-	top.add("╭─", border)
-	top.add(" commands ", t.paint(t.muted, t.surface))
-	top.add(strings.Repeat("─", top.free), border)
-	lines := []string{top.fill(border) + border.Render("╮")}
+	lines := []string{t.floatTop(w, seg{text: " commands ", st: t.paint(t.muted, t.surface)}, seg{})}
 	names := 0
 	for _, c := range commands {
 		names = max(names, ansi.StringWidth(c.name))
@@ -176,7 +168,7 @@ func (m *model) commandBox(rows []command, w int) []string {
 		l.add(c.name[len(typed):], on(t.strong, bg))
 		l.add(strings.Repeat(" ", names-ansi.StringWidth(c.name)+commandGap), on(nil, bg))
 		l.add(c.does(m), on(t.fg, bg))
-		lines = append(lines, border.Render("│")+l.fill(on(nil, bg))+on(nil, bg).Render(" ")+border.Render("│"))
+		lines = append(lines, t.floatSide(l.fill(on(nil, bg))+on(nil, bg).Render(" ")))
 	}
-	return append(lines, border.Render("╰"+strings.Repeat("─", max(w-2, 0))+"╯"))
+	return append(lines, t.floatBottom(w))
 }
