@@ -15,6 +15,13 @@ const viewedBox = " Viewed"
 // savedMsg tells that a save of the viewed files ended, with the error when it failed.
 type savedMsg struct{ err error }
 
+// viewedState is the files marked viewed and how they are saved.
+type viewedState struct {
+	files   state.Viewed // the files marked viewed, of this diff and of others
+	saver   *saver       // writes files to its file
+	version int          // how many times files changed
+}
+
 // saver writes the viewed files from commands, which can run at the same time. It writes one
 // version at a time and none older than the last it wrote, so the newest stays whatever
 // order the commands end in.
@@ -45,9 +52,9 @@ func (m *model) toggleViewed(i int) tea.Cmd {
 	f := &m.files[i]
 	f.viewed, f.changed = !f.viewed, false
 	if f.viewed {
-		m.viewed[f.key] = f.hash
+		m.viewed.files[f.key] = f.hash
 	} else {
-		delete(m.viewed, f.key)
+		delete(m.viewed.files, f.key)
 	}
 	m.place()
 	m.cursor = m.headRow(i)
@@ -58,8 +65,8 @@ func (m *model) toggleViewed(i int) tea.Cmd {
 
 // saveViewed returns the command that saves the viewed files as they are now.
 func (m *model) saveViewed() tea.Cmd {
-	m.version++
-	s, version, v := m.saver, m.version, maps.Clone(m.viewed)
+	m.viewed.version++
+	s, version, v := m.viewed.saver, m.viewed.version, maps.Clone(m.viewed.files)
 	return func() tea.Msg {
 		return savedMsg{s.save(version, v)}
 	}
