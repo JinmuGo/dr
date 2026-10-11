@@ -7,7 +7,7 @@
   </a>
 </p>
 
-<p align="center"><b>Diff review for AI agent edits</b></p>
+<p align="center"><b>Diff review with the AI that wrote it.</b></p>
 
 <p align="center">
   <a href="https://github.com/JinmuGo/dr/actions/workflows/ci.yml"><img src="https://github.com/JinmuGo/dr/actions/workflows/ci.yml/badge.svg" alt="CI"></a>
@@ -24,8 +24,6 @@
 </p>
 
 dr shows, for every changed line, which AI agent session wrote it and what you asked for. It reads the local session logs of Claude Code, Codex and OMP.
-
-The name comes from diff review.
 
 ## Status
 
