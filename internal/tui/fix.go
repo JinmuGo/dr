@@ -21,18 +21,18 @@ import (
 	"github.com/charmbracelet/x/ansi"
 )
 
-// What the screen says of the lock on the worktree when another dr holds it: when it opens,
-// and when y or :undo refuse to write a file.
+// What the screen says of the lock on the worktree when another dr holds it: in the band
+// over the diff, and when y or :undo refuse to write a file.
 const (
-	lockedOpen   = "Another dr has this worktree open; fixes can be applied only there"
+	lockedBand   = "Another dr has this worktree open. Read, ask and comment here; apply fixes there."
 	lockedRefuse = "Another dr has this worktree open. Apply fixes there"
 )
 
-// lockOpen returns what the status line says when the screen opens without the lock on the
-// worktree, which err tells why it could not take.
-func lockOpen(err error) string {
+// lockBand returns what the band over the diff says while this dr does not hold the lock
+// on the worktree, which err tells why it could not take.
+func lockBand(err error) string {
 	if errors.Is(err, state.ErrLocked) {
-		return lockedOpen
+		return lockedBand
 	}
 	return lockFailed(err)
 }
@@ -75,45 +75,14 @@ type fixedMsg struct {
 	err     error
 }
 
-// typeCommand handles a key while the : input is open: Enter runs the command typed, Esc
-// closes the input, and other keys edit it. It returns the command the dr command starts.
-func (m *model) typeCommand(k, text string) tea.Cmd {
-	switch k {
-	case "enter":
-		command := strings.TrimSpace(m.input)
-		m.commanding, m.input = false, ""
-		return m.runCommand(command)
-	case "esc":
-		m.commanding, m.input = false, ""
-	default:
-		m.edit(k, text)
-	}
-	return nil
-}
-
-// runCommand runs a dr command typed in the : input, submit or undo, and returns the
-// command it starts. Nothing typed does nothing.
-func (m *model) runCommand(command string) tea.Cmd {
-	switch command {
-	case "":
-		return nil
-	case "submit":
-		return m.submit()
-	case "undo":
-		return m.undo()
-	}
-	m.warn("Not a dr command: " + review.Visible(command))
-	return nil
-}
-
 // submit sends the pending comments, one fix request to each session they go to, as
 // pendingComments groups them, and returns the commands that ask. A session takes one
 // request at a time, so of a session's groups, which picked different models, the group of
 // its first comment goes, or the next when none of that group's comments can go, and the
 // others are held back until the next :submit. A session answering a question or another
 // request is skipped, and a comment that no longer goes to its session, or whose lines are
-// not at its range in the file any more, is not sent. The status line tells how many
-// requests went, and what was left out and why.
+// not at its range in the file any more, is not sent. A notice tells how many requests went
+// to whom, and what was left out and why.
 func (m *model) submit() tea.Cmd {
 	groups := m.pendingComments()
 	if len(groups) == 0 {
@@ -121,7 +90,8 @@ func (m *model) submit() tea.Cmd {
 		return nil
 	}
 	var cmds []tea.Cmd
-	var left []string
+	var left, to []string
+	sent := 0                         // the comments sent
 	asked := make(map[session]bool)   // the sessions a request went to
 	skipped := make(map[session]bool) // the sessions skipped as busy
 	for _, g := range groups {
@@ -141,24 +111,29 @@ func (m *model) submit() tea.Cmd {
 			if r != nil {
 				cmds = append(cmds, m.requestCmd(r))
 				asked[who] = true
+				to = append(to, name)
+				sent += len(r.sent)
 			}
 		}
 	}
-	var told []string
-	if len(cmds) > 0 {
-		told = append(told, "Sent "+countOf(len(cmds), "fix request"))
+	t := &m.theme
+	n := &notice{tone: toneOK}
+	switch {
+	case len(cmds) > 0:
+		n.text = []chunk{
+			{text: "Sent " + countOf(len(cmds), "fix request"), color: t.fg},
+			{text: " to " + strings.Join(to, ", ") + " (" + countOf(sent, "comment") + ")", color: t.muted},
+		}
+		n.warnings, n.hint = left, m.quiet("The fixes come under the comments.")
+	default:
+		n.tone, n.text, n.warnings = toneWarn, []chunk{{text: left[0], color: t.fg}}, left[1:]
 	}
-	text := strings.Join(append(told, left...), ". ")
-	if len(left) > 0 {
-		m.warn(text)
-	} else {
-		m.tell(text)
-	}
+	m.notice = n
 	return tea.Batch(cmds...)
 }
 
-// withModel names the model a group of comments picked with ^, as the status line tells
-// it: "^sonnet", or "its own model" for none.
+// withModel names the model a group of comments picked with ^, as the notice of :submit
+// tells it: "^sonnet", or "its own model" for none.
 func withModel(pick string) string {
 	if pick == "" {
 		return "its own model"
@@ -306,8 +281,9 @@ func (m *model) requestCmd(r *request) tea.Cmd {
 // are, or why no fix came, the same for every comment when the session did not answer or
 // its answer holds no fixes. A comment without a fix is pending again. The fork that
 // answered goes on for the session's next questions and requests, as after asking. When the
-// cursor is not on a comment of the request, the status line tells of the fixes until the
-// next key, and Enter then goes to them.
+// cursor is not on a comment of the request, a notice tells of the fixes until the next
+// key, and Enter then goes to them. When the log cannot save them, an error notice says so,
+// and which fixes came when the cursor is not on them.
 func (m *model) fixed(msg fixedMsg) {
 	r := m.requests[msg.request]
 	if r == nil {
@@ -361,45 +337,62 @@ func (m *model) fixed(msg fixedMsg) {
 		m.records.Fixes = append(m.records.Fixes, f)
 		s.c.request, s.c.fix = "", &f
 	}
-	on := m.commentOn(m.cursor)
-	switch {
-	case logErr != nil:
-		m.fail("could not save the fixes: " + review.Visible(logErr.Error()))
-	case on != nil && slices.ContainsFunc(r.sent, func(s sentComment) bool { return s.c == on }):
-		// the cursor is on a line of a comment of the request, whose box shows what came
-	default:
-		m.tellFixes(r, fixes)
+	var n *notice
+	if on := m.commentOn(m.cursor); on == nil || !slices.ContainsFunc(r.sent, func(s sentComment) bool { return s.c == on }) {
+		n = m.fixesNotice(r, fixes) // else the cursor is on a comment of the request, whose box shows what came
+	}
+	if logErr != nil {
+		failed := &notice{
+			tone: toneErr,
+			text: []chunk{{text: "Could not save the fixes: ", color: m.theme.fg}, {text: review.Visible(logErr.Error()), color: m.theme.del}},
+			hint: m.quiet("The fixes show now; saving them failed."),
+		}
+		if n != nil {
+			failed.fixes = n.fixes
+			failed.hint = append(slices.Clone(n.text), m.quiet(": shown now; saving them failed.")...)
+			if n.fixes != nil {
+				failed.hint = append(append(failed.hint, chunk{text: keyGap}), m.readHint()...)
+			}
+		}
+		n = failed
+	}
+	if n != nil {
+		m.notice = n
 	}
 }
 
-// tellFixes tells on the status line that fixes, how many, came for the comments of r, or
-// that none did, and where. When a comment of r has a place in the diff, Enter goes to it.
-func (m *model) tellFixes(r *request, fixes int) {
+// fixesNotice returns the notice that fixes, how many, came for the comments of r, or that
+// none did, from whom and where. When a comment of r has a place in the diff, Enter goes to
+// it.
+func (m *model) fixesNotice(r *request, fixes int) *notice {
+	t := &m.theme
 	first := r.sent[0].fix
-	where := review.Visible(first.Path) + ":" + lineRange(first.First, first.First+len(first.Lines)-1)
-	what := "Fix"
-	if n := len(r.sent); n > 1 {
-		where += " and " + strconv.Itoa(n-1) + " more"
-		what = "Fixes"
+	what := "Fix from "
+	if len(r.sent) > 1 {
+		what = "Fixes from "
 	}
-	text := what + " from " + review.Visible(review.Who(r.Agent, r.Session, m.short)) + " on " + where
+	n := &notice{tone: toneOK, hint: m.keys([2]string{"esc", "dismiss"})}
 	if fixes == 0 {
-		text = "No " + strings.ToLower(text[:1]) + text[1:]
+		n.tone, what = toneWarn, "No "+strings.ToLower(what[:1])+what[1:]
+	}
+	n.text = []chunk{
+		{text: what, color: t.fg},
+		{text: review.Visible(review.Who(r.Agent, r.Session, m.short)), color: m.whoColor(r.Agent, r.Session), bold: true},
+		{text: " on ", color: t.fg},
+		{text: review.Visible(first.Path) + ":" + lineRange(first.First, first.First+len(first.Lines)-1), color: t.strong},
+	}
+	if more := len(r.sent) - 1; more > 0 {
+		n.text = append(n.text, chunk{text: " and " + strconv.Itoa(more) + " more", color: t.fg})
 	}
 	if i := slices.IndexFunc(r.sent, func(s sentComment) bool { return s.c.placed() && slices.Contains(m.comments, s.c) }); i >= 0 {
-		text += ". Enter to read"
-		m.unreadFix = r.sent[i].c
+		n.fixes, n.hint = r.sent[i].c, m.readHint()
 	}
-	if fixes == 0 {
-		m.warn(text)
-	} else {
-		m.tell(text)
-	}
+	return n
 }
 
-// readFix goes to c, the comment the status line told of the fixes for, so that its box
-// shows under the cursor row. A file viewed since unfolds. It returns the command that
-// saves the viewed files then.
+// readFix goes to c, the comment a notice told of the fixes for, so that its box shows under
+// the cursor row. A file viewed since unfolds. It returns the command that saves the viewed
+// files then.
 func (m *model) readFix(c *comment) tea.Cmd {
 	if !c.placed() {
 		return nil
@@ -437,7 +430,7 @@ func (m *model) commentOn(i int) *comment {
 // Applied record, resolves the comment, which is then neither drawn nor pending, and returns
 // the command that rebuilds the diff, where the new lines have the fix as their origin. A
 // fix that keeps the lines, or a reason no fix came, has nothing to apply. Without the lock
-// on the worktree, it refuses. The status line says what it did, or why not.
+// on the worktree, it refuses. A notice says what it did, or why it could not.
 func (m *model) apply() tea.Cmd {
 	c := m.commentOn(m.cursor)
 	if c == nil || c.fix == nil {
@@ -458,7 +451,7 @@ func (m *model) apply() tea.Cmd {
 	}
 	change, err := fix.Apply(m.asker.Root, fix.Comment{Path: f.Path, First: f.First, Lines: f.Lines}, f.Hash, f.New, m.since(f))
 	if err != nil {
-		m.fail(review.Visible(err.Error()))
+		m.notice = m.failed("Didn't apply: ", err)
 		return nil
 	}
 	a := state.Applied{
@@ -471,7 +464,9 @@ func (m *model) apply() tea.Cmd {
 	c.fix = nil
 	m.resolved = append(m.resolved, c)
 	m.listWidth = m.treeWidth()
-	done := "Applied the fix for " + review.Visible(a.Path) + ":" + lineSpan(a.First, len(a.Old))
+	done := m.did("Applied the fix for ", review.Visible(a.Path)+":"+lineSpan(a.First, len(a.Old)), []chunk{
+		{text: ":undo", color: m.theme.strong, bold: true}, {text: " reverts it", color: m.theme.muted},
+	})
 	return m.reloadCmd(done, write(m.log, a))
 }
 
@@ -497,7 +492,7 @@ func change(a state.Applied) fix.Change {
 }
 
 // drop drops the fix under the comment the cursor row is a line of. The comment stays,
-// pending again, to be edited and submitted again.
+// pending again, to be edited and submitted again, as a notice says.
 func (m *model) drop() {
 	c := m.commentOn(m.cursor)
 	if c == nil || c.fix == nil {
@@ -506,18 +501,22 @@ func (m *model) drop() {
 	}
 	from, to := m.commentRange(c)
 	if m.dropFix(c) {
-		m.tell("Dropped the fix for " + m.commentWhere(c.file, from, to))
+		m.notice = m.did("Dropped the fix for ", m.commentWhere(c.file, from, to), m.quiet("The comment is pending again."))
 	}
 }
 
 // dropFix takes the fix under c away and writes a Dropped record for it. It reports whether
-// the record was saved; the status line says why not.
+// the record was saved; a notice says why not.
 func (m *model) dropFix(c *comment) bool {
 	d := state.Dropped{Time: m.now(), Fix: c.fix.ID}
 	m.records.Dropped = append(m.records.Dropped, d)
 	c.fix = nil
 	if err := write(m.log, d); err != nil {
-		m.fail("could not save the drop: " + review.Visible(err.Error()))
+		m.notice = &notice{
+			tone: toneErr,
+			text: []chunk{{text: "Could not save the drop: ", color: m.theme.fg}, {text: review.Visible(err.Error()), color: m.theme.del}},
+			hint: m.quiet("The fix is dropped on screen; saving it failed, so the next dr shows it again."),
+		}
 		return false
 	}
 	return true
@@ -526,7 +525,7 @@ func (m *model) dropFix(c *comment) bool {
 // undo reverts the newest fix dr applied that no :undo reverted, in this run or an earlier
 // one, with fix.Undo, writes the Undone record and returns the command that rebuilds the
 // diff. The comment the fix resolved comes back, pending, on the lines the undo restored.
-// Without the lock on the worktree, it refuses. The status line says what it did, or why
+// Without the lock on the worktree, it refuses. A notice says what it did, or why it could
 // not.
 func (m *model) undo() tea.Cmd {
 	if m.lockErr != nil {
@@ -540,19 +539,36 @@ func (m *model) undo() tea.Cmd {
 	}
 	a := inPlace[len(inPlace)-1]
 	if err := fix.Undo(m.asker.Root, change(a)); err != nil {
-		m.fail(review.Visible(err.Error()))
+		m.notice = m.failed("Didn't revert: ", err)
 		return nil
 	}
 	u := state.Undone{Time: m.now(), Applied: a.ID}
 	m.records.Undone = append(m.records.Undone, u)
+	var hint []chunk
 	if i := slices.IndexFunc(m.resolved, func(c *comment) bool { return c.ID == a.Comment }); i >= 0 {
 		m.away = append(m.away, m.resolved[i])
 		m.resolved = slices.Delete(m.resolved, i, i+1)
 		m.placeComments()
 		m.listWidth = m.treeWidth()
+		hint = m.quiet("The comment is pending again.")
 	}
-	done := "Reverted the fix for " + review.Visible(a.Path) + ":" + lineSpan(a.First, len(a.Old))
+	done := m.did("Reverted the fix for ", review.Visible(a.Path)+":"+lineSpan(a.First, len(a.Old)), hint)
 	return m.reloadCmd(done, write(m.log, u))
+}
+
+// did returns the notice of something done: what, then where in the strong color, and hint
+// under them.
+func (m *model) did(what, where string, hint []chunk) *notice {
+	return &notice{tone: toneOK, text: []chunk{{text: what, color: m.theme.fg}, {text: where, color: m.theme.strong}}, hint: hint}
+}
+
+// failed returns the notice of a fix that y or :undo could not write, for err: what, then
+// err in the error color, and that no file changed.
+func (m *model) failed(what string, err error) *notice {
+	return &notice{
+		tone: toneErr, text: []chunk{{text: what, color: m.theme.fg}, {text: review.Visible(err.Error()), color: m.theme.del}},
+		hint: m.quiet("Nothing was written."),
+	}
 }
 
 // lineSpan returns n lines from first as lineRange writes them, or first alone when n is 0.
@@ -561,19 +577,16 @@ func lineSpan(first, n int) string {
 }
 
 // reloadCmd returns the command that reads the changed files again, for reloaded to rebuild
-// the diff with and then tell done, or done and logErr, why its record was not saved. With
-// no way to read them, the diff stays, and the status line tells it now.
-func (m *model) reloadCmd(done string, logErr error) tea.Cmd {
+// the diff with and then show done, with logErr, why its record was not saved, among its
+// warnings. With no way to read them, the diff stays, and done shows now.
+func (m *model) reloadCmd(done *notice, logErr error) tea.Cmd {
 	var warning string
 	if logErr != nil {
 		warning = "could not save the record: " + review.Visible(logErr.Error())
 	}
 	if m.reload == nil {
-		if warning != "" {
-			m.warn(done + "; " + warning)
-		} else {
-			m.tell(done)
-		}
+		done.warn(warning)
+		m.notice = done
 		return nil
 	}
 	return m.readAgain(reloadedMsg{done: done, warning: warning})

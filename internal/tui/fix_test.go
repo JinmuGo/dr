@@ -230,13 +230,15 @@ func TestSubmit(t *testing.T) {
 	// :submit sends one request to each session the pending comments go to, each with its
 	// comments numbered from 1 in the order of the diff, to a new fork of the session in its
 	// directory and with its model. The deleted line of a comment goes as context. Each
-	// comment waits for its fix, and the log keeps each request.
+	// comment waits for its fix, and the log keeps each request. A notice tells how many
+	// requests went to whom, with how many comments.
 	files, dir := testFiles(), t.TempDir()
 	f := &fakeAsk{answer: answer}
 	m := fixScreen(files, Load(dir), f, writeTree(t, files), fixClock())
 	cmd := typeAndKeep(m, "4jcone<enter>gg11jVjctwo<enter>Gcthree<enter>:submit<enter>")
-	if m.message != "Sent 2 fix requests" || len(m.pendingComments()) != 0 || len(m.busy) != 2 {
-		t.Fatalf("message %q, %d pending groups, %d busy; want 2 requests sent, nothing pending", m.message, len(m.pendingComments()), len(m.busy))
+	if got := noticeText(t, m); !strings.HasPrefix(got, "✓ Sent 2 fix requests to claude c1a0, omp ") || !strings.HasSuffix(got, " (3 comments) The fixes come under the comments.") ||
+		len(m.pendingComments()) != 0 || len(m.busy) != 2 {
+		t.Fatalf("notice %q, %d pending groups, %d busy; want 2 requests sent, nothing pending", got, len(m.pendingComments()), len(m.busy))
 	}
 	for _, c := range m.comments {
 		if box := boxOf(m, c); !strings.HasPrefix(box, "✎ you → ") || !strings.Contains(strings.SplitN(box, "\n", 2)[0], " asking… ") {
@@ -275,7 +277,7 @@ func TestSubmit(t *testing.T) {
 
 func TestSubmitNothing(t *testing.T) {
 	// : opens an input on the status line. With no pending comment :submit says so, a word
-	// that is not a dr command says that, and Esc closes the input without running it.
+	// that is not a dr command is an error, and Esc closes the input without running it.
 	files := testFiles()
 	f := &fakeAsk{answer: answer}
 	m := fixScreen(files, Saved{}, f, writeTree(t, files), fixClock())
@@ -288,8 +290,8 @@ func TestSubmitNothing(t *testing.T) {
 		t.Errorf(":submit: input open %t, message %q", m.commanding, m.message)
 	}
 	typeKeys(m, ":ship<enter>")
-	if m.message != "Not a dr command: ship" {
-		t.Errorf(":ship: message %q", m.message)
+	if status := statusLine(t, m); m.message != "Not a dr command: ship" || m.tone != toneErr || !strings.HasPrefix(status, " NORMAL   ✗ Not a dr command: ship") {
+		t.Errorf(":ship: status line %q", status)
 	}
 	typeKeys(m, "4jcone<enter>:submit<esc>")
 	if m.commanding || len(f.asked()) != 0 || len(m.pendingComments()) != 1 {
@@ -307,8 +309,10 @@ func TestSubmitBusy(t *testing.T) {
 	question := typeAndKeep(m, "gg4ja<enter>")
 	typeKeys(m, "<esc>")
 	cmd := typeAndKeep(m, ":submit<enter>")
-	if m.message != "Sent 1 fix request. Skipped claude c1a0, still answering" {
-		t.Errorf("message %q", m.message)
+	if got := noticeLines(t, m); !slices.Equal(got, []string{
+		"✓ Sent 1 fix request to omp a1f2 (1 comment)", "  ! Skipped claude c1a0, still answering", "  The fixes come under the comments.",
+	}) {
+		t.Errorf("notice %q", got)
 	}
 	run(m, cmd)
 	if asked := f.asked(); len(asked) != 1 || asked[0].Agent != "omp" || !commentOf(m, "one").pending() {
@@ -326,8 +330,8 @@ func TestSubmitFixes(t *testing.T) {
 	// how long it took, the comment's lines deleted and the new lines added, and the note; a
 	// fix that keeps the lines has who sent it over its note. The chips say what came, and the
 	// keys that work on it show. The comments are no longer pending. The log keeps a fix
-	// record for each, with the lines and the file as sent. The status line tells
-	// of the fixes while the cursor is elsewhere, and Enter goes to them. On a line of a
+	// record for each, with the lines and the file as sent. A notice tells of the fixes
+	// while the cursor is elsewhere, and Enter goes to them. On a line of a
 	// comment with a fix it shows y and x. The fixes are only drawn: moves, search and the
 	// row count do not see them. The fork that answered goes on for the next question.
 	files, dir := testFiles(), t.TempDir()
@@ -365,9 +369,9 @@ func TestSubmitFixes(t *testing.T) {
 		t.Errorf("keep record %+v", kept)
 	}
 
-	if m.message != "Fixes from claude c1a0 on a.go:2 and 1 more. Enter to read" || strings.Contains(keyLine(t, m), "y  apply") ||
-		!strings.Contains(statusLine(t, m), "◆ 1 fix ready") { // the other answer keeps its lines
-		t.Errorf("status line %q, key row %q, want the fixes told of and counted", statusLine(t, m), keyLine(t, m))
+	if got := noticeLines(t, m); !slices.Equal(got, []string{"✓ Fixes from claude c1a0 on a.go:2 and 1 more", "  ⏎ to read   esc dismiss"}) ||
+		strings.Contains(keyLine(t, m), "y  apply") || !strings.Contains(statusLine(t, m), "◆ 1 fix ready") { // the other answer keeps its lines
+		t.Errorf("notice %q, status line %q, key row %q, want the fixes told of and counted", got, statusLine(t, m), keyLine(t, m))
 	}
 	typeKeys(m, "<enter>")
 	if status, keys := statusLine(t, m), keyLine(t, m); m.cursor != 4 || !strings.HasPrefix(keys, "  y  apply    x  drop    a  ask") || !strings.Contains(status, "row 5/27") {
@@ -405,8 +409,8 @@ func TestSubmitError(t *testing.T) {
 	m := fixScreen(files, Load(dir), f, writeTree(t, files), fixClock())
 	typeAll(m, "4jcone<enter>gg:submit<enter>")
 	one := commentOf(m, "one")
-	if m.message != "No fix from claude c1a0 on a.go:2. Enter to read" || len(m.pendingComments()) != 1 {
-		t.Errorf("message %q, %d pending groups; want no fix told of and one pending", m.message, len(m.pendingComments()))
+	if got := noticeLines(t, m); !slices.Equal(got, []string{"! No fix from claude c1a0 on a.go:2", "  ⏎ to read   esc dismiss"}) || len(m.pendingComments()) != 1 {
+		t.Errorf("notice %q, %d pending groups; want no fix told of and one pending", got, len(m.pendingComments()))
 	}
 	if want := "✎ you → ● claude c1a0 · a.go:2   no fix  x drop   c edit\none\n\n● claude c1a0\nclaude exited: rate limited"; boxOf(m, one) != want {
 		t.Errorf("box:\n%s\nwant\n%s", boxOf(m, one), want)
@@ -437,15 +441,15 @@ func TestSubmitEarlier(t *testing.T) {
 
 func TestSubmitChanged(t *testing.T) {
 	// A comment whose lines are not at its range in the file any more is not sent, and the
-	// status line says why; the other comments go.
+	// notice says why; the other comments go.
 	files := testFiles()
 	root := writeTree(t, files)
 	f := &fakeAsk{answer: answer}
 	m := fixScreen(files, Saved{}, f, root, fixClock())
 	writeFile(t, filepath.Join(root, "a.go"), strings.Replace(readFile(t, filepath.Join(root, "a.go")), "Changed 2", "Changed by hand", 1))
 	typeAll(m, "4jcone<enter>Gcthree<enter>:submit<enter>")
-	if m.message != "Sent 1 fix request. a.go:2 not sent: its lines changed on disk" {
-		t.Errorf("message %q", m.message)
+	if got := noticeText(t, m); got != "✓ Sent 1 fix request to claude c1a0 (1 comment) ! a.go:2 not sent: its lines changed on disk The fixes come under the comments." {
+		t.Errorf("notice %q", got)
 	}
 	if asked := f.asked(); len(asked) != 1 || strings.Contains(asked[0].Prompt, "Request: one") || !strings.Contains(asked[0].Prompt, "1. c/new.go:4-4") {
 		t.Errorf("asked %+v, want three alone", asked)
@@ -492,8 +496,8 @@ func TestApplyFix(t *testing.T) {
 	if e := m.lines[m.rows[k].right].Edit; e == nil || e.Fix == nil || e.Fix.ID != a.ID || e.Agent != "codex" || e.Session != a.Session {
 		t.Errorf("origin of the fixed line %+v, want the fix", e)
 	}
-	if !slices.Equal(texts(m), []string{"mark the limit"}) || m.message != "Applied the fix for codex/ratelimit.go:13" {
-		t.Errorf("comments %q, message %q; want the fixed comment gone and the fix told of", texts(m), m.message)
+	if got := noticeLines(t, m); !slices.Equal(texts(m), []string{"mark the limit"}) || !slices.Equal(got, []string{"✓ Applied the fix for codex/ratelimit.go:13", "  :undo reverts it"}) {
+		t.Errorf("comments %q, notice %q; want the fixed comment gone and the fix told of", texts(m), got)
 	}
 
 	row := findRow(m, "+\tif n < 0 || n > l.burst {")
@@ -504,8 +508,8 @@ func TestApplyFix(t *testing.T) {
 	}
 	applied = records(t, dir).Applied
 	if len(applied) != 2 || applied[1].Comment != ids[1] || applied[1].First != 51 || applied[1].Before != a.After ||
-		m.message != "Applied the fix for codex/ratelimit.go:51" || len(m.comments) != 0 {
-		t.Errorf("second applied record %+v, message %q, %d comments left", applied[len(applied)-1], m.message, len(m.comments))
+		noticeText(t, m) != "✓ Applied the fix for codex/ratelimit.go:51 :undo reverts it" || len(m.comments) != 0 {
+		t.Errorf("second applied record %+v, notice %q, %d comments left", applied[len(applied)-1], noticeText(t, m), len(m.comments))
 	}
 }
 
@@ -536,7 +540,8 @@ func TestApplyAdjacentFixes(t *testing.T) {
 
 func TestApplyRefusals(t *testing.T) {
 	// A line without a fix and a fix that keeps the lines have nothing to apply. When the
-	// file changed after the request, y refuses and the fix stays.
+	// file changed after the request, y refuses in a notice that nothing was written, and the
+	// fix stays.
 	repo, home := codexRepo(t)
 	f := &fakeAsk{answer: agent.Answer{Fork: "fork-7", Model: "gpt-6-astra",
 		Text: `{"fixes":[{"comment":1,"new_lines":["\trate float64"]},{"comment":2,"note":"it is right"}]}`}}
@@ -555,9 +560,9 @@ func TestApplyRefusals(t *testing.T) {
 	changed := readFile(t, path) + "// more\n"
 	writeFile(t, path, changed)
 	typeAll(m, "15Gy")
-	if !strings.Contains(m.message, "the file changed since the fix was requested") || readFile(t, path) != changed ||
-		commentOf(m, "one").fix == nil || len(records(t, dir).Applied) != 0 {
-		t.Errorf("message %q, fix kept %t; want y refused and the fix kept", m.message, commentOf(m, "one").fix != nil)
+	if got := noticeText(t, m); !strings.HasPrefix(got, "✗ Didn't apply: codex/ratelimit.go: the file changed since the fix was requested") ||
+		!strings.HasSuffix(got, " Nothing was written.") || readFile(t, path) != changed || commentOf(m, "one").fix == nil || len(records(t, dir).Applied) != 0 {
+		t.Errorf("notice %q, fix kept %t; want y refused and the fix kept", got, commentOf(m, "one").fix != nil)
 	}
 }
 
@@ -576,8 +581,9 @@ func TestDropFix(t *testing.T) {
 		t.Errorf("x on a header: message %q", m.message)
 	}
 	typeKeys(m, "4jx")
-	if one.fix != nil || !one.pending() || m.message != "Dropped the fix for a.go:2" || !strings.Contains(boxOf(m, one), "  pending") {
-		t.Errorf("x: fix %v, pending %t, message %q", one.fix, one.pending(), m.message)
+	if got := noticeLines(t, m); one.fix != nil || !one.pending() || !slices.Equal(got, []string{"✓ Dropped the fix for a.go:2", "  The comment is pending again."}) ||
+		!strings.Contains(boxOf(m, one), "  pending") {
+		t.Errorf("x: fix %v, pending %t, notice %q", one.fix, one.pending(), got)
 	}
 	typeKeys(m, "Gc<ctrl+u>three again<enter>")
 	if three.fix != nil || !three.pending() {
@@ -624,8 +630,9 @@ func TestUndoFix(t *testing.T) {
 		t.Fatalf("after :undo the file is\n%s\nand the log has %+v", got, r.Undone)
 	}
 	c := commentOf(m, "document rate")
-	if c == nil || !c.pending() || c.under != m.rows[14].right || m.message != "Reverted the fix for codex/ratelimit.go:13" {
-		t.Errorf("comment %+v, message %q; want it pending on line 13 again", c, m.message)
+	if got := noticeLines(t, m); c == nil || !c.pending() || c.under != m.rows[14].right ||
+		!slices.Equal(got, []string{"✓ Reverted the fix for codex/ratelimit.go:13", "  The comment is pending again."}) {
+		t.Errorf("comment %+v, notice %q; want it pending on line 13 again", c, got)
 	}
 	typeAll(m, ":undo<enter>")
 	if m.message != "No fix to undo" || readFile(t, path) != before {
@@ -643,14 +650,14 @@ func TestUndoEmpty(t *testing.T) {
 	f := &fakeAsk{answer: agent.Answer{Fork: "fork-9", Text: `{"fixes":[{"comment":1,"new_lines":["old","c"]}]}`}}
 	m, _ := repoScreen(t, repo, home, f, fixClock())
 	typeAll(m, "4jVjjcput it back<enter>:submit<enter>4jy")
-	if len(m.rows) != 0 || m.message != "Applied the fix for omp/notes.md:2-4" {
-		t.Fatalf("%d rows, message %q; want no changed file left", len(m.rows), m.message)
+	if len(m.rows) != 0 || noticeText(t, m) != "✓ Applied the fix for omp/notes.md:2-4 :undo reverts it" {
+		t.Fatalf("%d rows, notice %q; want no changed file left", len(m.rows), noticeText(t, m))
 	}
 	typeAll(m, ":undo<enter>")
 	c := commentOf(m, "put it back")
 	if readFile(t, filepath.Join(repo, "omp/notes.md")) != "a\nB\nc\nd\n" || findRow(m, "+B") < 0 || c == nil || !c.pending() ||
-		m.message != "Reverted the fix for omp/notes.md:2-4" {
-		t.Errorf("after :undo: %d rows, comment %+v, message %q", len(m.rows), c, m.message)
+		noticeText(t, m) != "✓ Reverted the fix for omp/notes.md:2-4 The comment is pending again." {
+		t.Errorf("after :undo: %d rows, comment %+v, notice %q", len(m.rows), c, noticeText(t, m))
 	}
 }
 
@@ -672,8 +679,8 @@ func TestUndoEmptyNextRun(t *testing.T) {
 	typeAll(m, ":undo<enter>")
 	c := commentOf(m, "put it back")
 	if readFile(t, filepath.Join(repo, "omp/notes.md")) != "a\nB\nc\nd\n" || findRow(m, "+B") < 0 || c == nil || !c.pending() ||
-		m.message != "Reverted the fix for omp/notes.md:2-4" {
-		t.Errorf("after :undo: %d rows, comment %+v, message %q", len(m.rows), c, m.message)
+		noticeText(t, m) != "✓ Reverted the fix for omp/notes.md:2-4 The comment is pending again." {
+		t.Errorf("after :undo: %d rows, comment %+v, notice %q", len(m.rows), c, noticeText(t, m))
 	}
 }
 
@@ -687,21 +694,22 @@ func TestUndoNamesRestoredLines(t *testing.T) {
 	m, _ := repoScreen(t, repo, home, f, fixClock())
 	typeAll(m, "4jVjjcone line<enter>:submit<enter>Gky")
 	if got := readFile(t, filepath.Join(repo, "omp/notes.md")); got != "a\none\nz\n" {
-		t.Fatalf("after the fix the file is %q, message %q; want the 3 lines replaced with 1", got, m.message)
+		t.Fatalf("after the fix the file is %q, notice %q; want the 3 lines replaced with 1", got, noticeText(t, m))
 	}
 	typeAll(m, ":undo<enter>")
-	if got := readFile(t, filepath.Join(repo, "omp/notes.md")); got != "a\nB\nc\nd\nz\n" || m.message != "Reverted the fix for omp/notes.md:2-4" {
-		t.Errorf("after :undo the file is %q, message %q; want omp/notes.md:2-4", got, m.message)
+	if got := readFile(t, filepath.Join(repo, "omp/notes.md")); got != "a\nB\nc\nd\nz\n" || !strings.HasPrefix(noticeText(t, m), "✓ Reverted the fix for omp/notes.md:2-4 ") {
+		t.Errorf("after :undo the file is %q, notice %q; want omp/notes.md:2-4", got, noticeText(t, m))
 	}
 }
 
 func TestFixLock(t *testing.T) {
-	// Without the lock on the worktree, the screen opens and says why, and y and :undo write
-	// no file and say why too: another dr holds it, or the lock file cannot be opened.
+	// Without the lock on the worktree, the screen opens with a band that says why and a
+	// read-only chip, and y and :undo write no file and say why too: another dr holds it, or
+	// the lock file cannot be opened.
 	for _, tc := range []struct {
 		name       string
 		lock       func(t *testing.T, dir string) error // takes the lock as dr does, failing
-		open, deny string
+		band, deny string
 	}{
 		{"another dr", func(t *testing.T, dir string) error {
 			unlock, err := state.Lock(dir)
@@ -718,7 +726,7 @@ func TestFixLock(t *testing.T) {
 				t.Skipf("this system takes no lock: %v", err)
 			}
 			return err
-		}, lockedOpen, lockedRefuse},
+		}, lockedBand, lockedRefuse},
 		{"an unreadable lock file", func(t *testing.T, dir string) error {
 			writeFile(t, filepath.Join(dir, "lock"), "")
 			if err := os.Chmod(filepath.Join(dir, "lock"), 0); err != nil {
@@ -738,14 +746,16 @@ func TestFixLock(t *testing.T) {
 			saved.Lock = tc.lock(t, dir)
 			why := review.Visible(saved.Lock.Error())
 			if !errors.Is(saved.Lock, state.ErrLocked) {
-				tc.open += why + "; fixes cannot be applied"
+				tc.band += why + "; fixes cannot be applied"
 				tc.deny += why + "; fixes cannot be applied"
 			}
 			root := writeTree(t, files)
 			f := &fakeAsk{answer: agent.Answer{Text: `{"fixes":[{"comment":1,"new_lines":["Changed two"]}]}`}}
 			m := fixScreen(files, saved, f, root, fixClock())
-			if m.message != tc.open {
-				t.Errorf("status line at open %q, want %q", m.message, tc.open)
+			m.Update(tea.WindowSizeMsg{Width: 300, Height: 24}) // wide enough for the whole band
+			lines := strings.Split(screen(t, m), "\n")
+			if band := lines[0]; m.message != "" || !strings.Contains(band, "⊘ "+tc.band) || !strings.Contains(statusLine(t, m), " read-only ") {
+				t.Errorf("at open: band %q, status line %q with message %q; want the band %q and the read-only chip", band, statusLine(t, m), m.message, tc.band)
 			}
 			before := readFile(t, filepath.Join(root, "a.go"))
 			for _, keys := range []string{"4jcone<enter>:submit<enter>y", ":undo<enter>"} {
@@ -793,9 +803,9 @@ func TestReopenResolved(t *testing.T) {
 		t.Fatalf("reopened: comments %q, want three alone with its fix", texts(m))
 	}
 	typeAll(m, ":undo<enter>")
-	if c := commentOf(m, "one"); c == nil || !c.pending() || m.message != "Reverted the fix for a.go:2" ||
+	if c := commentOf(m, "one"); c == nil || !c.pending() || noticeText(t, m) != "✓ Reverted the fix for a.go:2 The comment is pending again." ||
 		!strings.HasPrefix(readFile(t, filepath.Join(root, "a.go")), "line 1\nChanged 2\n") {
-		t.Errorf(":undo after reopening: comments %q, message %q", texts(m), m.message)
+		t.Errorf(":undo after reopening: comments %q, notice %q", texts(m), noticeText(t, m))
 	}
 }
 

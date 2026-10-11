@@ -33,21 +33,21 @@ const (
 
 // model is the state of the diff screen.
 type model struct {
-	files     []file
-	lines     []origin.Line     // the lines of the hunks, in the order of the unified view
-	labeled   []bool            // which of lines end with the label of their run of changes, as runLabels marks them
-	unified   []row             // the rows of the unified view
-	split     []row             // the rows of the split view
-	oldPieces [][]piece         // the pieces of the base version of each line once its file is colored
-	newPieces [][]piece         // the pieces of the current version of each line likewise
-	tree      []treeRow         // the file tree
-	short     map[string]string // short session ids, from review.ShortIDs
-	colors    map[session]int   // the color of each session, as placeSessions gives them, kept while the screen is open
-	legend    []*sessionRow     // the sessions with changed lines in the diff, in the order of their colors
-	unknown   int               // how many changed lines of the diff have no origin
-	problems  string            // which agents' session logs dr could not fully read
-	listWidth int               // width the file tree needs
-	theme     theme
+	files      []file
+	lines      []origin.Line     // the lines of the hunks, in the order of the unified view
+	labeled    []bool            // which of lines end with the label of their run of changes, as runLabels marks them
+	unified    []row             // the rows of the unified view
+	split      []row             // the rows of the split view
+	oldPieces  [][]piece         // the pieces of the base version of each line once its file is colored
+	newPieces  [][]piece         // the pieces of the current version of each line likewise
+	tree       []treeRow         // the file tree
+	short      map[string]string // short session ids, from review.ShortIDs
+	colors     map[session]int   // the color of each session, as placeSessions gives them, kept while the screen is open
+	legend     []*sessionRow     // the sessions with changed lines in the diff, in the order of their colors
+	unknown    int               // how many changed lines of the diff have no origin
+	unreadable []string          // the agents whose session logs dr could not fully read
+	listWidth  int               // width the file tree needs
+	theme      theme
 
 	rows          []row // the rows on the screen, of the unified or the split view
 	width, height int
@@ -70,8 +70,10 @@ type model struct {
 	asking    *target     // the input box of a is open, and what it asks about
 	input     string      // what is typed in the search or the : input
 	query     string      // the last search
+	choice    int         // the highlighted row of the command list
 	message   string      // shown in the status line until the next key
-	tone      messageTone // how the message reads: a warning, news such as an answer that came, or an error
+	tone      messageTone // how the message reads: a warning or an error
+	notice    *notice     // floats at the top right of the diff until the next key
 
 	drafting   *commentInput // the input box of c is open, and what it comments on
 	entry      textBox       // what is typed in the input box of a or c
@@ -95,11 +97,9 @@ type model struct {
 	asked     [][]*question         // the questions about each of model.lines
 	busy      map[session]bool      // the sessions and new sessions with a question or a fix request in flight
 	forks     map[session]runFork   // the fork or new session that answered each last in this run
-	unread    *question             // the question whose answer the status line tells of
 	comments  []*comment            // left in this run and earlier ones and not removed, on files of the diff, oldest first
 	away      []*comment            // likewise, on files not in the diff now
 	resolved  []*comment            // likewise, resolved by a fix dr applied that is in place
-	unreadFix *comment              // the comment whose fixes the status line tells of
 	models    map[string]*modelList // what Asker.Models gave for each agent in this run, or that it is still at it
 
 	newest   map[session]*agent.Edit // the newest edit of each session in the diff, as newestEdits finds it
@@ -165,28 +165,25 @@ func Load(dir string) Saved {
 // read, saved what the screen kept from earlier runs, and asker how it asks agents.
 func New(files []review.File, problems []agent.Problem, saved Saved, asker Asker) tea.Model {
 	m := &model{
-		problems: problemNote(problems),
-		theme:    newTheme(nil, true, false),
-		message:  saved.Problem,
-		viewed:   saved.Viewed,
-		saver:    &saver{},
-		asker:    asker,
-		earlier:  saved.Log,
-		records:  saved.Log,
-		lockErr:  saved.Lock,
-		reload:   saved.Reload,
-		execute:  tea.ExecProcess,
-		open:     agent.Open,
-		flights:  &flights{},
-		busy:     make(map[session]bool),
-		forks:    make(map[session]runFork),
-		requests: make(map[string]*request),
-		models:   make(map[string]*modelList),
-		now:      time.Now,
-		tick:     tick,
-	}
-	if m.lockErr != nil {
-		m.message = strings.TrimPrefix(saved.Problem+"; "+lockOpen(m.lockErr), "; ")
+		unreadable: unreadableAgents(problems),
+		theme:      newTheme(nil, true, false),
+		message:    saved.Problem,
+		viewed:     saved.Viewed,
+		saver:      &saver{},
+		asker:      asker,
+		earlier:    saved.Log,
+		records:    saved.Log,
+		lockErr:    saved.Lock,
+		reload:     saved.Reload,
+		execute:    tea.ExecProcess,
+		open:       agent.Open,
+		flights:    &flights{},
+		busy:       make(map[session]bool),
+		forks:      make(map[session]runFork),
+		requests:   make(map[string]*request),
+		models:     make(map[string]*modelList),
+		now:        time.Now,
+		tick:       tick,
 	}
 	if saved.Dir != "" {
 		m.saver.path = filepath.Join(saved.Dir, viewedFile)
@@ -369,8 +366,8 @@ func (m *model) mouse(msg tea.MouseMsg) tea.Cmd {
 
 // click handles a click at column x of line y. On a file of the file tree it goes to the
 // file's header, and on the Viewed box of a file header it marks the file viewed or not, as
-// v does there. Either ends a selection first. A click on the legend of the sessions does
-// nothing. It returns the command that saves the viewed files then.
+// v does there. Either ends a selection first. A click on the legend of the sessions or on a
+// band does nothing. It returns the command that saves the viewed files then.
 func (m *model) click(x, y int) tea.Cmd {
 	h := m.diffHeight()
 	if y >= h {
@@ -385,7 +382,10 @@ func (m *model) click(x, y int) tea.Cmd {
 		return nil
 	}
 	box := 1 + len(viewedBox) // the check box and its label, before the margin at the right edge
-	if i := m.rowAt(y); i >= 0 && m.rows[i].kind == fileRow && x >= m.width-1-box && x < m.width-1 {
+	if y < m.bandLines() {
+		return nil
+	}
+	if i := m.rowAt(y - m.bandLines()); i >= 0 && m.rows[i].kind == fileRow && x >= m.width-1-box && x < m.width-1 {
 		m.cursor, m.selecting = i, false
 		return m.toggleViewed(m.rows[i].file)
 	}
@@ -463,6 +463,17 @@ func (m *model) diffHeight() int {
 	return max(h, 1)
 }
 
+// bandLines returns how many lines of the diff the bands take at its top: a line each, as
+// many as leave a line for the rows.
+func (m *model) bandLines() int {
+	return min(len(m.bands()), m.diffHeight()-1)
+}
+
+// rowsHeight returns how many lines of the diff the rows take: those under the bands.
+func (m *model) rowsHeight() int {
+	return m.diffHeight() - m.bandLines()
+}
+
 // scroll moves the screen as little as it takes to show the cursor row, and the open origin
 // box under it, and leaves no blank lines at the bottom while there are rows above to show
 // instead, as far as the blank line above a file header allows. The box likewise leaves no
@@ -471,7 +482,7 @@ func (m *model) diffHeight() int {
 // box with its row, the cursor row too when they fit together. The model finder floating
 // over the diff scrolls its rows to show the highlighted one.
 func (m *model) scroll() {
-	h := m.diffHeight()
+	h := m.rowsHeight()
 	if m.reading {
 		m.readTop = max(min(m.readTop, m.blockHeight()-m.boxRows()), 0)
 		h = max(h-m.boxHeight(), 1) // the lines that fit beside the card
@@ -516,9 +527,9 @@ func (m *model) fitTop(last, h int) int {
 	return top
 }
 
-// rowAt returns the row drawn on line y of the diff, or -1 for a blank line or a line of a
-// comment's box or of the input box, as diffLines draws them while the origin box is closed.
-// The header that stays on top is that of its file.
+// rowAt returns the row drawn on line y of the rows, under the bands, or -1 for a blank line
+// or a line of a comment's box or of the input box, as diffLines draws them while the origin
+// box is closed. The header that stays on top is that of its file.
 func (m *model) rowAt(y int) int {
 	line := 0
 	if m.sticky() {
@@ -542,17 +553,14 @@ func (m *model) rowAt(y int) int {
 	return -1
 }
 
-// problemNote says which agents' session logs dr could not fully read, "" when none. dr's
-// own log is left out: Load tells of it when the screen opens.
-func problemNote(problems []agent.Problem) string {
+// unreadableAgents returns the agents whose session logs dr could not fully read, in the
+// order of problems. dr's own log is left out: Load tells of it when the screen opens.
+func unreadableAgents(problems []agent.Problem) []string {
 	var agents []string
 	for _, p := range problems {
 		if p.Agent != review.FixAgent && !slices.Contains(agents, p.Agent) {
 			agents = append(agents, p.Agent)
 		}
 	}
-	if agents == nil {
-		return ""
-	}
-	return "some " + strings.Join(agents, ", ") + " records unreadable"
+	return agents
 }

@@ -31,7 +31,7 @@ type piece struct {
 // color colors the files that have lines on the screen and are not colored yet. A viewed
 // file shows only its header, so it waits until it unfolds.
 func (m *model) color() {
-	for i := m.top; i < min(m.top+m.diffHeight(), len(m.rows)); i++ {
+	for i := m.top; i < min(m.top+m.rowsHeight(), len(m.rows)); i++ {
 		if f := m.rows[i].file; !m.files[f].colored && !m.files[f].viewed {
 			m.colorFile(f)
 		}

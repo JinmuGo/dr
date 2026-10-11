@@ -598,12 +598,12 @@ func TestPickerSubmit(t *testing.T) {
 	}{
 		{
 			name: "the first comment picked", keys: "4jcone ^sonnet<enter><enter>Gcthree<enter>",
-			held:   "Sent 1 fix request. Held back 1 comment for claude c1a0 with its own model; submit again when its fixes come",
+			held:   "✓ Sent 1 fix request to claude c1a0 (1 comment) ! Held back 1 comment for claude c1a0 with its own model; submit again when its fixes come The fixes come under the comments.",
 			models: [2]string{"sonnet", "claude-opus-5-5"}, efforts: [2]string{"", "high"}, picked: "one", edit: "gg4jc ^<enter><enter>",
 		},
 		{
 			name: "the second comment picked", keys: "4jcone<enter>Gcthree ^sonnet<enter><enter>",
-			held:   "Sent 1 fix request. Held back 1 comment for claude c1a0 with ^sonnet; submit again when its fixes come",
+			held:   "✓ Sent 1 fix request to claude c1a0 (1 comment) ! Held back 1 comment for claude c1a0 with ^sonnet; submit again when its fixes come The fixes come under the comments.",
 			models: [2]string{"claude-opus-5-5", "sonnet"}, efforts: [2]string{"high", ""}, picked: "three", edit: "Gc ^<enter><enter>",
 		},
 	} {
@@ -625,8 +625,8 @@ func TestPickerSubmit(t *testing.T) {
 			m.Update(tea.WindowSizeMsg{Width: 125, Height: 40})
 			typeAll(m, tc.keys)
 			cmd := typeAndKeep(m, "gg:submit<enter>")
-			if m.message != tc.held {
-				t.Errorf("message %q, want %q", m.message, tc.held)
+			if got := noticeText(t, m); got != tc.held {
+				t.Errorf("notice %q, want %q", got, tc.held)
 			}
 			run(m, cmd)
 			typeAll(m, ":submit<enter>")

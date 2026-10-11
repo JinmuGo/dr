@@ -25,23 +25,33 @@ const minMessage = 24
 // second, as the tick comes.
 var spinner = []rune("⠋⠙⠹⠸⠼⠴⠦⠧⠇⠏")
 
-// messageTone is how the message on the status line reads.
+// messageTone is how a message on the status line, or a notice, reads.
 type messageTone int
 
 const (
-	toneWarn messageTone = iota // a warning, such as why a key did nothing
-	toneOK                      // news, such as an answer that came
-	toneErr                     // an error, such as a file that could not be saved
+	toneWarn   messageTone = iota // a warning, such as why a key did nothing
+	toneOK                        // something done, such as a fix applied
+	toneErr                       // an error, such as a file that could not be saved
+	toneAnswer                    // an answer that came
 )
+
+// icon returns the icon of tone and its color: ! for a warning, ✓ for something done, ✗
+// for an error and ● for an answer.
+func (t *theme) icon(tone messageTone) (string, color.Color) {
+	switch tone {
+	case toneOK:
+		return "✓", t.add
+	case toneErr:
+		return "✗", t.del
+	case toneAnswer:
+		return "●", t.ask
+	}
+	return "!", t.pending
+}
 
 // warn shows text in the status line as a warning, until the next key.
 func (m *model) warn(text string) {
 	m.message, m.tone = text, toneWarn
-}
-
-// tell shows news in the status line, until the next key.
-func (m *model) tell(text string) {
-	m.message, m.tone = text, toneOK
 }
 
 // fail shows an error in the status line, until the next key.
@@ -114,13 +124,14 @@ func (m *model) pillWidth() int {
 // selection with its lines and the session that wrote them, or else where the cursor is:
 // the file and line, and the origin of a changed line with the first line of its request,
 // which is cut first, the directory next. noChanges takes its place when no changed file is
-// left. The right shows how long questions have been out, how many fixes are ready and
-// comments pending, how far the open origin box is read when its text does not fit, that
-// the diff is too narrow for the split view s asked for, the file number, the row number and
-// the note on the session logs dr could not fully read. The pill and the start of the left
-// come first: what of the right does not fit beside them is left out whole, the note first,
-// then the row number, the file number, the pending comments and the fixes, the questions
-// last. An open input and the cursor after it are kept whole.
+// left. The right shows a read-only chip when this dr does not hold the lock on the
+// worktree, how long questions have been out, how many fixes are ready and comments
+// pending, how far the open origin box is read when its text does not fit, that the diff is
+// too narrow for the split view s asked for, the file number and the row number. The pill
+// and the start of the left come first: what of the right does not fit beside them is left
+// out whole, the row number first, then the file number, the pending comments and the
+// fixes, the questions and the chip last. An open input and the cursor after it are kept
+// whole.
 func (m *model) status() string {
 	t := &m.theme
 	on := func(fg color.Color) lipgloss.Style { return t.paint(fg, t.panel) }
@@ -130,13 +141,7 @@ func (m *model) status() string {
 	case typed != "":
 		left = append(left, seg{text: typed, st: on(t.strong)})
 	case m.message != "":
-		icon, c := "!", t.pending
-		switch m.tone {
-		case toneOK:
-			icon, c = "✓", t.add
-		case toneErr:
-			icon, c = "✗", t.del
-		}
+		icon, c := t.icon(m.tone)
 		left = append(left, seg{text: icon + " ", st: on(c).Bold(true)}, seg{text: m.message, st: on(t.fg), cut: true})
 	case len(m.rows) == 0:
 		left = append(left, seg{text: noChanges, st: on(t.fg)})
@@ -157,9 +162,9 @@ func (m *model) status() string {
 	if typed != "" {
 		keep++ // the cursor after it
 	}
-	var problems, position, narrow, asking, fixes, pending, rowAt, fileAt []seg
-	if m.problems != "" {
-		problems = []seg{{text: m.problems, st: on(t.pending)}}
+	var readOnly, position, narrow, asking, fixes, pending, rowAt, fileAt []seg
+	if m.lockErr != nil {
+		readOnly = []seg{{text: " read-only ", st: t.chip(t.pending, t.pending)}}
 	}
 	if d, ok := m.waited(); ok {
 		frame := spinner[int(d/time.Second)%len(spinner)]
@@ -184,7 +189,7 @@ func (m *model) status() string {
 		fileAt = []seg{{text: fmt.Sprintf("file %d/%d", m.rows[m.cursor].file+1, len(m.files)), st: on(t.subtle)}}
 	}
 	right := fitGroups([]group{
-		{segs: problems, rank: 8, keep: keep},
+		{segs: readOnly, rank: 1, keep: keep},
 		{segs: position, rank: 4, keep: keep},
 		{segs: narrow, rank: 5, keep: keep},
 		{segs: asking, rank: 1, keep: keep},
@@ -323,7 +328,7 @@ func (m *model) keycaps() []keycap {
 	case "SEARCH": // n and N type into the query here
 		return []keycap{{"⏎", "search"}, {"esc", "cancel"}}
 	case "COMMAND":
-		return []keycap{{"⏎", "run"}, {"esc", "cancel"}}
+		return []keycap{{"↑ ↓", "choose"}, {"tab", "complete"}, {"⏎", "run"}, {"esc", "cancel"}}
 	case "ASK", "COMMENT":
 		if m.entry.picker != nil {
 			back := "back to the question"

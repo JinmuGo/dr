@@ -299,8 +299,8 @@ func TestRebuildQuestions(t *testing.T) {
 	}
 	send(m, cmd())
 	q := m.questions[1]
-	if q.pending || q.answer == nil || q.answer.Text != answer.Text || m.unread != q {
-		t.Fatalf("the answer did not land: pending %t, answer %v, unread %v", q.pending, q.answer, m.unread)
+	if q.pending || q.answer == nil || q.answer.Text != answer.Text || m.notice == nil || m.notice.question != q {
+		t.Fatalf("the answer did not land: pending %t, answer %v, notice %q", q.pending, q.answer, noticeLines(t, m))
 	}
 	typeKeys(m, "<enter>")
 	if !m.reading || m.cursor != row || !strings.Contains(boxText(m), "토큰 버킷이라") {
@@ -310,18 +310,19 @@ func TestRebuildQuestions(t *testing.T) {
 
 func TestRebuildQuestionLeaves(t *testing.T) {
 	// A question still waiting about a file that left the diff has no place; its answer
-	// comes all the same, and the status line tells of it, with nothing to read.
+	// comes all the same, and a notice tells of it, with nothing to read.
 	m := editScreen(testFiles(), Saved{Reload: reloading(testFiles()[:2])}, &fakeEditor{})
 	cmd := typeAndKeep(m, "23ja<enter>")
 	typeKeys(m, "<esc>e")
 	send(m, cmd())
 	q := m.questions[0]
-	if q.file >= 0 || q.answer == nil || m.unread != nil || m.message == "" {
-		t.Errorf("file %d, answer %v, unread %v, status %q; want no place, the answer, and a status with nothing to read", q.file, q.answer, m.unread, m.message)
+	want := []string{"● Answer from claude c1a0 #2 on c/new.go", "  Its file left the diff."}
+	if got := noticeLines(t, m); q.file >= 0 || q.answer == nil || !slices.Equal(got, want) || m.notice.question != nil {
+		t.Errorf("file %d, answer %v, notice %q; want no place, the answer, and the notice %q with nothing to read", q.file, q.answer, got, want)
 	}
 
 	// When the question's file comes back without its lines, it waits under the header,
-	// where Enter on the status line goes.
+	// where Enter on the notice goes.
 	m = editScreen(testFiles(), Saved{}, &fakeEditor{})
 	files := testFiles()
 	files[2].Lines = parseDiff("+other")
@@ -386,8 +387,8 @@ func TestRebuildOutOfOrder(t *testing.T) {
 
 func TestRebuildEmpty(t *testing.T) {
 	// When no changed file is left, as after the last change was undone, the diff and the
-	// status line say so. An answer still in flight comes all the same, and the status line
-	// tells of it. Then keys and the mouse do nothing, but ? opens the help and q quits.
+	// status line say so. An answer still in flight comes all the same, and a notice tells
+	// of it. Then keys and the mouse do nothing, but ? opens the help and q quits.
 	ed := &fakeEditor{}
 	m := editScreen(testFiles(), Saved{Reload: reloading(nil)}, ed)
 	cmd := typeAndKeep(m, "4ja<enter>")
@@ -396,9 +397,9 @@ func TestRebuildEmpty(t *testing.T) {
 		t.Fatalf("%d files on the screen\n%s\nwant none, and %q in the diff and the status line", len(m.files), s, noChanges)
 	}
 	send(m, cmd())
-	const told = "Answer from claude c1a0 #1 on a.go, which left the diff"
-	if q := m.questions[0]; q.answer == nil || !strings.Contains(statusLine(t, m), told) {
-		t.Errorf("answer %v, status line %q; want the answer and %q", q.answer, statusLine(t, m), told)
+	const told = "● Answer from claude c1a0 #1 on a.go Its file left the diff."
+	if q := m.questions[0]; q.answer == nil || noticeText(t, m) != told {
+		t.Errorf("answer %v, notice %q; want the answer and %q", q.answer, noticeText(t, m), told)
 	}
 
 	typeKeys(m, "<esc>")
@@ -427,7 +428,7 @@ func TestRebuildEmpty(t *testing.T) {
 	}
 
 	typeKeys(m, "?")
-	if s := screen(t, m); !strings.Contains(s, "╭─ Help") {
+	if s := screen(t, m); !strings.Contains(s, "╭─ Keys ") {
 		t.Errorf("?: the screen has no help:\n%s", s)
 	}
 	typeKeys(m, "x")

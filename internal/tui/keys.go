@@ -21,17 +21,22 @@ const ctrlCGuard = time.Second
 // every key goes to it, and ctrl+c cancels the box there. When no changed file is left, only
 // q, ?, : and ctrl+c do anything, so :undo can bring back the change a fix took away. While
 // the editor or the agent has the terminal, and for ctrlCGuard after it hands it back,
-// ctrl+c does nothing.
+// ctrl+c does nothing. A key takes the message off the status line and the notice off the
+// diff. While a notice shows, Esc does only that, whatever is open, so the input and what is
+// typed in it stay. Enter on a notice of an answer or of fixes goes to read them, unless an
+// input is open, which Enter belongs to; any other key then does its own work.
 func (m *model) key(msg tea.KeyPressMsg) tea.Cmd {
 	k := msg.String()
-	unread, unreadFix := m.unread, m.unreadFix
-	m.message, m.tone, m.unread, m.unreadFix = "", toneWarn, nil, nil
+	n := m.notice
+	m.message, m.tone, m.notice = "", toneWarn, nil
 	switch {
 	case k == "ctrl+c" && !m.typing():
 		if m.handedOver || m.now().Sub(m.handedBack) < ctrlCGuard {
 			return nil
 		}
 		return tea.Quit
+	case n != nil && k == "esc":
+		return nil
 	case m.help:
 		m.help = false // any key closes the help
 		return nil
@@ -44,7 +49,7 @@ func (m *model) key(msg tea.KeyPressMsg) tea.Cmd {
 		case "?":
 			m.help = true
 		case ":":
-			m.commanding, m.input = true, ""
+			m.openCommand()
 		}
 		return nil
 	case m.searching:
@@ -52,10 +57,10 @@ func (m *model) key(msg tea.KeyPressMsg) tea.Cmd {
 		return nil
 	case m.typing():
 		return m.typeBox(msg)
-	case k == "enter" && unread != nil:
-		return m.read(unread) // the status line told of its answer
-	case k == "enter" && unreadFix != nil:
-		return m.readFix(unreadFix) // the status line told of its fixes
+	case n != nil && k == "enter" && n.question != nil:
+		return m.read(n.question)
+	case n != nil && k == "enter" && n.fixes != nil:
+		return m.readFix(n.fixes)
 	case m.reading:
 		return m.readKey(k)
 	case k == "esc":
@@ -132,7 +137,7 @@ func (m *model) key(msg tea.KeyPressMsg) tea.Cmd {
 	case "c":
 		m.startComment()
 	case ":":
-		m.commanding, m.input = true, ""
+		m.openCommand()
 	case "y":
 		return m.apply()
 	case "x":
@@ -223,14 +228,14 @@ func (m *model) moveTo(i int) {
 // vim shows where a jump lands.
 func (m *model) jumpTo(i int) {
 	m.moveTo(i)
-	if h := m.diffHeight(); m.cursor < m.top || m.top < m.fitTop(m.cursor, h) {
+	if h := m.rowsHeight(); m.cursor < m.top || m.top < m.fitTop(m.cursor, h) {
 		m.top = min(m.fitTop(m.cursor, h/2+1), m.fitTop(len(m.rows)-1, h))
 	}
 }
 
 // halfPage moves the cursor and the screen half a screen down (dir 1) or up (dir -1).
 func (m *model) halfPage(dir int) {
-	half := max(m.diffHeight()/2, 1)
+	half := max(m.rowsHeight()/2, 1)
 	m.top += dir * half
 	m.moveTo(m.cursor + dir*half)
 }

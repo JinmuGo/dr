@@ -26,7 +26,7 @@ func TestModes(t *testing.T) {
 		{"4ja", " ASK ", "  ⏎  send    ⌥⏎  new line    ^  pick a model    esc  cancel", ""},
 		{"4jc", " COMMENT ", "  ⏎  save    ⌥⏎  new line    ^  pick a model    esc  cancel", ""},
 		{"/ab", " SEARCH ", "  ⏎  search    esc  cancel" + strings.Repeat(" ", 20), ""}, // n and N type into the query
-		{":ab", " COMMAND ", "  ⏎  run    esc  cancel", ""},
+		{":ab", " COMMAND ", "  ↑ ↓  choose    tab  complete    ⏎  run    esc  cancel", ""},
 		{"?", " HELP ", "  any key  close", ""},
 	} {
 		m := askScreen(testFiles(), Saved{Dir: t.TempDir()}, &fakeAsk{answer: answer})

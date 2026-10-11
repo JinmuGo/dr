@@ -86,7 +86,7 @@ func (m *model) entryWidth(w int) int {
 // fewer on a screen too short for them with the box's row, its two borders and the file
 // header that stays on top.
 func (m *model) entryRows() int {
-	return max(min(maxEntryRows, m.diffHeight()-4), 1)
+	return max(min(maxEntryRows, m.rowsHeight()-4), 1)
 }
 
 // entryHeight returns how many lines of the screen the open input box takes in a diff w
@@ -369,11 +369,11 @@ func (m *model) entryCursor() (x, y int, ok bool) {
 	_, w := m.layout()
 	_, row, column := m.entry.layout(m.entryWidth(w), m.entryRows())
 	y = m.lineOf(r) + 1 + 1 + row // the row and the top border; its comments' boxes come after
-	if row < 0 || y >= m.diffHeight() {
+	if row < 0 || y >= m.rowsHeight() {
 		return 0, 0, false
 	}
 	x = m.width - w + m.entryLeft(w) + 4 + column // the file tree and the line beside it, and "│ ❯ "
-	return min(x, m.width-1), y, true
+	return min(x, m.width-1), y + m.bandLines(), true
 }
 
 // underHeight returns how many lines of the screen what comes under row i takes, the origin

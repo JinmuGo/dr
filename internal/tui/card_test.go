@@ -489,7 +489,7 @@ func TestCardScrollsComments(t *testing.T) {
 	}
 	typeKeys(m, "<esc>")
 	typeAll(m, "y")
-	if m.message != "Applied the fix for omp/notes.md:2" {
-		t.Errorf("y after Esc: message %q, want the fix applied", m.message)
+	if got := noticeText(t, m); got != "✓ Applied the fix for omp/notes.md:2 :undo reverts it" {
+		t.Errorf("y after Esc: notice %q, want the fix applied", got)
 	}
 }

@@ -338,8 +338,8 @@ func write(log *state.Log, r state.Record) error {
 
 // answered puts the answer that came in place of its question's waiting, and keeps the fork
 // that answered, with the base the question was asked with, for the next questions to the
-// session. When the origin box does not show the question, the status line tells of the
-// answer until the next key, and Enter then goes to read it.
+// session. When the origin box does not show the question, a notice tells of the answer
+// until the next key, and Enter then goes to read it.
 func (m *model) answered(msg answeredMsg) {
 	i := slices.IndexFunc(m.questions, func(q *question) bool { return q.ID == msg.answer.Question })
 	if i < 0 {
@@ -357,18 +357,28 @@ func (m *model) answered(msg answeredMsg) {
 	if following {
 		m.readTop = m.questionTop(q) // to show the answer that came
 	}
+	t := &m.theme
+	from := []chunk{{text: q.tag, color: m.whoColor(q.Agent, q.Session), bold: true}, {text: " on ", color: t.fg}}
 	switch {
 	case msg.logErr != nil:
 		m.fail("could not save the question: " + review.Visible(msg.logErr.Error()))
 	case shown:
 	case q.file < 0: // its file left the diff, so the answer has nowhere to show
-		m.tell("Answer from " + q.tag + " on " + review.Visible(q.Path) + ", which left the diff")
+		m.notice = &notice{
+			tone: toneAnswer,
+			text: slices.Concat([]chunk{{text: "Answer from ", color: t.fg}}, from, []chunk{{text: review.Visible(q.Path), color: t.strong}}),
+			hint: m.quiet("Its file left the diff."),
+		}
 	case msg.answer.Error != "":
-		m.fail("No answer from " + q.tag + " on " + m.whereAsked(q) + ". Enter to read")
-		m.unread = q
+		m.notice = &notice{
+			tone: toneErr, question: q, hint: m.readHint(),
+			text: slices.Concat([]chunk{{text: "No answer from ", color: t.fg}}, from, []chunk{{text: m.whereAsked(q), color: t.strong}}),
+		}
 	default:
-		m.tell("Answer from " + q.tag + " on " + m.whereAsked(q) + ". Enter to read")
-		m.unread = q
+		m.notice = &notice{
+			tone: toneAnswer, question: q, hint: m.readHint(),
+			text: slices.Concat([]chunk{{text: "Answer from ", color: t.fg}}, from, []chunk{{text: m.whereAsked(q), color: t.strong}}),
+		}
 	}
 }
 
@@ -383,7 +393,7 @@ func (m *model) whereAsked(q *question) string {
 	return m.files[q.file].path + ":" + strconv.Itoa(cmp.Or(l.New, l.Old))
 }
 
-// read goes to the question the status line told of and opens the origin box where the box
+// read goes to the question a notice told of and opens the origin box where the box
 // shows it with its answer: under its last line, or under its file's header, at the end,
 // when it has no place in the diff. A file viewed since unfolds. It returns the command that
 // saves the viewed files then.

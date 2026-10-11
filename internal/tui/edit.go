@@ -28,15 +28,15 @@ type editedMsg struct {
 const noSession = "No session wrote or edited these lines; nothing to open"
 
 // reloadedMsg brings the changed files read again after the editor or an agent ga opened
-// ended, or a fix was applied or undone, or why they could not be read. done tells what the
-// fix did, and warning what went wrong besides: why the fix's record was not saved, or how
-// the editor or the agent failed. reload numbers the reading, as model.reloads counted it
-// when it was asked for.
+// ended, or a fix was applied or undone, or why they could not be read. done is the notice of
+// what the fix did, nil for none, and warning what went wrong besides: why the fix's record
+// was not saved, or how the editor or the agent failed. reload numbers the reading, as
+// model.reloads counted it when it was asked for.
 type reloadedMsg struct {
 	files    []review.File
 	problems []agent.Problem // the session logs dr could not fully read
 	err      error
-	done     string
+	done     *notice
 	warning  string
 	reload   int
 }
@@ -205,9 +205,10 @@ func (m *model) readAgain(msg reloadedMsg) tea.Cmd {
 
 // reloaded rebuilds the diff from the files read again, and shows that no changed file is
 // left when none is, as after the last change was undone. When the files could not be read,
-// the diff stays as it was. The status line tells of that and of the warning, after what the
-// fix did, and else what the fix did, if anything. What a reading older than the newest
-// asked for brings is dropped, so a slow one cannot show an older diff over a newer one.
+// the diff stays as it was. The notice of what the fix did shows that and the warning among
+// its warnings; without a fix, the status line tells of them. What a reading older than the
+// newest asked for brings is dropped, so a slow one cannot show an older diff over a newer
+// one.
 func (m *model) reloaded(msg reloadedMsg) {
 	if msg.reload != m.reloads {
 		return
@@ -222,12 +223,13 @@ func (m *model) reloaded(msg reloadedMsg) {
 		problems = append(problems, msg.warning)
 	}
 	switch {
-	case len(problems) > 0 && msg.done != "":
-		m.warn(msg.done + "; " + strings.Join(problems, "; "))
+	case msg.done != nil:
+		for _, p := range problems {
+			msg.done.warn(p)
+		}
+		m.notice = msg.done
 	case len(problems) > 0:
 		m.warn(strings.Join(problems, "; "))
-	case msg.done != "":
-		m.tell(msg.done)
 	}
 }
 
@@ -236,9 +238,9 @@ func (m *model) reloaded(msg reloadedMsg) {
 // restore says, the same lines from the top of the screen. The view, the file tree, the
 // search and the viewed marks stay; the questions and the comments go where they are now.
 // The origin box, a selection, the input box of a or c with what is typed in it and the :
-// input close, and the status line clears. Without files the screen says there are none,
-// and the search input, a count and a key waiting for the rest close too, since only q, ?
-// and : do anything there.
+// input close, and the status line and the notice clear. Without files the screen says
+// there are none, and the search input, a count and a key waiting for the rest close too,
+// since only q, ? and : do anything there.
 func (m *model) rebuild(files []review.File, problems []agent.Problem) {
 	at, offset := m.spot(), m.cursor-m.top
 	if m.sticky() {
@@ -248,8 +250,8 @@ func (m *model) rebuild(files []review.File, problems []agent.Problem) {
 		m.asking, m.drafting, m.entry, m.commanding, m.input = nil, nil, textBox{}, false, ""
 	}
 	m.reading, m.selecting, m.enteredAt = false, false, -1 // the split view has other rows now
-	m.message, m.tone, m.unread, m.unreadFix = "", toneWarn, nil, nil
-	m.problems = problemNote(problems)
+	m.message, m.tone, m.notice = "", toneWarn, nil
+	m.unreadable = unreadableAgents(problems)
 	m.setFiles(files)
 	if len(m.rows) == 0 {
 		m.cursor, m.top = 0, 0

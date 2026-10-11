@@ -446,8 +446,8 @@ func finderSplit(w int) int {
 // too short for its prompt, the highlighted row.
 func (m *model) finderCursor() (cx, cy int) {
 	_, w := m.layout()
-	x, y, width, height := m.finderPlace(w, m.diffHeight())
-	x += m.width - w
+	x, y, width, height := m.finderPlace(w, m.rowsHeight())
+	x, y = x+m.width-w, y+m.bandLines()
 	if height <= finderChrome {
 		rows, _ := m.pickRows()
 		return x + 3, y + max(m.entry.picker.index(rows)-m.entry.picker.top, 0)

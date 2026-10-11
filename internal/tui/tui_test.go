@@ -178,11 +178,11 @@ func press(t *testing.T, keys string) *model {
 	return end(t, open(t, keys))
 }
 
-// cursorLine returns the line of the screen that shows the cursor row: a line for each row
-// from the top, one more for the blank line above each file header but the top row, and one
-// for the header that stays on top while the top row is inside a file.
+// cursorLine returns the line of the screen that shows the cursor row: a line for each band
+// and for each row from the top, one more for the blank line above each file header but the
+// top row, and one for the header that stays on top while the top row is inside a file.
 func cursorLine(m *model) int {
-	y := m.cursor - m.top
+	y := m.bandLines() + m.cursor - m.top
 	if m.sticky() {
 		y++
 	}
@@ -808,19 +808,20 @@ func TestDraw(t *testing.T) {
 			if bar := ansi.Strip(ansi.Cut(lines[cursorLine(m)], list, list+1)); bar != "▌" && !m.help {
 				t.Errorf("width %d, keys %q: the cursor row starts the diff with %q, want a bar", width, tc.keys, bar)
 			}
-			// The status line names the origin of a changed row under the cursor. On a narrow
-			// screen the note on the session logs and then the row number give way to it and to
-			// the note that the diff is too narrow for split.
+			// The band over the diff tells of the session logs dr could not fully read.
+			if band := ansi.Strip(ansi.Cut(lines[0], list, width)); !m.help && !strings.HasPrefix(band, " ! Some codex records could not be read") {
+				t.Errorf("width %d, keys %q: the diff starts with %q, want the band", width, tc.keys, band)
+			}
+			// The status line names the origin of a changed row under the cursor, unless the
+			// help covers it. On a narrow screen the row number gives way to it and to the note
+			// that the diff is too narrow for split.
 			status := ansi.Strip(lines[m.diffHeight()])
 			var want []string
 			if tc.tag != "" {
 				want = append(want, tc.tag)
 			}
-			if width >= 100 {
+			if width >= 100 && !m.help {
 				want = append(want, fmt.Sprintf("row %d/%d", m.cursor+1, len(m.rows)))
-			}
-			if !m.splitOn && width >= 100 {
-				want = append(want, "some codex records unreadable")
 			}
 			for _, s := range want {
 				if !strings.Contains(status, s) {
@@ -833,9 +834,9 @@ func TestDraw(t *testing.T) {
 
 func TestStatusRoom(t *testing.T) {
 	// At 70 cells the origin of the cursor row stays whole. How far the box is read comes
-	// next and then the file number; the row number and the note on two agents' logs do not
-	// fit, so they are left out whole. The card's body is 11 rows, 5 of which fit on a 10-row
-	// screen.
+	// next and then the file number; the row number does not fit, so it is left out whole.
+	// The card's body is 11 rows, 4 of which fit on a 10-row screen under the band on two
+	// agents' logs.
 	problems := []agent.Problem{{Agent: "claude", Path: "a.jsonl", Bad: 1}, {Agent: "codex", Path: "rollout-1.jsonl", Bad: 1}}
 	m := New(testFiles(), problems, Saved{}, Asker{}).(*model)
 	m.Update(tea.WindowSizeMsg{Width: 70, Height: 10})
@@ -844,7 +845,7 @@ func TestStatusRoom(t *testing.T) {
 	}
 	s := screen(t, m)
 	status := s[strings.LastIndex(s, "\n")+1:]
-	for _, want := range []string{"claude c1a0 #1", "origin 5/11", "file 1/3"} {
+	for _, want := range []string{"claude c1a0 #1", "origin 4/11", "file 1/3"} {
 		if !strings.Contains(status, want) {
 			t.Errorf("status line %q has no %q", status, want)
 		}

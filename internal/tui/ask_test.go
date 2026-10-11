@@ -617,28 +617,29 @@ func TestModelNote(t *testing.T) {
 }
 
 func TestAskNotice(t *testing.T) {
-	// An answer that comes while the box is closed, or shows another line, is told of on the
-	// status line until the next key. Enter goes to read it.
+	// An answer that comes while the box is closed, or shows another line, is told of in a
+	// notice at the top right of the diff until the next key. Enter goes to read it.
+	const read = "  ⏎ to read   esc dismiss"
 	for _, tc := range []struct {
 		name, keys string // after the question on row 4 went
 		err        error
-		notice     string
+		notice     []string
 		answer     string // in the box
 	}{
 		{
-			name: "box closed", keys: "<esc>G", notice: "Answer from claude c1a0 #1 on a.go:2. Enter to read",
+			name: "box closed", keys: "<esc>G", notice: []string{"● Answer from claude c1a0 #1 on a.go:2", read},
 			answer: "● claude c1a0  decided  claude-opus-5-5 · 7s\n토큰 버킷이라 float64로 했어요.\n╌",
 		},
 		{
-			name: "box on another line", keys: "<esc>2j<enter>", notice: "Answer from claude c1a0 #1 on a.go:2. Enter to read",
+			name: "box on another line", keys: "<esc>2j<enter>", notice: []string{"● Answer from claude c1a0 #1 on a.go:2", read},
 			answer: "● claude c1a0  decided  claude-opus-5-5 · 7s\n토큰 버킷이라 float64로 했어요.\n╌",
 		},
 		{
-			name: "file folded since", keys: "<esc>v", notice: "Answer from claude c1a0 #1 on a.go:2. Enter to read",
+			name: "file folded since", keys: "<esc>v", notice: []string{"● Answer from claude c1a0 #1 on a.go:2", read},
 			answer: "● claude c1a0  decided  claude-opus-5-5 · 7s\n토큰 버킷이라 float64로 했어요.\n╌",
 		},
 		{
-			name: "no answer", keys: "<esc>", err: errors.New("no answer in 3 minutes"), notice: "No answer from claude c1a0 #1 on a.go:2. Enter to read",
+			name: "no answer", keys: "<esc>", err: errors.New("no answer in 3 minutes"), notice: []string{"✗ No answer from claude c1a0 #1 on a.go:2", read},
 			answer: "● claude c1a0  no answer\nno answer in 3 minutes\n╌",
 		},
 	} {
@@ -646,23 +647,34 @@ func TestAskNotice(t *testing.T) {
 		cmd := typeAndKeep(m, "4ja<enter>")
 		typeKeys(m, tc.keys)
 		send(m, cmd())
-		if status := statusLine(t, m); !strings.Contains(status, tc.notice) || (m.tone == toneOK) != (tc.err == nil) {
-			t.Errorf("%s: status line %q with tone %d, want %q", tc.name, status, m.tone, tc.notice)
+		if got := noticeLines(t, m); !slices.Equal(got, tc.notice) || m.message != "" {
+			t.Errorf("%s: notice %q and %q on the status line, want the notice %q", tc.name, got, m.message, tc.notice)
 		}
 		typeKeys(m, "<enter>")
 		want := "THREAD · 1\nyou  just now\n" + whyAdded + "\n" + tc.answer
-		if text := boxText(m); m.cursor != 4 || !m.reading || !strings.HasPrefix(text, want) || m.message != "" {
+		if text := boxText(m); m.cursor != 4 || !m.reading || !strings.HasPrefix(text, want) || noticeLines(t, m) != nil {
 			t.Errorf("%s: Enter left the cursor at row %d with the box open %t:\n%s\nwant the box of row 4 starting with\n%s", tc.name, m.cursor, m.reading, text, want)
 		}
 	}
-	// Another key ends the notice, and Enter is Enter again.
-	m := askScreen(testFiles(), Saved{}, &fakeAsk{answer: answer})
-	cmd := typeAndKeep(m, "4ja<enter>")
-	typeKeys(m, "<esc>G")
-	send(m, cmd())
-	typeKeys(m, "k<enter>")
-	if m.cursor != 25 || m.unread != nil || strings.Contains(boxText(m), "THREAD") {
-		t.Errorf("k, Enter: cursor at row %d, still unread %t; want the box of row 25", m.cursor, m.unread != nil)
+	// Esc only dismisses the notice; another key dismisses it and does its own work, and
+	// Enter is Enter again.
+	for _, tc := range []struct {
+		keys   string
+		cursor int
+		box    bool
+	}{
+		{"<esc><enter>", 26, true},
+		{"k<enter>", 25, true},
+		{"<esc>", 26, false},
+	} {
+		m := askScreen(testFiles(), Saved{}, &fakeAsk{answer: answer})
+		cmd := typeAndKeep(m, "4ja<enter>")
+		typeKeys(m, "<esc>G")
+		send(m, cmd())
+		typeKeys(m, tc.keys)
+		if m.cursor != tc.cursor || m.reading != tc.box || strings.Contains(boxText(m), "THREAD") || noticeLines(t, m) != nil {
+			t.Errorf("%q: cursor at row %d, box open %t, notice %q; want row %d, box %t and no notice", tc.keys, m.cursor, m.reading, noticeLines(t, m), tc.cursor, tc.box)
+		}
 	}
 }
 

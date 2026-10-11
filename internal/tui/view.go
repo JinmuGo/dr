@@ -31,37 +31,49 @@ const (
 // noChanges is what the diff and the status line say when no changed file is left.
 const noChanges = "No changed files"
 
-// helpKeys is the key help: each key and what it does.
-var helpKeys = [][2]string{
-	{"j k", "Down, up a line. Arrows work too. Takes a count (5j)"},
-	{"gg G", "Top, bottom. With a count, go to that row (12G)"},
-	{"d u J K", "Half a page down, up"},
-	{"} {", "Next, previous change"},
-	{"l h", "Next, previous file. Arrows work too. Takes a count (3l)"},
-	{"/ n N", "Search, next, previous. Lowercase queries ignore case"},
-	{"Enter", "Open the origin under the line. j k d u J K gg G scroll, a asks a follow-up, q Esc Enter close"},
-	{"s", "Switch between split and unified. Narrow screens stay unified"},
-	{"v", "Mark the file viewed or not. Viewed files fold to their header"},
-	{"V", "Select lines, as in vim. Moves extend it in the file. V or Esc ends it"},
-	{"a", "Ask the session that wrote the line or the selection, typed in a box under the line. Lines without an origin go to the session that last edited the file, or a new session"},
-	{"e", "Edit the line in your editor ($VISUAL or $EDITOR)"},
-	{"ga", "Open a fork of the session that wrote the line in its agent, for changes bigger than a comment; dr redraws when you leave it"},
-	{"c", "Leave a change comment on the line or the selection for the session that wrote it, typed in a box under the line, or edit the comment there. Saved empty, it goes. Nothing is sent yet"},
-	{"a c box", "Enter send or save · Shift-Enter or Alt-Enter new line · ^ pick a model · Esc or ctrl+c cancel"},
-	{":submit", "Send the pending comments to the sessions that wrote their lines"},
-	{"y x", "Apply, drop the fix under the comment"},
-	{":undo", "Revert the last fix dr applied"},
-	{"Esc", "Clear a pending count or key"},
-	{"?", "Help"},
-	{"q", "Quit"},
-	{"Mouse", "Drag the line between tree and diff to resize the tree, all the way left to fold it. The wheel scrolls. Click a file in the tree to go to it, or the Viewed box on a file header to mark it. Hold Shift or Option to select text"},
+// helpGroup is a group of keys in the key help: its name and each key with what it does.
+type helpGroup struct {
+	name string
+	keys [][2]string
+}
+
+// helpColumns are the groups of the key help, in its two columns, left and right. What a key
+// does is short, so that both columns fit on a screen 80 cells wide.
+var helpColumns = [2][]helpGroup{
+	{
+		{"MOVE", [][2]string{
+			{"j k", "line down, up · 5j"}, {"d u J K", "half a page down, up"}, {"gg G", "top, bottom · 12G"},
+			{"} {", "next, previous change"}, {"l h", "next, previous file · 3l"}, {"/ n N", "search, next, previous"},
+		}},
+		{"REVIEW", [][2]string{
+			{"⏎", "origin; j k scroll it"}, {"v", "mark the file viewed"}, {"V", "select lines"},
+			{"s", "split or unified"},
+		}},
+		{"MOUSE", [][2]string{
+			{"drag", "resize the tree"}, {"wheel", "scroll three lines"}, {"click", "a file, or a Viewed box"},
+			{"⇧ drag", "select text (⌥ on macOS)"},
+		}},
+	},
+	{
+		{"ASK AND FIX", [][2]string{
+			{"a", "ask who wrote it"}, {"ga", "open it in the agent"}, {"c", "leave a change comment"},
+			{":submit", "send every comment"}, {"y x", "apply, drop a fix"}, {":undo", "revert the last fix"},
+			{"e", "edit in $EDITOR"},
+		}},
+		{"IN A BOX", [][2]string{
+			{"⏎", "send or save"}, {"⇧⏎", "new line (⌥⏎, ^J)"}, {"^", "pick a model, word start"},
+			{"esc ^C", "cancel"},
+		}},
+		{"OTHER", [][2]string{{"?", "this help"}, {"esc", "clear a count or a key"}, {"q", "quit"}}},
+	},
 }
 
 // View draws the screen: the file tree and the diff side by side, with the origin box open
 // under the cursor row when Enter opened it, the status line under them and the key row
-// last. The terminal's cursor shows where the text typed in the open model finder or input
-// box of a or c goes in, or else after the search or the : input on the status line. It
-// takes the mouse, for dragging the file tree's edge and for the wheel.
+// last, and what floats over them. The terminal's cursor shows where the text typed in the
+// open model finder or input box of a or c goes in, or else after the search or the : input
+// on the status line. It takes the mouse, for dragging the file tree's edge and for the
+// wheel.
 func (m *model) View() tea.View {
 	v := tea.NewView(m.draw())
 	v.AltScreen = true
@@ -120,58 +132,69 @@ func keepEnd(s string, w int) string {
 	return cut
 }
 
-// draw returns the screen, m.height lines of m.width cells.
+// draw returns the screen, m.height lines of m.width cells: the diff, or noChanges when no
+// changed file is left, the status line and, on a screen of minKeyRowHeight rows or more,
+// the key row. Over them float the notice at the top right of the diff, the command list
+// above the status line while the : input is open, and the key help over all of it.
 func (m *model) draw() string {
 	if m.width <= 0 || m.height <= 0 {
 		return ""
 	}
-	if len(m.rows) == 0 {
-		return m.drawEmpty()
-	}
 	h := m.diffHeight()
+	_, w := m.layout()
+	var lines []string
+	if len(m.rows) == 0 {
+		lines, w = m.emptyLines(h), m.width
+	} else {
+		lines = m.mainLines(h)
+	}
+	m.drawNotice(lines, w)
+	m.drawCommands(lines)
+	lines = append(lines, m.status())
+	if m.height >= minKeyRowHeight {
+		lines = append(lines, m.keyRow())
+	}
+	if m.help {
+		m.drawHelp(lines)
+	}
+	return strings.Join(lines, "\n")
+}
+
+// mainLines returns the h lines of the screen above the status line: the file tree, folded
+// to a handle or hidden as layout says, and beside it the diff, the bands at its top, then
+// the rows with the model finder floating over them while it is open.
+func (m *model) mainLines(h int) []string {
 	listWidth, diffWidth := m.layout()
 	var list []string
 	if listWidth > 0 {
 		list = m.fileTree(listWidth, h)
 	}
-	diff := m.diffLines(diffWidth, h)
+	rows := m.diffLines(diffWidth, m.rowsHeight())
 	if m.typing() && m.entry.picker != nil {
-		m.drawFinder(diff, diffWidth)
+		m.drawFinder(rows, diffWidth)
 	}
-	if m.help {
-		m.drawHelp(diff, diffWidth)
-	}
+	diff := append(m.bandRows(diffWidth), rows...)
 	separator := m.theme.paint(m.theme.line, nil).Render("│")
-	var b strings.Builder
-	for y := range h {
+	lines := make([]string, h)
+	for y := range lines {
 		switch {
 		case m.folded && y == 0:
-			b.WriteString(m.theme.paint(m.theme.accent, nil).Render("▸"))
+			lines[y] = m.theme.paint(m.theme.accent, nil).Render("▸")
 		case m.folded:
-			b.WriteString(separator)
+			lines[y] = separator
 		case list != nil:
-			b.WriteString(list[y] + separator)
+			lines[y] = list[y] + separator
 		}
-		b.WriteString(diff[y] + "\n")
+		lines[y] += diff[y]
 	}
-	b.WriteString(m.bottom())
-	return b.String()
+	return lines
 }
 
-// bottom returns the status line, and the key row under it when the screen has room for it.
-func (m *model) bottom() string {
-	if m.height < minKeyRowHeight {
-		return m.status()
-	}
-	return m.status() + "\n" + m.keyRow()
-}
-
-// drawEmpty returns the screen when no changed file is left: noChanges in the middle of the
-// diff, which takes the whole width, the key help over it when it is open, the status line
-// and the key row.
-func (m *model) drawEmpty() string {
+// emptyLines returns the h lines of the screen above the status line when no changed file
+// is left: noChanges in the middle of the diff, which takes the whole width, under the
+// bands.
+func (m *model) emptyLines(h int) []string {
 	t := &m.theme
-	h := m.diffHeight()
 	lines := make([]string, h)
 	for y := range lines {
 		lines[y] = strings.Repeat(" ", m.width)
@@ -180,10 +203,8 @@ func (m *model) drawEmpty() string {
 	l.add(strings.Repeat(" ", max((m.width-ansi.StringWidth(noChanges))/2, 0)), t.paint(nil, nil))
 	l.add(noChanges, t.paint(t.muted, nil))
 	lines[(h-1)/2] = l.fill(t.paint(nil, nil))
-	if m.help {
-		m.drawHelp(lines, m.width)
-	}
-	return strings.Join(lines, "\n") + "\n" + m.bottom()
+	copy(lines, m.bandRows(m.width))
+	return lines
 }
 
 // layout returns the widths of the file tree and the diff. The file tree is as wide as it
@@ -686,70 +707,116 @@ func spread(left, right []seg, w int, fill lipgloss.Style) string {
 	return l.fill(fill) + fill.Render(strings.Repeat(" ", w-rightWidth-room)) + r.fill(fill)
 }
 
-// drawHelp draws the key help over lines, the diff w cells wide, in a box in its middle. A
-// box that would leave only a sliver of the diff beside it takes the whole width.
-func (m *model) drawHelp(lines []string, w int) {
-	keyWidth, textWidth := helpWidths()
-	width := min(keyWidth+2+textWidth+4, 84) // with the border and a space inside it
-	if width > w-6 {
-		width = w
+// Columns of the key help, in cells: what a key does starts helpLabel cells after its
+// keycap, the first column helpMargin cells inside the box's left border, and the second
+// helpGap cells after the first.
+const (
+	helpLabel  = 10
+	helpMargin = 3
+	helpGap    = 3
+)
+
+// drawHelp draws the key help over lines, the whole screen, in a box in its middle, and dims
+// what is behind it: faint, without its colors. A screen too small for the box shows what of
+// it fits, its bottom border last.
+func (m *model) drawHelp(lines []string) {
+	t := &m.theme
+	for y, l := range lines {
+		lines[y] = t.paint(t.faint, nil).Render(ansi.Strip(l))
 	}
-	box := m.helpBox(width)
-	x, y := (w-width)/2, max((len(lines)-len(box))/2, 0)
+	box, w := m.helpBox(m.width)
+	if len(box) > len(lines) {
+		box = append(box[:len(lines)-1], box[len(box)-1])
+	}
+	x, y := (m.width-w)/2, (len(lines)-len(box))/2
 	for k, b := range box {
-		if y+k < len(lines) {
-			lines[y+k] = overlay(lines[y+k], b, x, width, w)
+		lines[y+k] = overlay(lines[y+k], b, x, w, m.width)
+	}
+}
+
+// helpBox draws the key help in a rounded box in the color of floating boxes on their fill,
+// no wider than room, and returns its lines and its width. "Keys" heads it at the left of
+// its top border and "any key closes" at the right, and the groups of helpColumns come in
+// two columns, or in one when two leave no cell of the screen on each side of the box.
+func (m *model) helpBox(room int) ([]string, int) {
+	t := &m.theme
+	label := 0
+	for _, column := range helpColumns {
+		for _, g := range column {
+			for _, k := range g.keys {
+				label = max(label, ansi.StringWidth(k[1]))
+			}
 		}
 	}
-}
-
-// helpWidths returns the widths of the widest key and of the widest text of the key help.
-func helpWidths() (keyWidth, textWidth int) {
-	for _, k := range helpKeys {
-		keyWidth = max(keyWidth, ansi.StringWidth(k[0]))
-		textWidth = max(textWidth, ansi.StringWidth(k[1]))
+	colWidth := helpLabel + label
+	bodies := [][][]seg{m.helpColumn(helpColumns[0]), m.helpColumn(helpColumns[1])}
+	w := 2 + helpMargin + colWidth + helpGap + colWidth + 2 // the borders and a margin at the right
+	if w+2 > room {                                         // a cell of the screen on each side
+		bodies = [][][]seg{m.helpColumn(slices.Concat(helpColumns[0], helpColumns[1]))}
+		w = 2 + helpMargin + colWidth + 2
 	}
-	return keyWidth, textWidth
-}
-
-// helpBox draws the key help in a box w cells wide: a border with a title, each key with
-// what it does, and how to close it. It returns nil when w is too narrow for it.
-func (m *model) helpBox(w int) []string {
-	t := &m.theme
-	keyWidth, _ := helpWidths()
-	inner := w - 4 // inside the border and a space on each side
-	textWidth := inner - keyWidth - 2
-	if textWidth < 10 {
-		return nil
-	}
+	w = min(w, room)
 	base := t.paint(nil, t.surface)
 	border := t.paint(t.line2, t.surface)
-	row := func(parts ...span) string {
-		l := newLine(inner + 2)
-		l.add(" ", base)
-		for _, p := range parts {
-			l.add(p.text, t.paint(p.color, t.surface).Bold(p.bold))
+	row := func(y int) string {
+		l := newLine(w - 2)
+		l.add(strings.Repeat(" ", helpMargin), base)
+		for i, body := range bodies {
+			if i > 0 {
+				l.add(strings.Repeat(" ", helpGap), base)
+			}
+			cell := newLine(colWidth)
+			if y >= 0 && y < len(body) {
+				for _, s := range body[y] {
+					cell.add(s.text, s.st)
+				}
+			}
+			l.add(cell.fill(base), lipgloss.NewStyle())
 		}
 		return border.Render("│") + l.fill(base) + border.Render("│")
 	}
-	const title = "Help"
-	lines := []string{
-		border.Render("╭─ ") + t.paint(t.strong, t.surface).Bold(true).Render(title) +
-			border.Render(" "+strings.Repeat("─", inner-1-ansi.StringWidth(title))+"╮"), // as wide as the rows
-		row(),
+	top := newLine(w - 1)
+	top.add("╭─", border)
+	top.add(" Keys ", t.paint(t.strong, t.surface).Bold(true))
+	const closes, end = " any key closes ", "───"
+	if top.free >= ansi.StringWidth(closes+end)+1 {
+		top.add(strings.Repeat("─", top.free-ansi.StringWidth(closes+end)), border)
+		top.add(closes, t.paint(t.subtle, t.surface))
 	}
-	for _, k := range helpKeys {
-		key := k[0] + strings.Repeat(" ", keyWidth-ansi.StringWidth(k[0])+2)
-		for _, text := range strings.Split(lipgloss.NewStyle().Width(textWidth).Render(k[1]), "\n") {
-			lines = append(lines, row(span{text: key, color: t.accent, bold: true}, span{text: text, color: t.fg}))
-			key = strings.Repeat(" ", keyWidth+2)
+	top.add(strings.Repeat("─", top.free), border)
+	lines := []string{top.fill(border) + border.Render("╮"), row(-1)}
+	rows := 0
+	for _, body := range bodies {
+		rows = max(rows, len(body))
+	}
+	for y := range rows {
+		lines = append(lines, row(y))
+	}
+	lines = append(lines, row(-1), border.Render("╰"+strings.Repeat("─", max(w-2, 0))+"╯"))
+	return lines, w
+}
+
+// helpColumn returns the lines of a column of the key help with groups: the name of each
+// group, quiet and bold, then each key on a keycap with what it does, and an empty line
+// between two groups.
+func (m *model) helpColumn(groups []helpGroup) [][]seg {
+	t := &m.theme
+	base := t.paint(nil, t.surface)
+	var lines [][]seg
+	for i, g := range groups {
+		if i > 0 {
+			lines = append(lines, nil)
+		}
+		lines = append(lines, []seg{{text: g.name, st: t.paint(t.subtle, t.surface).Bold(true)}})
+		for _, k := range g.keys {
+			key := " " + k[0] + " "
+			lines = append(lines, []seg{
+				{text: key, st: t.onBand(t.strong, t.surface2)},
+				{text: strings.Repeat(" ", max(helpLabel-ansi.StringWidth(key), 1)), st: base},
+				{text: k[1], st: t.paint(t.fg, t.surface)},
+			})
 		}
 	}
-	lines = append(lines,
-		row(),
-		row(span{text: "Press any key to close", color: t.muted}),
-		border.Render("╰"+strings.Repeat("─", inner+2)+"╯"),
-	)
 	return lines
 }
 

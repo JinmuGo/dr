@@ -398,7 +398,7 @@ func ago(d time.Duration) string {
 // boxRows returns how many lines of its body the origin card shows at most: the diff height
 // less the cursor row, one more row, and the card's header and last row.
 func (m *model) boxRows() int {
-	return max(m.diffHeight()-4, 1)
+	return max(m.rowsHeight()-4, 1)
 }
 
 // boxHeight returns how many rows of the screen the open origin card takes, its header and
