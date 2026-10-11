@@ -3,7 +3,6 @@ package main
 import (
 	"fmt"
 	"io"
-	"os"
 	"path/filepath"
 	"slices"
 	"strconv"
@@ -15,13 +14,10 @@ import (
 )
 
 // blame writes to w the requests behind the changed lines of the file at path and its
-// diff from the base commit.
-func blame(w io.Writer, path string) error {
-	home, err := os.UserHomeDir()
-	if err != nil {
-		return err
-	}
-	repo, err := review.Open(".", home, "")
+// diff from the base commit, in the worktree that holds dir, with the agent edits read
+// from the session logs under home. It names the logs it could not fully read on stderr.
+func blame(w, stderr io.Writer, dir, home, path string) error {
+	repo, err := review.Open(dir, home, "")
 	if err != nil {
 		return err
 	}
@@ -30,7 +26,7 @@ func blame(w io.Writer, path string) error {
 		return err
 	}
 	for _, p := range repo.Problems {
-		fmt.Fprintf(os.Stderr, "dr: some %s records could not be read: %s\n", p.Agent, p.Path)
+		_, _ = fmt.Fprintf(stderr, "dr: some %s records could not be read: %s\n", p.Agent, p.Path)
 	}
 	f, err := repo.File(relativePath)
 	if err != nil {

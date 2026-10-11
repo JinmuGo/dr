@@ -9,6 +9,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"io"
 	"os"
 	"runtime/debug"
 	"strings"
@@ -28,29 +29,35 @@ const usage = `usage: dr [<ref>]
 var version string
 
 func main() {
-	os.Exit(run(os.Args[1:]))
+	os.Exit(run(os.Args[1:], os.Stdout, os.Stderr, os.UserHomeDir))
 }
 
-// run runs the command in args and returns the exit code.
-func run(args []string) int {
-	var err error
+// run runs the command in args, writing to stdout and stderr, and returns the exit code.
+// userHome returns the home directory, under which the agents keep their session logs; run
+// calls it only for a command it takes.
+func run(args []string, stdout, stderr io.Writer, userHome func() (string, error)) int {
+	var cmd func(home string) error
 	switch {
 	case len(args) == 1 && args[0] == "--version":
 		info, _ := debug.ReadBuildInfo()
 		fmt.Println("dr", versionOf(version, info))
 		return 0
 	case len(args) == 2 && args[0] == "blame":
-		err = blame(os.Stdout, args[1])
+		cmd = func(home string) error { return blame(stdout, stderr, ".", home, args[1]) }
 	case len(args) == 0:
-		err = browse("")
+		cmd = func(home string) error { return browse(stdout, home, "") }
 	case len(args) == 1 && args[0] != "blame" && !strings.HasPrefix(args[0], "-"):
-		err = browse(args[0])
+		cmd = func(home string) error { return browse(stdout, home, args[0]) }
 	default:
-		fmt.Fprintln(os.Stderr, usage)
+		_, _ = fmt.Fprintln(stderr, usage) // as for any message to the user, a failed write is not reported
 		return 2
 	}
+	home, err := userHome()
+	if err == nil {
+		err = cmd(home)
+	}
 	if err != nil {
-		fmt.Fprintln(os.Stderr, "dr:", err)
+		_, _ = fmt.Fprintln(stderr, "dr:", err)
 		return 1
 	}
 	return 0
@@ -96,12 +103,9 @@ func versionOf(ldflags string, info *debug.BuildInfo) string {
 // lets dr choose where, the sessions dr starts to ask them are kept in the worktree's git
 // directory. The screen holds the lock on the worktree while it is open, so only one dr
 // applies fixes to it; when it cannot take the lock, the screen opens without applying
-// fixes. With no changed file, it opens only when fixes dr applied are still in place.
-func browse(ref string) (err error) {
-	home, err := os.UserHomeDir()
-	if err != nil {
-		return err
-	}
+// fixes. With no changed file, it opens only when fixes dr applied are still in place, and
+// otherwise says so on stdout. The agents' session logs are read under home.
+func browse(stdout io.Writer, home, ref string) (err error) {
 	repo, files, err := changes(".", home, ref)
 	if err != nil {
 		return err
@@ -112,7 +116,7 @@ func browse(ref string) (err error) {
 	}
 	saved := tui.Load(dir)
 	if !opens(files, saved.Log) {
-		fmt.Println("No changed files")
+		_, _ = fmt.Fprintln(stdout, "No changed files")
 		return nil
 	}
 	saved.Base = compared(repo.Root, ref, repo.Base)

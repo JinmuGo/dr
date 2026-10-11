@@ -1,6 +1,7 @@
 package main
 
 import (
+	"errors"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -17,30 +18,6 @@ import (
 	"github.com/JinmuGo/dr/internal/tui"
 )
 
-// std runs f with os.Stdout and os.Stderr sent to files and returns what f wrote to each.
-func std(t *testing.T, f func()) (stdout, stderr string) {
-	t.Helper()
-	dir := t.TempDir()
-	files := make([]*os.File, 2)
-	for i, name := range []string{"stdout", "stderr"} {
-		file, err := os.Create(filepath.Join(dir, name))
-		if err != nil {
-			t.Fatal(err)
-		}
-		t.Cleanup(func() {
-			if err := file.Close(); err != nil {
-				t.Error(err)
-			}
-		})
-		files[i] = file
-	}
-	oldOut, oldErr := os.Stdout, os.Stderr
-	os.Stdout, os.Stderr = files[0], files[1]
-	defer func() { os.Stdout, os.Stderr = oldOut, oldErr }()
-	f()
-	return readFile(t, files[0].Name()), readFile(t, files[1].Name())
-}
-
 func TestRun(t *testing.T) {
 	// What dr writes and the exit code it returns: 2 with the usage for arguments it does
 	// not take, 1 with the error, 0 otherwise.
@@ -50,7 +27,6 @@ func TestRun(t *testing.T) {
 	}
 	repo, home := filepath.Join(tmp, "repo"), filepath.Join(tmp, "home")
 	for k, v := range map[string]string{
-		"HOME":              home,
 		"GIT_CONFIG_GLOBAL": os.DevNull, "GIT_CONFIG_NOSYSTEM": "1",
 		"GIT_AUTHOR_NAME": "t", "GIT_AUTHOR_EMAIL": "t@t", "GIT_COMMITTER_NAME": "t", "GIT_COMMITTER_EMAIL": "t@t",
 	} {
@@ -61,25 +37,29 @@ func TestRun(t *testing.T) {
 	runGit(t, repo, "add", ".")
 	runGit(t, repo, "commit", "-q", "-m", "base")
 	t.Chdir(repo)
+	errNoHome := errors.New("no home")
 	for _, tc := range []struct {
 		name           string
 		args           []string
+		homeErr        error
 		code           int
 		stdout, stderr string
 	}{
-		{"a flag", []string{"-h"}, 2, "", usage + "\n"},
-		{"blame without a path", []string{"blame"}, 2, "", usage + "\n"},
-		{"two refs", []string{"a", "b"}, 2, "", usage + "\n"},
-		{"blame with two paths", []string{"blame", "x", "y"}, 2, "", usage + "\n"},
-		{"blame outside the worktree", []string{"blame", "../outside.md"}, 1, "", "dr: not in the worktree " + repo + ": ../outside.md\n"},
-		{"no changed files", nil, 0, "No changed files\n", ""},
+		{"a flag", []string{"-h"}, nil, 2, "", usage + "\n"},
+		{"blame without a path", []string{"blame"}, nil, 2, "", usage + "\n"},
+		{"two refs", []string{"a", "b"}, nil, 2, "", usage + "\n"},
+		{"blame with two paths", []string{"blame", "x", "y"}, nil, 2, "", usage + "\n"},
+		{"a flag without a home", []string{"-h"}, errNoHome, 2, "", usage + "\n"},
+		{"blame outside the worktree", []string{"blame", "../outside.md"}, nil, 1, "", "dr: not in the worktree " + repo + ": ../outside.md\n"},
+		{"no home", nil, errNoHome, 1, "", "dr: no home\n"},
+		{"no changed files", nil, nil, 0, "No changed files\n", ""},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
-			var code int
-			stdout, stderr := std(t, func() { code = run(tc.args) })
-			if code != tc.code || stdout != tc.stdout || stderr != tc.stderr {
+			var stdout, stderr strings.Builder
+			code := run(tc.args, &stdout, &stderr, func() (string, error) { return home, tc.homeErr })
+			if code != tc.code || stdout.String() != tc.stdout || stderr.String() != tc.stderr {
 				t.Errorf("run(%q): got %d, stdout %q, stderr %q; want %d, stdout %q, stderr %q",
-					tc.args, code, stdout, stderr, tc.code, tc.stdout, tc.stderr)
+					tc.args, code, stdout.String(), stderr.String(), tc.code, tc.stdout, tc.stderr)
 			}
 		})
 	}
