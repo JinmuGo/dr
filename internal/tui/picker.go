@@ -78,11 +78,12 @@ type modelsMsg struct {
 // ctrl+c closes the box, as it does without the finder.
 func (m *model) pickKey(msg tea.KeyPressMsg) {
 	p := m.entry.picker
+	list := m.models[p.agent]
 	switch k := msg.String(); k {
 	case keyUp, keyCtrlP:
-		m.moveHighlight(-1)
+		p.moveHighlight(list, -1)
 	case keyDown, keyCtrlN:
-		m.moveHighlight(1)
+		p.moveHighlight(list, 1)
 	case keyEnter, keyTab:
 		m.pick()
 	case keyEsc:
@@ -90,10 +91,10 @@ func (m *model) pickKey(msg tea.KeyPressMsg) {
 	case keyCtrlC:
 		m.closeBox()
 	case keyCtrlU:
-		m.setQuery("")
+		p.setQuery(list, "")
 	case keyBackspace:
 		_, n := utf8.DecodeLastRuneInString(p.query)
-		m.setQuery(p.query[:len(p.query)-n])
+		p.setQuery(list, p.query[:len(p.query)-n])
 	default:
 		if p.query == "" && msg.Text == keyPickModel {
 			m.entry.picker = nil
@@ -101,23 +102,23 @@ func (m *model) pickKey(msg tea.KeyPressMsg) {
 			m.entry.edit(k, msg.Text, m.entryWidth(w))
 			return
 		}
-		m.typeQuery(msg.Text)
+		p.typeQuery(list, msg.Text)
 	}
 }
 
-// typeQuery adds text, typed or pasted, to the query of the open model finder, on one line.
-func (m *model) typeQuery(text string) {
+// typeQuery adds text, typed or pasted, to the query, on one line. list is what
+// Asker.Models gave for the finder's agent, nil when it has not been asked.
+func (p *picker) typeQuery(list *modelList, text string) {
 	if text = strings.ReplaceAll(clean(text), "\n", " "); text != "" {
-		m.setQuery(m.entry.picker.query + text)
+		p.setQuery(list, p.query+text)
 	}
 }
 
-// setQuery sets the query of the open model finder and puts the highlight on its first row
-// that can be picked, the best match.
-func (m *model) setQuery(query string) {
-	p := m.entry.picker
+// setQuery sets the query and puts the highlight on its first row that can be picked, the
+// best match, of the rows with the models of list.
+func (p *picker) setQuery(list *modelList, query string) {
 	p.query, p.id, p.typed, p.top = query, "", false, 0
-	m.settle()
+	p.settle(list)
 }
 
 // opensPicker reports whether ^ typed at the cursor opens the model finder: the cursor is at
@@ -135,7 +136,7 @@ func (m *model) openPicker() tea.Cmd {
 	models, by := m.reviewModels(name, own)
 	m.entry.picker = &picker{agent: name, own: own, review: models, by: by, slab: util.MakeSlab(16*1024, 2048)}
 	cmd := m.listModels(name)
-	m.settle()
+	m.entry.picker.settle(m.models[name])
 	return cmd
 }
 
@@ -223,7 +224,7 @@ func (m *model) listed(msg modelsMsg) {
 		if p.typed {
 			p.id, p.typed = "", false
 		}
-		m.settle()
+		p.settle(l)
 	}
 }
 
@@ -236,15 +237,20 @@ func (m *model) listLoading() bool {
 	return l != nil && l.loading
 }
 
-// pickRows returns the rows of the open model finder, and how many models it holds before
-// the query filters them: the model of the session the box sends to, then the other models
-// of its agent the review used, then the agent's own list from Asker.Models, each model
-// once, of them those that match the query as rankModels orders them. A note follows while
-// the agent's list is still coming, or two when it failed: why, and that a model can be
-// typed. Last comes the query as typed, when it is not the ID of a model listed.
+// pickRows returns the rows of the open model finder, with the list of its agent's models,
+// as picker.rows returns them.
 func (m *model) pickRows() (rows []pickRow, total int) {
 	p := m.entry.picker
-	list := m.models[p.agent]
+	return p.rows(m.models[p.agent])
+}
+
+// rows returns the rows of the finder, and how many models it holds before the query filters
+// them: the model of the session the box sends to, then the other models of its agent the
+// review used, then list, the agent's own list from Asker.Models, each model once, of them
+// those that match the query as rankModels orders them. A note follows while the agent's
+// list is still coming, or two when it failed: why, and that a model can be typed. Last
+// comes the query as typed, when it is not the ID of a model listed.
+func (p *picker) rows(list *modelList) (rows []pickRow, total int) {
 	names := make(map[string]string) // by ID
 	var listed []agent.Model
 	if list != nil {
@@ -320,11 +326,10 @@ func (p *picker) index(rows []pickRow) int {
 	return slices.IndexFunc(rows, func(r pickRow) bool { return r.note == "" && r.id == p.id && r.typed == p.typed })
 }
 
-// settle keeps the highlight of the open model finder on its model while the finder holds
-// it, as the agent's own list comes, and else puts it on the first row that can be picked.
-func (m *model) settle() {
-	p := m.entry.picker
-	rows, _ := m.pickRows()
+// settle keeps the highlight on its model while the finder holds it, as the agent's own
+// list comes, and else puts it on the first row that can be picked.
+func (p *picker) settle(list *modelList) {
+	rows, _ := p.rows(list)
 	i := p.index(rows)
 	if i < 0 {
 		i = slices.IndexFunc(rows, func(r pickRow) bool { return r.note == "" })
@@ -335,11 +340,10 @@ func (m *model) settle() {
 	}
 }
 
-// moveHighlight moves the highlight of the open model finder to the next row that can be
-// picked in the direction dir, 1 down or -1 up. It stays on the first and the last.
-func (m *model) moveHighlight(dir int) {
-	p := m.entry.picker
-	rows, _ := m.pickRows()
+// moveHighlight moves the highlight to the next row that can be picked in the direction
+// dir, 1 down or -1 up. It stays on the first and the last.
+func (p *picker) moveHighlight(list *modelList, dir int) {
+	rows, _ := p.rows(list)
 	for k := p.index(rows) + dir; k >= 0 && k < len(rows); k += dir {
 		if rows[k].note == "" {
 			p.id, p.typed = rows[k].id, rows[k].typed

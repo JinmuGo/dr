@@ -275,7 +275,8 @@ func (m *model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	case tea.PasteMsg:
 		switch {
 		case m.typing() && m.entry.picker != nil:
-			m.typeQuery(msg.Content)
+			p := m.entry.picker
+			p.typeQuery(m.models[p.agent], msg.Content)
 		case m.typing():
 			m.entry.paste(msg.Content)
 		}
