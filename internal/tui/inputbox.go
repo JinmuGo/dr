@@ -43,15 +43,15 @@ func (m *model) typeBox(msg tea.KeyPressMsg) tea.Cmd {
 		return nil
 	}
 	switch k := msg.String(); k {
-	case "enter":
+	case keyEnter:
 		if m.asking != nil {
 			return m.send()
 		}
 		m.saveComment()
-	case "esc", "ctrl+c":
+	case keyEsc, keyCtrlC:
 		m.closeBox()
 	default:
-		if msg.Text == "^" && m.entry.opensPicker() {
+		if msg.Text == keyPickModel && m.entry.opensPicker() {
 			return m.openPicker()
 		}
 		_, w := m.layout()

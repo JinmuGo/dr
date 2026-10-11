@@ -371,7 +371,7 @@ func (m *model) fixesNotice(r *request, fixes int) *notice {
 	if len(r.sent) > 1 {
 		what = "Fixes from "
 	}
-	n := &notice{tone: toneOK, hint: m.keys([2]string{"esc", "dismiss"})}
+	n := &notice{tone: toneOK, hint: m.keys([2]string{keyEsc, "dismiss"})}
 	if fixes == 0 {
 		n.tone, what = toneWarn, "No "+strings.ToLower(what[:1])+what[1:]
 	}
