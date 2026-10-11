@@ -1,13 +1,27 @@
-<picture>
-  <source media="(prefers-color-scheme: dark)" srcset="docs/logo-dark.svg">
-  <img src="docs/logo.svg" alt="dr logo" width="96">
-</picture>
+<p align="center">
+  <a href="https://github.com/JinmuGo/dr">
+    <picture>
+      <source media="(prefers-color-scheme: dark)" srcset="docs/logo-dark.svg">
+      <img src="docs/logo.svg" alt="dr" width="120">
+    </picture>
+  </a>
+</p>
 
-# dr
+<p align="center"><b>Diff review for AI agent edits</b></p>
 
-[![CI](https://github.com/JinmuGo/dr/actions/workflows/ci.yml/badge.svg)](https://github.com/JinmuGo/dr/actions/workflows/ci.yml)
-[![Go Reference](https://pkg.go.dev/badge/github.com/JinmuGo/dr.svg)](https://pkg.go.dev/github.com/JinmuGo/dr)
-[![License: MIT](https://img.shields.io/badge/license-MIT-blue.svg)](LICENSE)
+<p align="center">
+  <a href="https://github.com/JinmuGo/dr/actions/workflows/ci.yml"><img src="https://github.com/JinmuGo/dr/actions/workflows/ci.yml/badge.svg" alt="CI"></a>
+  <a href="https://pkg.go.dev/github.com/JinmuGo/dr"><img src="https://pkg.go.dev/badge/github.com/JinmuGo/dr.svg" alt="Go Reference"></a>
+  <a href="LICENSE"><img src="https://img.shields.io/badge/license-MIT-blue.svg" alt="License: MIT"></a>
+</p>
+
+<p align="center">
+  <a href="#install">Install</a> ·
+  <a href="#usage">Usage</a> ·
+  <a href="#keys">Keys</a> ·
+  <a href="#privacy">Privacy</a> ·
+  <a href="docs/design.md">Design</a>
+</p>
 
 dr shows, for every changed line, which AI agent session wrote it and what you asked for. It reads the local session logs of Claude Code, Codex and OMP.
 
