@@ -1,0 +1,13 @@
+/* Without scripts there are no tabs, so every install command shows. */
+.tabs {
+  display: none;
+}
+
+.get .cmd[hidden] {
+  display: flex;
+}
+
+.get .cmd {
+  margin-top: 8px;
+  border-radius: var(--radius);
+}

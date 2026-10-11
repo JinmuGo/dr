@@ -1,0 +1,53 @@
+name: Site
+
+# Deploys site/ to dr.jinmugo.com on Cloudflare Pages, with the logo and the demo from
+# docs/. It needs the CLOUDFLARE_API_TOKEN and CLOUDFLARE_ACCOUNT_ID secrets; without
+# both, the deploy steps are skipped.
+on:
+  push:
+    branches: [main]
+    paths:
+      - site/**
+      - docs/logo.svg
+      - docs/logo-dark.svg
+      - docs/demo.gif
+      - .github/workflows/site.yml
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: site
+  cancel-in-progress: true
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    env:
+      CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+      CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+      FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
+    steps:
+      - uses: actions/checkout@v7
+      - name: Assemble
+        run: |
+          mkdir _site
+          cp -R site/. _site/
+          cp docs/logo.svg docs/logo-dark.svg docs/demo.gif _site/
+      # The first deploy creates the project; after that this step fails harmlessly.
+      - name: Create the Pages project
+        if: env.CLOUDFLARE_API_TOKEN != '' && env.CLOUDFLARE_ACCOUNT_ID != ''
+        continue-on-error: true
+        uses: cloudflare/wrangler-action@v3
+        with:
+          apiToken: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          accountId: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+          command: pages project create dr-jinmugo-com --production-branch=main
+      - name: Deploy
+        if: env.CLOUDFLARE_API_TOKEN != '' && env.CLOUDFLARE_ACCOUNT_ID != ''
+        uses: cloudflare/wrangler-action@v3
+        with:
+          apiToken: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          accountId: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+          command: pages deploy _site --project-name=dr-jinmugo-com --branch=main
