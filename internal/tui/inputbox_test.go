@@ -120,14 +120,14 @@ func TestEntryLook(t *testing.T) {
 		border, cursor, dim := th.paint(th.accent, th.surface).Bold(true), th.paint(th.accent, th.surface).Reverse(true), th.paint(th.muted, th.surface)
 		raw := m.View().Content
 		for name, want := range map[string]string{
-			"the top border":         border.Render("┏━"),
-			"a side border":          border.Render("┃ "),
-			"the bottom border":      border.Render("┛"),
-			"what it does":           th.paint(th.accent, th.surface).Bold(true).Render("Ask omp a1f2 #1"),
-			"the keys":               dim.Render(" (Enter:send Alt-Enter:newline ^:model Esc:cancel)"),
-			"the cursor":             cursor.Render(" "),
-			"the placeholder":        dim.Render(whyDeleted),
-			"the comment box's line": th.paint(th.subtle, th.surface).Render("╭─ "),
+			"the top border":          border.Render("┏━"),
+			"a side border":           border.Render("┃ "),
+			"the bottom border":       border.Render("┛"),
+			"what it does":            th.paint(th.accent, th.surface).Bold(true).Render("Ask omp a1f2 #1"),
+			"the keys":                dim.Render(" (Enter:send Alt-Enter:newline ^:model Esc:cancel)"),
+			"the cursor":              cursor.Render(" "),
+			"the placeholder":         dim.Render(whyDeleted),
+			"the comment card's band": th.paint(th.pending, th.surface2).Render("▎"),
 		} {
 			if !strings.Contains(raw, want) {
 				t.Errorf("%s: the screen has no %s %q", tc.name, name, want)
@@ -300,7 +300,7 @@ func TestEntryKeys(t *testing.T) {
 	if qs := Load(dir).Log.Questions; len(qs) != 1 || qs[0].Text != "a\nb\nc\ndj?q" {
 		t.Errorf("question records %+v, want the text with its line breaks", qs)
 	}
-	if s := screen(t, m); !strings.Contains(s, "▍ a") || !strings.Contains(s, "▍ dj?q") || !m.reading {
+	if s := screen(t, m); !strings.Contains(s, "▎ a ") || !strings.Contains(s, "▎ dj?q") || !m.reading {
 		t.Errorf("the thread does not show each line:\n%s", s)
 	}
 }
@@ -373,8 +373,8 @@ func TestEntryComment(t *testing.T) {
 		t.Fatalf("records %+v, want the comment with its line break", records)
 	}
 	lines := strings.Split(screen(t, m), "\n")
-	at := slices.IndexFunc(lines, func(l string) bool { return strings.Contains(l, "▍ one") })
-	if at < 0 || !strings.Contains(lines[at+1], "▍ two") {
+	at := slices.IndexFunc(lines, func(l string) bool { return strings.Contains(l, "▎ one") })
+	if at < 0 || !strings.Contains(lines[at+1], "▎ two") {
 		t.Errorf("the comment's box does not show each line:\n%s", strings.Join(lines, "\n"))
 	}
 	typeKeys(m, "c")
@@ -384,19 +384,6 @@ func TestEntryComment(t *testing.T) {
 	typeKeys(m, "<up><end>!<enter>")
 	if !slices.Equal(texts(m), []string{"one!\ntwo"}) {
 		t.Errorf("comments %q, want the first line edited", texts(m))
-	}
-}
-
-func TestMultilineOrigin(t *testing.T) {
-	// The origin box and the comment boxes wrap each line of a text on its own.
-	m := askScreen(testFiles(), Saved{}, &fakeAsk{})
-	got := m.paragraphLines(paragraph{text: review.Visible("first line\n\nthird"), bar: askBar}, 20)
-	var texts []string
-	for _, l := range got {
-		texts = append(texts, strings.TrimRight(ansi.Strip(l), " "))
-	}
-	if want := []string{"▍ first line", "▍", "▍ third"}; !slices.Equal(texts, want) {
-		t.Errorf("lines %q, want %q", texts, want)
 	}
 }
 
@@ -466,9 +453,9 @@ func TestEntryBeforeOtherComment(t *testing.T) {
 	s := strings.Split(screen(t, m), "\n")
 	y := cursorLine(m)
 	bottom := slices.IndexFunc(s, func(l string) bool { return strings.Contains(l, "┗━") })
-	at := slices.IndexFunc(s, func(l string) bool { return strings.Contains(l, "▍ beta") })
+	at := slices.IndexFunc(s, func(l string) bool { return strings.Contains(l, "▎ beta") })
 	if !strings.Contains(s[y], "newB") || !strings.Contains(s[y+1], "┏━ Edit comment") || bottom <= y+1 || at <= bottom ||
-		slices.ContainsFunc(s, func(l string) bool { return strings.Contains(l, "▍ alpha") }) {
+		slices.ContainsFunc(s, func(l string) bool { return strings.Contains(l, "▎ alpha") }) {
 		t.Errorf("want the row, the box, then beta's box and no box for alpha:\n%s", strings.Join(s, "\n"))
 	}
 	if c := m.View().Cursor; c == nil || c.Y != y+2 {

@@ -395,7 +395,7 @@ func (m *model) read(q *question) tea.Cmd {
 	m.reading = true
 	if q.lines == nil {
 		m.jumpTo(m.headRow(q.file))
-		m.readTop = len(m.originLines()) // scroll keeps it in the text
+		m.readTop = m.blockHeight() // scroll keeps it in the text
 		return cmd
 	}
 	m.jumpTo(m.lineRow(q.lines[len(q.lines)-1]))

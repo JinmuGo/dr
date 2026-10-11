@@ -241,7 +241,8 @@ func (m *model) entryCursor() (x, y int, ok bool) {
 }
 
 // underHeight returns how many lines of the screen what comes under row i takes, the origin
-// box aside: the boxes of its comments, and the open input box with its model list.
+// card aside: the cards of its comments, which the open origin card holds under the cursor
+// row, and the open input box with its model list.
 func (m *model) underHeight(i int) int {
 	n := m.commentHeight(i)
 	if i == m.entryRow() {
@@ -251,13 +252,17 @@ func (m *model) underHeight(i int) int {
 	return n
 }
 
-// underLines draws what comes under row i in a diff w cells wide, the origin box aside: the
-// open input box right under its row, as tuicr places it, and its model list, then the boxes
-// of its comments. They are only drawn, and moving through the rows does not see them.
+// underLines draws what comes under row i in a diff w cells wide: the open input box right
+// under its row, as tuicr places it, and its model list, then the open origin card under the
+// cursor row, then the cards of its comments. They are only drawn, and moving through the
+// rows does not see them.
 func (m *model) underLines(i, w int) []string {
 	var lines []string
 	if i == m.entryRow() {
 		lines = append(m.entryLines(w), m.pickerLines(w)...)
+	}
+	if m.reading && i == m.cursor {
+		lines = append(lines, m.box(w)...)
 	}
 	return append(lines, m.commentLines(i, w)...)
 }

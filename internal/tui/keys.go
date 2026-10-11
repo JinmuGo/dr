@@ -197,7 +197,7 @@ func (m *model) readKey(k string) tea.Cmd {
 	case "gg":
 		m.readTop = 0
 	case "G":
-		m.readTop = len(m.originLines())
+		m.readTop = m.blockHeight()
 	case "a":
 		m.startAsk()
 	case "ga":

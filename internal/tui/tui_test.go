@@ -509,34 +509,34 @@ func TestQuit(t *testing.T) {
 func TestOriginText(t *testing.T) {
 	for _, tc := range []struct {
 		name, keys string
-		want, not  []string // want in the order the box shows them
+		want, not  []string // want in the order the card shows them, its header first
 	}{
 		{
 			name: "agent line", keys: "4j",
 			want: []string{
-				"claude c1a0 #1", claudeSession, "Request", "rate limiter를 짜줘\n셸 명령은 실행하지 마",
-				"Note", "토큰 버킷으로 바꿀게요", "Reply", "다 짰어요",
+				"● claude c1a0 #1  a.go:2", "REQUEST · #1\nrate limiter를 짜줘\n셸 명령은 실행하지 마",
+				"NOTE\n토큰 버킷으로 바꿀게요", "REPLY\n다 짰어요", "session " + claudeSession,
 			},
 			not: []string{"This edit deleted the line"},
 		},
 		{
 			name: "deleted line", keys: "12j",
-			want: []string{"omp a1f2 #1", ompSession, "subagent of a1f1", "This edit deleted the line", "line 15를 지워줘", "지웠어요"},
-			not:  []string{"Note"}, // the edit left no note
+			want: []string{"● omp a1f2 #1", "This edit deleted the line", "line 15를 지워줘", "지웠어요", "session " + ompSession, "↳ subagent of omp a1f1"},
+			not:  []string{"NOTE"}, // the edit left no note
 		},
 		{
 			name: "line without origin", keys: "16j",
-			want: []string{"Unknown", review.NoOrigin},
+			want: []string{"┆ unknown  a.go:18", "UNKNOWN\nNot in any session record."},
 		},
 		{
 			name: "unchanged line", keys: "2j",
-			want: []string{"Unchanged line"},
+			want: []string{"a.go:1", "Unchanged line"},
 		},
 		{
 			name: "file header",
 			want: []string{
-				"Requests that changed this file", "claude c1a0 #1", "rate limiter를 짜줘", "omp a1f2 #1", "line 15를 지워줘",
-				"Unknown", review.NoOrigin,
+				"▾ a.go  2 requests · 2 sessions", "REQUESTS THAT CHANGED THIS FILE",
+				"● claude c1a0 #1  rate limiter를 짜줘", "● omp a1f2 #1     line 15를 지워줘", "┆ unknown         " + noRecord,
 			},
 		},
 		{
@@ -544,24 +544,19 @@ func TestOriginText(t *testing.T) {
 			want: []string{review.Binary, "No origin lookup for this file"},
 		},
 	} {
-		var texts []string
-		for _, p := range press(t, tc.keys).originText() {
-			texts = append(texts, p.text)
-		}
-		at := -1
+		text := cardText(press(t, tc.keys))
+		at := 0
 		for _, s := range tc.want {
-			switch i := slices.Index(texts, s); {
-			case i < 0:
-				t.Errorf("%s: origin %q has no %q", tc.name, texts, s)
-			case i < at:
-				t.Errorf("%s: origin %q has %q before %q", tc.name, texts, s, texts[at])
-			default:
-				at = i
+			i := strings.Index(text[at:], s)
+			if i < 0 {
+				t.Errorf("%s: origin\n%s\nhas no %q after its first %d bytes", tc.name, text, s, at)
+				break
 			}
+			at += i + len(s)
 		}
 		for _, s := range tc.not {
-			if slices.Contains(texts, s) {
-				t.Errorf("%s: origin %q has %q", tc.name, texts, s)
+			if strings.Contains(text, s) {
+				t.Errorf("%s: origin\n%s\nhas %q", tc.name, text, s)
 			}
 		}
 	}
@@ -585,17 +580,18 @@ func screen(t *testing.T, m *model) string {
 }
 
 func TestBoxPlace(t *testing.T) {
-	// The box opens right under the cursor row and pushes the rows after it down. Its top
-	// border names the request and where the row is, and the keys that ask from the box and
-	// close it: a only on a changed line.
+	// The card opens right under the cursor row and pushes the rows after it down. Its
+	// header names the origin and where the row is, and the keys that ask from the card and
+	// close it: a only on a changed line. An empty row ends it.
 	for _, tc := range []struct {
-		keys, row, top, hint, after string
+		keys, row, top, after string
+		ask                   bool
 	}{
-		{"4j<enter>", "Changed 2", "╭─ claude c1a0 #1  a.go:2 ─", "─ a ask · Esc close ─", "line 3"},
-		{"16j<enter>", "new after 18", "╭─ unknown  a.go:18 ─", "─ a ask · Esc close ─", ""}, // the box ends the screen
-		{"2j<enter>", "line 1", "╭─ a.go:1 ─", "─ Esc close ─", "line 2"},
-		{"<enter>", "▾ a.go", "╭─ a.go ─", "─ Esc close ─", "@@ -1,5 +1,5 @@"},
-		{"G<enter>", "var x = 1", "╭─ claude c1a0 #2  c/new.go:4 ─", "─ a ask · Esc close ─", ""}, // the screen moves up to show the box
+		{"4j<enter>", "Changed 2", "▎ ● claude c1a0 #1  a.go:2", "line 3", true},
+		{"16j<enter>", "new after 18", "▎ ┆ unknown  a.go:18", "", true}, // the card ends the screen
+		{"2j<enter>", "line 1", "▎ a.go:1", "line 2", false},
+		{"<enter>", "▾ a.go", "▎ ▾ a.go", "@@ -1,5 +1,5 @@", false},
+		{"G<enter>", "var x = 1", "▎ ● claude c1a0 #2  c/new.go:4", "", true}, // the screen moves up to show the card
 	} {
 		m := New(testFiles(), nil, Saved{}, Asker{}).(*model)
 		m.Update(tea.WindowSizeMsg{Width: 120, Height: 24})
@@ -604,12 +600,12 @@ func TestBoxPlace(t *testing.T) {
 		}
 		lines := strings.Split(screen(t, m), "\n")
 		y := cursorLine(m)
-		bottom := y + 1 + slices.IndexFunc(lines[y+1:], func(l string) bool { return strings.Contains(l, "╰") })
-		if !strings.Contains(lines[y], tc.row) || !strings.Contains(lines[y+1], tc.top) ||
-			!strings.Contains(lines[y+1], tc.hint) || bottom <= y+1 || bottom >= m.diffHeight() ||
+		bottom := y + m.boxHeight()
+		if !strings.Contains(lines[y], tc.row) || !strings.Contains(lines[y+1], tc.top) || !strings.HasSuffix(strings.TrimRight(lines[y+1], " "), "⏎ close") ||
+			strings.Contains(lines[y+1], "a ask") != tc.ask || bottom >= m.diffHeight() || !strings.HasSuffix(strings.TrimRight(lines[bottom], " "), "▎") ||
 			tc.after != "" && !strings.Contains(lines[bottom+1], tc.after) {
-			t.Errorf("%q: want %q, then a box from %q with %q to its bottom border on the screen, then %q:\n%s",
-				tc.keys, tc.row, tc.top, tc.hint, tc.after, strings.Join(lines, "\n"))
+			t.Errorf("%q: want %q, then a card from %q with a ask %t and ⏎ close to its last row on the screen, then %q:\n%s",
+				tc.keys, tc.row, tc.top, tc.ask, tc.after, strings.Join(lines, "\n"))
 		}
 	}
 }
@@ -638,11 +634,11 @@ func TestBox(t *testing.T) {
 	files := longFiles()
 	const last, reply = longLast, longReply
 
-	// The file tree is on the screen at width 120 and hidden at 70. The box text has 49 lines
-	// either way: Session, the tag, the session, a blank line, Request, the 41 lines of the
-	// request, a blank line, Reply and the reply. 18 of them fit: the 22 rows above the
-	// status line and the key row less the cursor row, one more row and the two borders. d
-	// and u move 9.
+	// The file tree is on the screen at width 120 and hidden at 70. The card's body has 47
+	// rows either way: REQUEST, the 41 lines of the request, an empty row, REPLY and the
+	// reply, an empty row and the session. 18 of them fit: the 22 rows above the status line
+	// and the key row less the cursor row, one more row, the card's header and its last row.
+	// d and u move 9.
 	for _, width := range []int{120, 70} {
 		m := New(files, nil, Saved{}, Asker{}).(*model)
 		m.Update(tea.WindowSizeMsg{Width: width, Height: 24})
@@ -666,15 +662,15 @@ func TestBox(t *testing.T) {
 			keys      string
 			want, not []string
 		}{
-			{"<enter>", []string{"╭─ claude c1a0 #3  long.go:1", "Esc close", "조건 1", "origin 18/49"}, []string{last, reply}},
-			{"k", []string{"Session ", "origin 18/49"}, nil}, // the first line stays at the top; "Sessions" is the tree's legend
-			{"j", []string{"origin 19/49"}, []string{"Session "}},
-			{"d", []string{"origin 28/49"}, nil},
-			{"u", []string{"origin 19/49"}, nil},
-			{"G", []string{last, reply, "origin 49/49"}, nil},
-			{"<down>", []string{last, reply, "origin 49/49"}, nil}, // the last line stays at the bottom
-			{"gg", []string{"Session ", "origin 18/49"}, []string{reply}},
-			{"dddd", []string{last, reply, "origin 49/49"}, nil},
+			{"<enter>", []string{"▎ ● claude c1a0 #3  long.go:1", "⏎ close", "조건 1", "origin 18/47"}, []string{last, reply}},
+			{"k", []string{"REQUEST · #3", "origin 18/47"}, nil}, // the first row stays at the top
+			{"j", []string{"origin 19/47"}, []string{"REQUEST"}},
+			{"d", []string{"origin 28/47"}, nil},
+			{"u", []string{"origin 19/47"}, nil},
+			{"G", []string{last, reply, "session " + claudeSession[:20], "origin 47/47"}, nil},
+			{"<down>", []string{last, reply, "origin 47/47"}, nil}, // the last row stays at the bottom
+			{"gg", []string{"REQUEST · #3", "origin 18/47"}, []string{reply}},
+			{"dddd", []string{last, reply, "origin 47/47"}, nil},
 		} {
 			s, _ := send(step.keys)
 			for _, w := range step.want {
@@ -697,7 +693,7 @@ func TestBox(t *testing.T) {
 		for _, keys := range []string{"q", "<esc>", "<enter>"} {
 			s, cmd := send(keys)
 			if m.reading || cmd != nil || m.cursor != cursor || m.top != top || !strings.Contains(s, "x := 1") ||
-				strings.Contains(s, "╭─") {
+				strings.Contains(s, "▎ ● claude c1a0 #3") {
 				t.Errorf("width %d, %q: open %t, command %t, cursor at row %d with row %d at the top; "+
 					"want the diff without the box, the cursor at row %d and row %d at the top:\n%s",
 					width, keys, m.reading, cmd != nil, m.cursor, m.top, cursor, top, s)
@@ -838,7 +834,7 @@ func TestDraw(t *testing.T) {
 func TestStatusRoom(t *testing.T) {
 	// At 70 cells the origin of the cursor row stays whole. How far the box is read comes
 	// next and then the file number; the row number and the note on two agents' logs do not
-	// fit, so they are left out whole. The box text is 13 lines, 5 of which fit on a 10-row
+	// fit, so they are left out whole. The card's body is 11 rows, 5 of which fit on a 10-row
 	// screen.
 	problems := []agent.Problem{{Agent: "claude", Path: "a.jsonl", Bad: 1}, {Agent: "codex", Path: "rollout-1.jsonl", Bad: 1}}
 	m := New(testFiles(), problems, Saved{}, Asker{}).(*model)
@@ -848,7 +844,7 @@ func TestStatusRoom(t *testing.T) {
 	}
 	s := screen(t, m)
 	status := s[strings.LastIndex(s, "\n")+1:]
-	for _, want := range []string{"claude c1a0 #1", "origin 5/13", "file 1/3"} {
+	for _, want := range []string{"claude c1a0 #1", "origin 5/11", "file 1/3"} {
 		if !strings.Contains(status, want) {
 			t.Errorf("status line %q has no %q", status, want)
 		}
@@ -1033,43 +1029,41 @@ func TestSplitWidth(t *testing.T) {
 }
 
 func TestSplitOrigin(t *testing.T) {
-	// The first pair comes from two requests and the second from one.
+	// The first pair comes from two requests and the second from one. The header names the
+	// origin of the main line, and a pair of two origins tells each under its side.
 	lines := parseDiff("x", "-old", "+new", "y", "-old 2", "+new 2", "z")
 	lines[1].Edit, lines[2].Edit = subagent, claude1
 	lines[4].Edit, lines[5].Edit = claude1, claude1
 	files := []review.File{{Path: "f.go", Status: 'M', Lines: lines}}
 	for _, tc := range []struct {
 		keys      string
-		want, not []string // want in the order the box shows them
+		want, not []string // want in the order the card's body shows them
 	}{
 		{
 			keys: "s3j",
-			want: []string{"Deleted line", "omp a1f2 #1", "line 15를 지워줘", "Added line", "claude c1a0 #1", "rate limiter를 짜줘\n셸 명령은 실행하지 마"},
+			want: []string{"DELETED LINE\n● omp a1f2 #1\n", "line 15를 지워줘", "ADDED LINE\n● claude c1a0 #1\n", "rate limiter를 짜줘\n셸 명령은 실행하지 마"},
 		},
-		{keys: "s5j", want: []string{"claude c1a0 #1", "다 짰어요"}, not: []string{"Deleted line", "Added line"}},
-		{keys: "4j", want: []string{"claude c1a0 #1"}, not: []string{"Deleted line", "omp a1f2 #1"}}, // unified: the added line alone
+		{keys: "s5j", want: []string{"REQUEST · #1", "다 짰어요"}, not: []string{"DELETED LINE", "ADDED LINE"}},
+		{keys: "4j", want: []string{"REQUEST · #1"}, not: []string{"DELETED LINE", "omp a1f2 #1"}}, // unified: the added line alone
 	} {
 		m := end(t, openFiles(t, files, tc.keys))
-		var texts []string
-		for _, p := range m.originText() {
-			texts = append(texts, p.text)
+		if head := cardText(m); !strings.HasPrefix(head, "● claude c1a0 #1  f.go:") {
+			t.Errorf("%q: the card's header %q, want claude c1a0 #1", tc.keys, strings.SplitN(head, "\n", 2)[0])
 		}
-		at := -1
+		text := boxText(m)
+		at := 0
 		for _, s := range tc.want {
-			switch i := slices.Index(texts[at+1:], s); {
-			case i < 0:
-				t.Errorf("%q: origin %q has no %q after %d", tc.keys, texts, s, at)
-			default:
-				at += i + 1
+			i := strings.Index(text[at:], s)
+			if i < 0 {
+				t.Errorf("%q: origin\n%s\nhas no %q after its first %d bytes", tc.keys, text, s, at)
+				break
 			}
+			at += i + len(s)
 		}
 		for _, s := range tc.not {
-			if slices.Contains(texts, s) {
-				t.Errorf("%q: origin %q has %q", tc.keys, texts, s)
+			if strings.Contains(text, s) {
+				t.Errorf("%q: origin\n%s\nhas %q", tc.keys, text, s)
 			}
-		}
-		if n := strings.Count(strings.Join(texts, "\n"), "claude c1a0 #1"); n != 1 {
-			t.Errorf("%q: origin %q tells claude c1a0 #1 %d times, want once", tc.keys, texts, n)
 		}
 	}
 }

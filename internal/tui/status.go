@@ -173,7 +173,7 @@ func (m *model) status() string {
 	}
 	if len(m.rows) > 0 {
 		if m.reading {
-			if n, rows := len(m.originLines()), m.boxRows(); n > rows {
+			if n, rows := m.blockHeight(), m.boxRows(); n > rows {
 				position = []seg{{text: fmt.Sprintf("origin %d/%d", min(m.readTop+rows, n), n), st: on(t.muted)}}
 			}
 		}

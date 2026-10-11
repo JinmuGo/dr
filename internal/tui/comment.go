@@ -6,7 +6,6 @@ import (
 	"strings"
 	"time"
 
-	"charm.land/lipgloss/v2"
 	"github.com/JinmuGo/dr/internal/origin"
 	"github.com/JinmuGo/dr/internal/review"
 	"github.com/JinmuGo/dr/internal/state"
@@ -411,8 +410,9 @@ func (m *model) commentsAt(i int) []*comment {
 	return cs
 }
 
-// commentHeight returns how many lines of the screen the boxes of the comments under row i
-// take.
+// commentHeight returns how many lines of the screen the cards of the comments under row i
+// take on their own: none under the cursor row while the origin card is open, which holds
+// them.
 func (m *model) commentHeight(i int) int {
 	if len(m.comments) == 0 {
 		return 0
@@ -421,73 +421,93 @@ func (m *model) commentHeight(i int) int {
 	return len(m.commentLines(i, w))
 }
 
-// commentLines draws the boxes of the comments under row i, in a diff w cells wide, the way
+// commentLines draws the cards of the comments under row i, in a diff w cells wide, the way
 // GitHub shows a pending review comment under its lines, and nil when it has none. They are
-// only drawn, and moving through the rows does not see them. Each box hangs from the code
-// column of the row's file, as the origin box does, and has a top border with where its
-// lines are, a thread header with who the comment goes to and its state, the comment
-// wrapped to the box, and the fix that came for it under that.
+// only drawn, and moving through the rows does not see them. Each card hangs from the rail
+// column of the row's file, as the origin card does, and shows all of its rows. Under the
+// cursor row with the origin card open they scroll in the origin card, and are not drawn
+// here.
 func (m *model) commentLines(i, w int) []string {
 	cs := m.commentsAt(i)
-	if len(cs) == 0 {
+	if len(cs) == 0 || m.reading && i == m.cursor {
 		return nil
 	}
-	t := &m.theme
-	x := min(m.codeColumn(m.files[m.rows[i].file]), w/3)
-	width := max(min(w-x-3, maxReadWidth), 1)
-	pad := strings.Repeat(" ", x)
-	base, border := t.paint(nil, t.surface), t.paint(t.subtle, t.surface)
+	x := m.cardLeft(m.files[m.rows[i].file], w)
 	var lines []string
 	for _, c := range cs {
-		top := newLine(w - x)
-		top.add("╭─ ", border)
-		from, to := m.commentRange(c)
-		top.add(m.commentWhere(c.file, from, to), t.paint(t.muted, t.surface))
-		top.add(" ", border)
-		top.add(strings.Repeat("─", top.free), border)
-		lines = append(lines, pad+top.fill(border))
-		for _, p := range slices.Concat(m.commentText(c), m.fixOverlay(c)) {
-			for _, s := range m.paragraphLines(p, width) {
-				l := newLine(w - x)
-				l.add("│ ", border)
-				l.add(s, lipgloss.NewStyle())
-				lines = append(lines, pad+l.fill(base))
-			}
+		for _, l := range m.fullCard(m.commentCard(c, w-x), w-x) {
+			lines = append(lines, strings.Repeat(" ", x)+l.text)
 		}
-		lines = append(lines, pad+border.Render("╰"+strings.Repeat("─", max(w-x-1, 0))))
 	}
 	return lines
 }
 
-// commentText tells c as its box shows it: a header with who it goes to, the model it picked
-// with ^ when it picked one, and a badge of its state, how that session relates to the lines
-// when it did not write them, and the text. The badge says pending, or how long its fix
-// request has waited, or nothing once a fix came, which shows under it.
-func (m *model) commentText(c *comment) []paragraph {
-	who := paragraph{
-		text: "To " + review.Visible(review.Who(c.Agent, c.Session, m.short)), tone: strong, bar: changeBar, head: true,
-	}
-	if c.Model != "" {
-		who.text += " · ^" + review.Visible(c.Model)
-	}
-	switch {
+// commentCard returns the card of c, w cells wide, in the color of comments. Its header
+// tells who the comment goes to and where its lines are, the model it picked with ^ when it
+// picked one, and its state as a chip: pending, how long its fix request has waited, or what
+// came for it. At the right edge come the keys that work on it then. The body has the text,
+// how that session relates to the lines when it did not write them, and what came for it.
+func (m *model) commentCard(c *comment, w int) card {
+	t := &m.theme
+	from, to := m.commentRange(c)
+	left := m.commentHead(c, m.commentWhere(c.file, from, to))
+	var chip chunk
+	var keys [][2]string
+	switch f := c.fix; {
 	case c.request != "":
-		waited := max(m.now().Sub(c.asked), 0) / time.Second
-		who.badge = part{text: "asking… " + strconv.Itoa(int(waited)) + "s", tone: quiet}
-	case c.fix == nil || c.fix.Error != "":
-		who.badge = part{text: "pending", tone: unsent}
+		chip = chunk{text: askingFor(m.now().Sub(c.asked)), color: t.ask, chip: true}
+	case f == nil:
+		chip, keys = chunk{text: "pending", color: t.pending, chip: true}, [][2]string{{"c", "edit"}}
+	case f.Error != "":
+		chip, keys = chunk{text: "no fix", color: t.del, chip: true}, [][2]string{{"x", "drop"}, {"c", "edit"}}
+	case f.Keep:
+		chip, keys = chunk{text: "keeps the lines", color: t.muted, chip: true}, [][2]string{{"x", "drop"}, {"c", "edit"}}
+	default:
+		chip, keys = chunk{text: "fix ready", color: t.fix, chip: true}, [][2]string{{"y", "apply"}, {"x", "drop"}, {"c", "edit"}}
 	}
-	paragraphs := []paragraph{who}
-	if r := relationText(review.Relation(c.Relation)); r != "" {
-		paragraphs = append(paragraphs, paragraph{text: r, tone: quiet, bar: changeBar})
+	left = append(left, chunk{text: "   "}, chip)
+	var options [][]chunk
+	for n := len(keys); n > 0; n-- {
+		options = append(options, m.keys(keys[:n]...))
 	}
-	return append(paragraphs, paragraph{text: review.Visible(c.Text), bar: changeBar})
+	width := textWidth(w)
+	rows := m.commentRows(c, width)
+	return card{band: t.pending, head: cardRow{left: left, right: fitKeys(left, w-3, options...)}, rows: append(rows, m.fixedRows(c, width)...)}
 }
 
-// earlierComments tells the comments on the file at key that have no place in its diff
-// now, under Earlier comments and their count: each with the lines it was left on quoted,
-// then as in its box, all of it dim. They are not pending.
-func (m *model) earlierComments(key string) []paragraph {
+// commentHead returns the start of the header of c's card: ✎ you → and the dot and the name
+// of who it goes to in its color, then where, when it is not "", and the model it picked
+// with ^.
+func (m *model) commentHead(c *comment, where string) []chunk {
+	t := &m.theme
+	col := m.whoColor(c.Agent, c.Session)
+	head := []chunk{
+		{text: commentMark + " ", color: t.pending, bold: true}, {text: "you", color: t.strong, bold: true}, {text: " → ", color: t.subtle},
+		{text: "● ", color: col}, {text: review.Visible(review.Who(c.Agent, c.Session, m.short)), color: col, bold: true},
+	}
+	if where != "" {
+		head = append(head, chunk{text: " · " + where, color: t.muted, cut: true})
+	}
+	if c.Model != "" {
+		head = append(head, chunk{text: " · ^" + review.Visible(c.Model), color: t.muted})
+	}
+	return head
+}
+
+// commentRows returns the text of c wrapped to width, and how the session it goes to
+// relates to the lines when it did not write them.
+func (m *model) commentRows(c *comment, width int) []cardRow {
+	rows := wrapped(review.Visible(c.Text), chunk{color: m.theme.fg}, width)
+	if r := relationText(review.Relation(c.Relation)); r != "" {
+		rows = append(rows, m.relationRow(r))
+	}
+	return rows
+}
+
+// earlierComments tells the comments on the file at key that have no place in its diff now,
+// wrapped to width, under EARLIER COMMENTS and their count: each with the lines it was left
+// on quoted, then who it goes to and its text, all of it dim. They are not pending.
+func (m *model) earlierComments(key string, width int) []cardRow {
 	var cs []*comment
 	for _, c := range m.comments {
 		if !c.placed() && c.Path == key {
@@ -497,25 +517,16 @@ func (m *model) earlierComments(key string) []paragraph {
 	if len(cs) == 0 {
 		return nil
 	}
-	paragraphs := []paragraph{{}, {text: "Earlier comments · " + strconv.Itoa(len(cs)), tone: heading}}
+	rows := []cardRow{m.label("EARLIER COMMENTS", strconv.Itoa(len(cs)))}
 	for i, c := range cs {
 		if i > 0 {
-			paragraphs = append(paragraphs, paragraph{})
+			rows = append(rows, cardRow{})
 		}
-		for _, k := range c.Picked() {
-			l := c.Lines[k]
-			mark := "> "
-			if l.Kind == "-" {
-				mark = "- "
-			}
-			paragraphs = append(paragraphs, paragraph{text: mark + display(l.Text), tone: quiet})
-		}
-		for _, p := range m.commentText(c) {
-			p.bar, p.tone, p.badge = dimBar, quiet, part{text: "no place in the diff", tone: quiet}
-			paragraphs = append(paragraphs, p)
-		}
+		rows = append(rows, m.quoted(c.Lines, c.Picked(), width)...)
+		head := cardRow{left: append(m.commentHead(c, ""), chunk{text: "   "}, chunk{text: "no place in the diff", chip: true})}
+		rows = append(rows, m.dim(append([]cardRow{head}, m.commentRows(c, width)...))...)
 	}
-	return paragraphs
+	return rows
 }
 
 // pendingComments returns the pending comments grouped by the session they go to and the

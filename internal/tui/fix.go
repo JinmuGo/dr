@@ -7,6 +7,7 @@ import (
 	"strconv"
 	"strings"
 	"time"
+	"unicode/utf8"
 
 	tea "charm.land/bubbletea/v2"
 	"github.com/JinmuGo/dr/internal/agent"
@@ -15,6 +16,9 @@ import (
 	"github.com/JinmuGo/dr/internal/origin"
 	"github.com/JinmuGo/dr/internal/review"
 	"github.com/JinmuGo/dr/internal/state"
+	"github.com/alecthomas/chroma/v2"
+	"github.com/alecthomas/chroma/v2/lexers"
+	"github.com/charmbracelet/x/ansi"
 )
 
 // What the screen says of the lock on the worktree when another dr holds it: when it opens,
@@ -593,51 +597,128 @@ func (m *model) reopenFixes() {
 	m.comments = open
 }
 
-// fixOverlay tells the fix under c in its box, under the comment the way an answer comes
-// under a question: a header with who sent it, a badge and at the right edge the model that
-// sent it and how long it took, as answers have; then the change as a small diff, the
-// comment's lines as sent deleted and the new lines added, and the note. A fix that keeps
-// the lines has only the note, and when no fix came it says why. It is nil without a fix.
-func (m *model) fixOverlay(c *comment) []paragraph {
+// fixedRows tells what came for c in its card, wrapped to width, under the comment the way an
+// answer comes under a question, after an empty row. A fix has a header, ◆ fix from who sent
+// it, and at the right edge the model that sent it and how long it took, as answers have;
+// then the change as a small diff, the comment's lines as sent deleted and the new lines
+// added, and the session's note. A fix that keeps the lines has who sent it over the note,
+// and when no fix came, who was asked over why. It is nil when nothing came.
+func (m *model) fixedRows(c *comment, width int) []cardRow {
 	f := c.fix
 	if f == nil {
 		return nil
 	}
-	who := paragraph{text: review.Visible(review.Who(f.Agent, f.Session, m.short)), tone: strong, bar: answerBar, head: true}
-	var body []paragraph
+	t := &m.theme
+	col := m.whoColor(f.Agent, f.Session)
+	who := review.Visible(review.Who(f.Agent, f.Session, m.short))
+	from := cardRow{left: []chunk{{text: "● ", color: col}, {text: who, color: col, bold: true}}}
 	switch {
 	case f.Error != "":
-		who.badge = part{text: "no fix", tone: trouble}
-		body = append(body, paragraph{text: review.Visible(f.Error), tone: trouble, bar: answerBar})
+		return slices.Concat([]cardRow{{}, from}, wrapped(review.Visible(f.Error), chunk{color: t.del}, width))
 	case f.Keep:
-		who.badge, who.note = part{text: "keeps the lines", tone: quiet}, m.fixedBy(f)
-		body = append(body, paragraph{text: review.Visible(f.Note), bar: answerBar})
-	default:
-		who.badge, who.note = part{text: "fix", tone: agreed}, m.fixedBy(f)
-		for _, l := range f.Lines {
-			body = append(body, paragraph{text: "-" + display(strings.TrimSuffix(l, "\r")), tone: fixOld, bar: answerBar})
-		}
-		for _, l := range f.New {
-			body = append(body, paragraph{text: "+" + display(strings.TrimSuffix(l, "\r")), tone: fixNew, bar: answerBar})
-		}
+		from.right = []chunk{m.fixedBy(f)}
+		rows := []cardRow{{}, from}
 		if note := strings.TrimSpace(f.Note); note != "" {
-			body = append(body, paragraph{text: review.Visible(note), bar: answerBar})
+			rows = append(rows, wrapped(review.Visible(note), chunk{color: t.fg}, width)...)
+		}
+		return rows
+	}
+	head := cardRow{
+		left: []chunk{
+			{text: "◆ ", color: t.fix}, {text: "fix", color: t.fix, bold: true}, {text: "  from ", color: t.subtle}, {text: who, color: col},
+		},
+		right: []chunk{m.fixedBy(f)},
+	}
+	rows := append([]cardRow{{}, head}, m.miniDiff(f, width)...)
+	if note := strings.TrimSpace(f.Note); note != "" {
+		rows = append(rows, m.noted(review.Visible(note), chunk{color: t.muted, italic: true}, width)...)
+	}
+	return rows
+}
+
+// miniDiff returns the change f makes as the rows of a small diff, width cells wide: the
+// comment's lines as sent, deleted, then the new lines, added, syntax colored by the lexer
+// for f's file and with the words that differ marked, a deleted line against the added line
+// at its place. A line too long for a row goes on in the rows under it, so no change is cut
+// off.
+func (m *model) miniDiff(f *state.Fix, width int) []cardRow {
+	trim := func(lines []string) []string {
+		out := make([]string, len(lines))
+		for i, l := range lines {
+			out[i] = strings.TrimSuffix(l, "\r")
+		}
+		return out
+	}
+	old, cur := fixPieces(f.Path, trim(f.Lines)), fixPieces(f.Path, trim(f.New))
+	for i := range min(len(old), len(cur)) {
+		old[i], cur[i] = markPair(old[i], cur[i])
+	}
+	code := max(width-diffSignWidth, 1)
+	var rows []cardRow
+	add := func(sign byte, lines [][]piece) {
+		for _, p := range lines {
+			for k, part := range splitPieces(p, code) {
+				rows = append(rows, cardRow{sign: sign, code: part, more: k > 0})
+			}
 		}
 	}
-	return append([]paragraph{{bar: changeBar}, who}, body...)
+	add('-', old)
+	add('+', cur)
+	return rows
+}
+
+// splitPieces returns pieces cut into rows of at most width cells each, a wide character
+// not split, each piece keeping its token type and its mark. A line without text is one
+// empty row.
+func splitPieces(pieces []piece, width int) [][]piece {
+	var rows [][]piece
+	var row []piece
+	used := 0
+	for _, p := range pieces {
+		for p.text != "" {
+			cut := ansi.Truncate(p.text, width-used, "")
+			if cut == "" && used == 0 { // a character wider than the row
+				_, size := utf8.DecodeRuneInString(p.text)
+				cut = p.text[:size]
+			}
+			if cut != "" {
+				row = append(row, piece{text: cut, kind: p.kind, changed: p.changed})
+				used += ansi.StringWidth(cut)
+				p.text = p.text[len(cut):]
+			}
+			if p.text != "" {
+				rows, row, used = append(rows, row), nil, 0
+			}
+		}
+	}
+	return append(rows, row)
+}
+
+// fixPieces returns lines, lines of the file at path, as the pieces of each, syntax colored
+// by the lexer for the file name when there is one.
+func fixPieces(path string, lines []string) [][]piece {
+	var tokens [][]chroma.Token
+	if lexer := lexers.Match(path); lexer != nil && len(lines) > 0 {
+		tokens = tokenize(chroma.Coalesce(lexer), strings.Join(lines, "\n")+"\n")
+	}
+	pieces := make([][]piece, len(lines))
+	for i, l := range lines {
+		pieces[i] = toPieces(lineTokens(tokens, i+1), l)
+	}
+	return pieces
 }
 
 // fixedBy returns the note on f at the right edge of its header, as answeredBy does for an
 // answer: against the model of the session's newest edit, or as pickedNote writes it when
 // f's request went with a model picked with ^.
-func (m *model) fixedBy(f *state.Fix) part {
+func (m *model) fixedBy(f *state.Fix) chunk {
 	took := time.Duration(f.TookMS) * time.Millisecond
 	if r, ok := m.records.Request(f.Request); ok && r.Model != "" {
-		return pickedNote(f.Model, r.Model, took)
+		return m.pickedNote(f.Model, r.Model, took)
 	}
 	own := ""
 	if e := m.newest[session{f.Agent, f.Session}]; e != nil {
 		own = modelName(e.Model)
 	}
-	return modelNote(modelName(f.Model), own, took)
+	return m.modelNote(modelName(f.Model), own, took)
 }

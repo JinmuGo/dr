@@ -98,9 +98,11 @@ func records(t *testing.T, dir string) state.Records {
 	return r
 }
 
-// boxOf returns the text of the box of c, as paragraphText writes it.
+// boxOf returns the text of the card of c 120 cells wide, its header first, as rowsText
+// writes it.
 func boxOf(m *model, c *comment) string {
-	return paragraphText(slices.Concat(m.commentText(c), m.fixOverlay(c)))
+	k := m.commentCard(c, 120)
+	return rowsText(append([]cardRow{k.head}, k.rows...))
 }
 
 // commentOf returns the comment of m with text, or nil.
@@ -237,7 +239,7 @@ func TestSubmit(t *testing.T) {
 		t.Fatalf("message %q, %d pending groups, %d busy; want 2 requests sent, nothing pending", m.message, len(m.pendingComments()), len(m.busy))
 	}
 	for _, c := range m.comments {
-		if box := boxOf(m, c); !strings.Contains(box, "To ") || !strings.Contains(box, "  asking… ") {
+		if box := boxOf(m, c); !strings.HasPrefix(box, "✎ you → ") || !strings.Contains(strings.SplitN(box, "\n", 2)[0], " asking… ") {
 			t.Errorf("box of %q:\n%s\nwant it asking", c.Text, box)
 		}
 	}
@@ -320,10 +322,11 @@ func TestSubmitBusy(t *testing.T) {
 }
 
 func TestSubmitFixes(t *testing.T) {
-	// The fixes that come show under their comments: who sent them with the model and how
-	// long it took, the comment's lines deleted and the new lines added, and the note; a fix
-	// that keeps the lines has only its note. The comments are no longer pending. The log
-	// keeps a fix record for each, with the lines and the file as sent. The status line tells
+	// The fixes that come show under their comments: ◆ fix from who sent it with the model and
+	// how long it took, the comment's lines deleted and the new lines added, and the note; a
+	// fix that keeps the lines has who sent it over its note. The chips say what came, and the
+	// keys that work on it show. The comments are no longer pending. The log keeps a fix
+	// record for each, with the lines and the file as sent. The status line tells
 	// of the fixes while the cursor is elsewhere, and Enter goes to them. On a line of a
 	// comment with a fix it shows y and x. The fixes are only drawn: moves, search and the
 	// row count do not see them. The fork that answered goes on for the next question.
@@ -334,10 +337,10 @@ func TestSubmitFixes(t *testing.T) {
 	m := fixScreen(files, Load(dir), f, root, fixClock())
 	typeAll(m, "4jcone<enter>Gcthree<enter>gg:submit<enter>")
 	one, three := commentOf(m, "one"), commentOf(m, "three")
-	if want := "▍ To claude c1a0\n▍ one\n▍\n▍ claude c1a0  fix  claude-opus-5-5 · 7s\n▍ -Changed 2\n▍ +Changed two\n▍ renamed"; boxOf(m, one) != want {
+	if want := "✎ you → ● claude c1a0 · a.go:2   fix ready  y apply   x drop   c edit\none\n\n◆ fix  from claude c1a0  claude-opus-5-5 · 7s\n- Changed 2\n+ Changed two\n↳ renamed"; boxOf(m, one) != want {
 		t.Errorf("box of one:\n%s\nwant\n%s", boxOf(m, one), want)
 	}
-	if want := "▍ To claude c1a0\n▍ three\n▍\n▍ claude c1a0  keeps the lines  claude-opus-5-5 · 7s\n▍ x is fine"; boxOf(m, three) != want {
+	if want := "✎ you → ● claude c1a0 · c/new.go:4   keeps the lines  x drop   c edit\nthree\n\n● claude c1a0  claude-opus-5-5 · 7s\nx is fine"; boxOf(m, three) != want {
 		t.Errorf("box of three:\n%s\nwant\n%s", boxOf(m, three), want)
 	}
 	if len(m.pendingComments()) != 0 {
@@ -405,7 +408,7 @@ func TestSubmitError(t *testing.T) {
 	if m.message != "No fix from claude c1a0 on a.go:2. Enter to read" || len(m.pendingComments()) != 1 {
 		t.Errorf("message %q, %d pending groups; want no fix told of and one pending", m.message, len(m.pendingComments()))
 	}
-	if want := "▍ To claude c1a0  pending\n▍ one\n▍\n▍ claude c1a0  no fix\n▍ claude exited: rate limited"; boxOf(m, one) != want {
+	if want := "✎ you → ● claude c1a0 · a.go:2   no fix  x drop   c edit\none\n\n● claude c1a0\nclaude exited: rate limited"; boxOf(m, one) != want {
 		t.Errorf("box:\n%s\nwant\n%s", boxOf(m, one), want)
 	}
 	f.err, f.answer = nil, agent.Answer{Fork: "fork-1", Text: "I would rather not change it."}
@@ -768,7 +771,7 @@ func TestReopenFix(t *testing.T) {
 	typeAll(first, "4jcone<enter>:submit<enter>")
 	m := fixScreen(files, Load(dir), f, root, now)
 	c := commentOf(m, "one")
-	if c == nil || c.fix == nil || !strings.Contains(boxOf(m, c), "▍ -Changed 2\n▍ +Changed two\n▍ renamed") || c.pending() {
+	if c == nil || c.fix == nil || !strings.Contains(boxOf(m, c), "\n- Changed 2\n+ Changed two\n↳ renamed") || c.pending() {
 		t.Fatalf("reopened: comment %+v, want its fix under it", c)
 	}
 	typeAll(m, "4jy")

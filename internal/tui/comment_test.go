@@ -74,7 +74,7 @@ func TestCommentKeys(t *testing.T) {
 	typeKeys(m, "c")
 	const edit = "Edit comment for claude c1a0 · L2 (Enter:save Alt-Enter:newline ^:model Esc:cancel)"
 	if box := entryBox(t, m); m.drafting == nil || m.drafting.editing == nil || shownTitle(box) != edit ||
-		!slices.Equal(shownText(box), []string{"use errors.Is"}) || strings.Contains(screen(t, m), "╭─ a.go:2") {
+		!slices.Equal(shownText(box), []string{"use errors.Is"}) || strings.Contains(screen(t, m), "✎ you → ● claude c1a0 · a.go:2") {
 		t.Fatalf("c on the comment: the screen\n%s\nwant the box %q with its text in place of its box", screen(t, m), edit)
 	}
 	typeKeys(m, "<ctrl+u>use errors.As<enter>")
@@ -157,14 +157,15 @@ func TestCommentRefusals(t *testing.T) {
 }
 
 func TestCommentBox(t *testing.T) {
-	// The box of a comment comes under the last line of its range, in the unified and the
-	// split view: where its lines are, who it goes to with a pending badge, and the text.
-	// Its lines are only drawn: j goes from the line to the next one, the rows are counted
-	// without them, search does not see them and a click on them is on no row. The origin
-	// box opened on the line comes under the comment's box.
+	// The card of a comment comes under the last line of its range, in the unified and the
+	// split view: who it goes to and where its lines are, with a pending chip and the key that
+	// edits it, then the text and an empty row. Its lines are only drawn: j goes from the line
+	// to the next one, the rows are counted without them, search does not see them and a click
+	// on them is on no row. The origin card opened on the line comes right under the line,
+	// and holds the comment's card after its own rows and an empty one.
 	m := commentScreen(testFiles(), t.TempDir())
 	typeKeys(m, "4jcuse errors.Is<enter>")
-	box := []string{"╭─ a.go:2 ─", "▍ To claude c1a0  pending", "▍ use errors.Is", "╰─"}
+	box := []string{"▎ ✎ you → ● claude c1a0 · a.go:2    pending ", "▎ use errors.Is", "▎ "}
 	check := func(name, row string, after []string) {
 		t.Helper()
 		lines := strings.Split(screen(t, m), "\n")
@@ -191,7 +192,11 @@ func TestCommentBox(t *testing.T) {
 		t.Errorf("search for the comment: cursor at row %d, message %q; want it not found", m.cursor, m.message)
 	}
 	typeKeys(m, "k<enter>")
-	check("the origin box", "Changed 2", append(box, "╭─ claude c1a0 #1  a.go:2"))
+	check("the origin card", "Changed 2", []string{"▎ ● claude c1a0 #1  a.go:2"})
+	lines := strings.Split(screen(t, m), "\n")
+	if under := cursorLine(m) + 2 + len(m.originLines()) + 1; under >= len(lines) || !strings.Contains(lines[under], box[0]) {
+		t.Errorf("want the comment's card after the origin card's rows and an empty one, on line %d:\n%s", under, strings.Join(lines, "\n"))
+	}
 	typeKeys(m, "<esc>s")
 	if !m.splitShown {
 		t.Fatal("s: want the split view")
@@ -296,12 +301,16 @@ func TestCommentReopen(t *testing.T) {
 		t.Errorf("a.go counts %d comments, want 0", n)
 	}
 	typeKeys(changed, "<enter>")
-	if text := boxText(changed); !strings.Contains(text, "Earlier comments · 1\n> Changed 2\n▍ To claude c1a0  no place in the diff\n▍ one") {
+	if text := boxText(changed); !strings.Contains(text, "EARLIER COMMENTS · 1\n> Changed 2\n✎ you → ● claude c1a0   no place in the diff\none") {
 		t.Errorf("the header's box:\n%s", text)
 	}
-	for _, p := range changed.originText() {
-		if p.bar != noBar && (p.bar != dimBar || p.tone != quiet || p.badge.tone != quiet) {
-			t.Errorf("%+v is not dim", p)
+	rows := changed.originLines()
+	k := slices.IndexFunc(rows, func(r cardRow) bool { return chunksText(r.left) == "EARLIER COMMENTS · 1" })
+	for _, r := range rows[k+1:] {
+		for _, c := range r.left {
+			if strings.TrimSpace(c.text) != "" && (c.color != changed.theme.muted || c.bold) {
+				t.Errorf("%+v is not dim", c)
+			}
 		}
 	}
 	if g := changed.pendingComments(); len(g) != 1 || len(g[0].comments) != 1 || g[0].comments[0].text != "four" {
@@ -399,7 +408,7 @@ func TestRebuildCommentLines(t *testing.T) {
 			len(m.comments), len(m.comments) == 1 && m.comments[0].placed(), len(m.pendingComments()))
 	}
 	typeKeys(m, "gg<enter>")
-	if text := boxText(m); !strings.Contains(text, "Earlier comments · 1\n> Changed 2\n") {
+	if text := boxText(m); !strings.Contains(text, "EARLIER COMMENTS · 1\n> Changed 2\n") {
 		t.Errorf("the header's box:\n%s", text)
 	}
 }
@@ -469,7 +478,7 @@ func TestCommentSplitRange(t *testing.T) {
 		!slices.Equal(g[0].comments[0].current, []string{"newB"}) {
 		t.Fatalf("pending %+v, want the comment on newB alone", g)
 	}
-	if s := screen(t, m); !strings.Contains(s, "╭─ f.go:3 ─") {
+	if s := screen(t, m); !strings.Contains(s, "· f.go:3    pending") {
 		t.Errorf("the box does not show f.go:3:\n%s", s)
 	}
 	// In the unified view newA is not a line of the comment: c there makes a new comment for

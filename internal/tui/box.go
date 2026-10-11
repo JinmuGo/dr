@@ -2,12 +2,12 @@ package tui
 
 import (
 	"cmp"
+	"image/color"
 	"slices"
 	"strconv"
 	"strings"
 	"time"
 
-	"charm.land/lipgloss/v2"
 	"github.com/JinmuGo/dr/internal/agent"
 	"github.com/JinmuGo/dr/internal/origin"
 	"github.com/JinmuGo/dr/internal/review"
@@ -15,81 +15,84 @@ import (
 	"github.com/charmbracelet/x/ansi"
 )
 
-// tone is how a paragraph of the origin reads.
-type tone int
-
-const (
-	body      tone = iota // text
-	heading               // the quiet title of a part
-	strong                // what a part is about, such as the tag of a request
-	quiet                 // something to know in passing
-	warn                  // a changed line no session log explains
-	trouble               // a sentence on something that went wrong
-	removal               // the line under the cursor was deleted
-	leftSide              // the title of the deleted line of a split row
-	rightSide             // the title of the added line of a split row
-	agreed                // the badge of an answer whose reason was agreed with the user
-	chosen                // the badge of an answer whose reason the session asked chose
-	guessed               // the badge of an answer that is a guess
-	unsent                // the badge of a comment not sent yet
-	fixOld                // a line of a comment's range that a fix replaces
-	fixNew                // a line a fix writes
-)
-
-// bar is the bar at the left edge of the lines of a question or an answer in a thread.
-type bar int
-
-const (
-	noBar     bar = iota // not in a thread
-	askBar               // a question
-	answerBar            // an answer
-	dimBar               // an earlier question or comment, or an answer, which has no place in the diff now
-	changeBar            // a change comment
-)
-
-// paragraph is a piece of the origin and how it reads. The origin box wraps it to its
-// width, after the bar of its thread when it is part of one. A header of a thread is a line
-// of its own: its text, a badge after it, and a note at the right edge, which is left out
-// when the line has no room for it.
-type paragraph struct {
-	text  string // made visible
-	tone  tone
-	bar   bar
-	head  bool // a header of a thread
-	badge part // after the text of a header
-	note  part // at the right edge of a header
-	rule  bool // a rule across the box, in place of text
+// askingFor says how long an answer or a fix has been coming, d, after the spinner's frame
+// for it, as the status line turns it: "⠼ asking… 4s".
+func askingFor(d time.Duration) string {
+	s := int(max(d, 0) / time.Second)
+	return string(spinner[s%len(spinner)]) + " asking… " + strconv.Itoa(s) + "s"
 }
 
-// part is a piece of a header of a thread and how it reads.
-type part struct {
-	text string // made visible
-	tone tone
+// originCard returns the origin card of the cursor row, w cells wide. Its band and its header
+// tell the origin of a changed row, a dot and a tag in its color, and where the row is, or
+// for a file header the file and how many requests and sessions changed it. At the right
+// edge of the header come the keys that ask about the row, a follow-up when it has
+// questions, and close the card, or only the one that closes it when both do not fit. A row
+// of the split view goes by its main line, as the status line does.
+func (m *model) originCard(w int) card {
+	t := &m.theme
+	r := m.rows[m.cursor]
+	f := m.files[r.file]
+	c := card{band: t.subtle}
+	var left []chunk
+	switch {
+	case r.kind != lineRow:
+		c.band = t.accent
+		left = []chunk{{text: "▾ ", color: t.subtle}, {text: f.path, color: t.strong, bold: true, cut: true}}
+		if n := len(f.requests); n > 0 {
+			left = append(left, chunk{text: "  " + countOf(n, "request") + " · " + countOf(len(f.sessions), "session"), color: t.muted})
+		}
+	case r.isChange():
+		dot, tag, _, col := m.originOf(m.lines[r.main()].Edit)
+		c.band = col
+		left = []chunk{{text: dot + " ", color: col}, {text: tag, color: col, bold: true}, {text: "  " + m.where(), color: t.muted, cut: true}}
+	default:
+		left = []chunk{{text: m.where(), color: t.muted, cut: true}}
+	}
+	closing := m.keys([2]string{"⏎", "close"})
+	options := [][]chunk{closing}
+	if r.isChange() || m.hasQuestions(m.cursor) {
+		ask := [2]string{"a", "ask"}
+		if m.hasQuestions(m.cursor) {
+			ask[1] = "follow-up"
+		}
+		options = [][]chunk{m.keys(ask, [2]string{"⏎", "close"}), closing}
+	}
+	c.head = cardRow{left: left, right: fitKeys(left, w-3, options...)}
+	c.rows = m.originRows(textWidth(w))
+	return c
 }
 
-// originText returns the questions asked about the row under the cursor, as a thread, and
-// the origin of the row under a rule. A row of the split view whose deleted and added lines
-// read differently tells both, under Deleted line and Added line.
-func (m *model) originText() []paragraph {
+// originRows returns the body of the origin card, its text wrapped to width: the questions
+// asked about the cursor row, as a thread, over a rule, then the origin of the row. A row of
+// the split view whose deleted and added lines have different origins tells both, under
+// DELETED LINE and ADDED LINE, each with the tag of its origin. A file header lists the
+// requests that changed the file.
+func (m *model) originRows(width int) []cardRow {
 	r := m.rows[m.cursor]
 	if r.kind != lineRow {
-		return m.fileText(m.files[r.file])
+		return m.fileRows(m.files[r.file], width)
 	}
-	var paragraphs []paragraph
+	var thread []cardRow
 	if qs := m.questionsAt(m.cursor); len(qs) > 0 {
-		paragraphs = append(m.threadText(qs), paragraph{rule: true})
+		thread = append(m.threadRows(qs, width), cardRow{rule: true})
 	}
 	if r.isChange() && r.left >= 0 && r.right >= 0 && !sameOrigin(m.lines[r.left].Edit, m.lines[r.right].Edit) {
-		paragraphs = append(paragraphs, paragraph{text: "Deleted line", tone: leftSide})
-		paragraphs = append(paragraphs, m.lineText(m.lines[r.left])...)
-		paragraphs = append(paragraphs, paragraph{}, paragraph{text: "Added line", tone: rightSide})
-		return append(paragraphs, m.lineText(m.lines[r.right])...)
+		return joinGroups(thread,
+			m.sideHead("DELETED LINE", m.lines[r.left].Edit), m.lineOrigin(m.lines[r.left], width),
+			m.sideHead("ADDED LINE", m.lines[r.right].Edit), m.lineOrigin(m.lines[r.right], width))
 	}
-	return append(paragraphs, m.lineText(m.lines[r.main()])...)
+	return joinGroups(thread, m.lineOrigin(m.lines[r.main()], width))
+}
+
+// sideHead returns the head of a side of a split row in the origin card: its label, title,
+// and the dot and the tag of e, the edit that wrote or deleted the line, in its color.
+func (m *model) sideHead(title string, e *agent.Edit) []cardRow {
+	dot, tag, _, c := m.originOf(e)
+	return []cardRow{m.label(title, ""), {left: []chunk{{text: dot + " ", color: c}, {text: tag, color: c, bold: true}}}}
 }
 
 // sameOrigin reports whether lines from edits a and b have the same origin as the origin
-// box tells it: the same request or fix and the same note, or no origin.
+// card tells it: the same request or fix and the same note, or no origin.
 func sameOrigin(a, b *agent.Edit) bool {
 	if a == nil || b == nil {
 		return a == b
@@ -97,150 +100,208 @@ func sameOrigin(a, b *agent.Edit) bool {
 	return a.Agent == b.Agent && a.Session == b.Session && a.Turn == b.Turn && a.Note == b.Note && a.Fix == b.Fix
 }
 
-// lineText tells the origin of l: the edit or the fix that wrote or deleted it, or that no
+// lineOrigin tells the origin of l: the edit or the fix that wrote or deleted it, or that no
 // session log explains a changed line, or that the line did not change.
-func (m *model) lineText(l origin.Line) []paragraph {
+func (m *model) lineOrigin(l origin.Line, width int) []cardRow {
 	switch {
 	case l.Edit != nil && l.Edit.Fix != nil:
-		return m.fixText(l)
+		return m.fixRows(l, width)
 	case l.Edit != nil:
-		return m.editText(l)
+		return m.editRows(l, width)
 	case l.Old == 0 || l.New == 0:
-		return []paragraph{{text: "Unknown", tone: warn}, {text: review.NoOrigin}}
+		return m.section("UNKNOWN", "", review.NoOrigin, chunk{color: m.theme.fg}, width)
 	}
-	return []paragraph{{text: "Unchanged line", tone: quiet}}
+	return []cardRow{{left: []chunk{{text: "Unchanged line", color: m.theme.muted}}}}
 }
 
-// editText tells who wrote or deleted l: the agent and the session of the request, the
-// whole request, what the agent said just before the edit, and what it said last for the
-// request.
-func (m *model) editText(l origin.Line) []paragraph {
+// editRows tells who wrote or deleted l: the whole request, what the agent said just before
+// the edit, and what it said last for the request, then the session and its model, and the
+// session that started it when it is a subagent.
+func (m *model) editRows(l origin.Line, width int) []cardRow {
+	t := &m.theme
 	e := l.Edit
-	paragraphs := []paragraph{
-		{text: "Session", tone: heading},
-		{text: review.Tag(e, m.short), tone: strong},
-		{text: review.Visible(e.Session), tone: quiet},
-	}
-	if e.Parent != "" {
-		paragraphs = append(paragraphs, paragraph{text: "subagent of " + m.short[e.Parent], tone: quiet})
-	}
+	var deleted []cardRow
 	if l.New == 0 {
-		paragraphs = append(paragraphs, paragraph{text: "This edit deleted the line", tone: removal})
+		deleted = wrapped("This edit deleted the line", chunk{color: t.del}, width)
 	}
-	paragraphs = append(paragraphs, section("Request", e.Prompt)...)
-	paragraphs = append(paragraphs, section("Note", e.Note)...)
-	return append(paragraphs, section("Reply", e.Reply)...)
+	return joinGroups(
+		deleted,
+		m.section("REQUEST", "#"+strconv.Itoa(e.Turn), e.Prompt, chunk{color: t.fg}, width),
+		m.section("NOTE", "", e.Note, chunk{color: t.muted, italic: true}, width),
+		m.section("REPLY", "", e.Reply, chunk{color: t.fg}, width),
+		m.sessionRows(e, ""),
+	)
 }
 
-// section returns a part of the origin, text under the heading title after a blank line, or
-// nothing when text is blank.
-func section(title, text string) []paragraph {
+// sessionRows returns the quiet last rows of the origin of a line e wrote or deleted: the
+// session, the fork when fork is not "", and the model, then the session that started it
+// when it is a subagent.
+func (m *model) sessionRows(e *agent.Edit, fork string) []cardRow {
+	t := &m.theme
+	text := "session " + review.Visible(e.Session)
+	if fork != "" {
+		text += " · fork " + review.Visible(fork)
+	}
+	if e.Model != "" {
+		text += " · " + modelName(e.Model)
+	}
+	rows := []cardRow{{left: []chunk{{text: text, color: t.subtle, cut: true}}}}
+	if e.Parent != "" {
+		rows = append(rows, cardRow{left: []chunk{{text: "↳ subagent of " + review.Visible(review.Who(e.Agent, e.Parent, m.short)), color: t.subtle}}})
+	}
+	return rows
+}
+
+// section returns a section of a card: text, made visible and wrapped to width in the color
+// and the style of c, under the label title and extra, or nothing when text is blank.
+func (m *model) section(title, extra, text string, c chunk, width int) []cardRow {
 	text = strings.TrimSpace(text)
 	if text == "" {
 		return nil
 	}
-	return []paragraph{{}, {text: title, tone: heading}, {text: review.Visible(text)}}
+	return append([]cardRow{m.label(title, extra)}, wrapped(review.Visible(text), c, width)...)
 }
 
-// fileText lists the requests that changed f, each with the line that sums up the request,
-// or the comment for a fix dr applied, and the questions about f and the comments on it that
-// have no place in its diff now.
-func (m *model) fileText(f file) []paragraph {
-	paragraphs := []paragraph{{text: "Requests that changed this file", tone: heading}}
+// fileRows lists the requests that changed f, each with the dot and the tag of its origin in
+// its color and the line that sums up the request, or the comment for a fix dr applied, and
+// the questions about f and the comments on it that have no place in its diff now.
+func (m *model) fileRows(f file, width int) []cardRow {
+	t := &m.theme
+	tags := 0
 	for _, e := range f.requests {
-		paragraphs = append(paragraphs, paragraph{text: review.Tag(e, m.short), tone: strong}, paragraph{text: review.Summary(requestText(e))})
+		tags = max(tags, ansi.StringWidth(review.Tag(e, m.short)))
+	}
+	if f.unknown {
+		tags = max(tags, len("unknown"))
+	}
+	request := func(dot, tag, about string, c color.Color) cardRow {
+		tag += strings.Repeat(" ", tags-ansi.StringWidth(tag))
+		return cardRow{left: []chunk{{text: dot + " ", color: c}, {text: tag, color: c, bold: true}, {text: "  " + about, color: t.fg, cut: true}}}
+	}
+	rows := []cardRow{m.label("REQUESTS THAT CHANGED THIS FILE", "")}
+	for _, e := range f.requests {
+		rows = append(rows, request(m.originOf(e)))
 	}
 	switch {
 	case f.unknown:
-		paragraphs = append(paragraphs, paragraph{}, paragraph{text: "Unknown", tone: warn}, paragraph{text: review.NoOrigin})
+		dot, tag, about, c := m.originOf(nil)
+		r := request(dot, tag, about, c)
+		r.left[2].color = t.muted
+		rows = append(rows, r)
 	case f.noDiff != "":
-		paragraphs = append(paragraphs, paragraph{text: f.noDiff}, paragraph{text: "No origin lookup for this file", tone: quiet})
+		rows = append(rows, wrapped(review.Visible(f.noDiff), chunk{color: t.fg}, width)...)
+		rows = append(rows, cardRow{left: []chunk{{text: "No origin lookup for this file", color: t.muted}}})
 	case len(f.requests) == 0:
-		paragraphs = append(paragraphs, paragraph{text: "No changed lines", tone: quiet})
+		rows = append(rows, cardRow{left: []chunk{{text: "No changed lines", color: t.muted}}})
 	}
-	paragraphs = append(paragraphs, m.earlierText(f.earlier)...)
-	return append(paragraphs, m.earlierComments(f.key)...)
+	return joinGroups(rows, m.earlierRows(f.earlier, width), m.earlierComments(f.key, width))
 }
 
-// threadText tells qs, the questions about a row, oldest first, the way GitHub draws a
-// review thread: under Questions and their count, each question with its answer, a blank
-// line apart.
-func (m *model) threadText(qs []*question) []paragraph {
-	paragraphs := []paragraph{{text: "Questions · " + strconv.Itoa(len(qs)), tone: heading}}
+// threadRows tells qs, the questions about a row, oldest first, under THREAD and their
+// count: each question with its answer, an empty row apart.
+func (m *model) threadRows(qs []*question, width int) []cardRow {
+	rows := []cardRow{m.label("THREAD", strconv.Itoa(len(qs)))}
 	for i, q := range qs {
 		if i > 0 {
-			paragraphs = append(paragraphs, paragraph{})
+			rows = append(rows, cardRow{})
 		}
-		paragraphs = append(paragraphs, m.exchange(q)...)
+		rows = append(rows, m.exchange(q, width)...)
 	}
-	return paragraphs
+	return rows
 }
 
-// exchange tells q and its answer, each after its bar. The question has a header with You
-// and how long ago it was asked, when the log knows, over its text. A blank line under it,
-// the answer has a header with who was asked and the badge of the answer's tag, or how long
-// it has been coming, or that none came, and at the right edge the model that answered and
-// how long it took. Under it come how the session asked relates to the lines when it did
-// not write them, and the answer without its tag, or why none came.
-func (m *model) exchange(q *question) []paragraph {
-	you := paragraph{text: "You", tone: strong, bar: askBar, head: true}
+// exchange tells q and its answer, wrapped to width. The question has you and how long ago
+// it was asked, when the log knows, over its text. The answer has a header with the dot and
+// the name of who was asked in its color, then the badge of the answer's tag as a chip, or
+// how long it has been coming, or that none came, and at the right edge the model that
+// answered and how long it took. Under it come how the session asked relates to the lines
+// when it did not write them, and the answer without its tag, or why none came.
+func (m *model) exchange(q *question, width int) []cardRow {
+	t := &m.theme
+	you := cardRow{left: []chunk{{text: "you", color: t.strong, bold: true}}}
 	if !q.Time.IsZero() {
-		you.note = part{text: ago(m.now().Sub(q.Time)), tone: quiet}
+		you.left = append(you.left, chunk{text: "  " + ago(m.now().Sub(q.Time)), color: t.subtle})
 	}
-	who := paragraph{text: m.askedWho(q), tone: strong, bar: answerBar, head: true}
-	var answer paragraph
+	rows := append([]cardRow{you}, wrapped(review.Visible(q.Text), chunk{color: t.fg}, width)...)
+	c := m.whoColor(q.Agent, q.Session)
+	who := cardRow{left: []chunk{{text: "● ", color: c}, {text: m.askedWho(q), color: c, bold: true}}}
+	tell := func(s chunk) { who.left = append(who.left, chunk{text: "  "}, s) }
+	var answer []cardRow
 	switch a := q.answer; {
 	case q.pending:
-		waited := max(m.now().Sub(q.Time), 0) / time.Second
-		who.badge = part{text: "asking… " + strconv.Itoa(int(waited)) + "s", tone: quiet}
+		tell(chunk{text: askingFor(m.now().Sub(q.Time)), color: t.ask})
 	case a == nil:
-		who.badge = part{text: "no answer", tone: trouble}
-		answer = paragraph{text: "dr closed before it came", tone: trouble}
+		tell(chunk{text: "no answer", color: t.muted, chip: true})
+		answer = wrapped("dr closed before it came", chunk{color: t.muted}, width)
 	case a.Error != "":
-		who.badge = part{text: "no answer", tone: trouble}
-		answer = paragraph{text: review.Visible(a.Error), tone: trouble}
+		tell(chunk{text: "no answer", color: t.del, chip: true})
+		answer = wrapped(review.Visible(a.Error), chunk{color: t.del}, width)
 	default:
 		kind, text := answerKind(a.Text)
-		who.badge, who.note = badge(kind), answeredBy(q, a)
-		answer = paragraph{text: review.Visible(text)}
+		if b, ok := m.badge(kind); ok {
+			tell(b)
+		}
+		who.right = []chunk{m.answeredBy(q, a)}
+		if text = review.Visible(text); text != "" {
+			answer = wrapped(text, chunk{color: t.fg}, width)
+		}
 	}
-	paragraphs := []paragraph{you, {text: review.Visible(q.Text), bar: askBar}, {bar: askBar}, who}
+	rows = append(rows, who)
 	if r := relationText(review.Relation(q.Relation)); r != "" {
-		paragraphs = append(paragraphs, paragraph{text: r, tone: quiet, bar: answerBar})
+		rows = append(rows, m.relationRow(r))
 	}
-	if answer.text != "" {
-		answer.bar = answerBar
-		paragraphs = append(paragraphs, answer)
-	}
-	return paragraphs
+	return append(rows, answer...)
 }
 
-// earlierText tells qs, questions about a file that have no place in its diff now, under
-// Earlier questions and their count: each with the lines it asked about quoted, then as in
-// a thread, all of it dim.
-func (m *model) earlierText(qs []*question) []paragraph {
+// relationRow returns the row that tells how a session relates to the lines, r, when it did
+// not write them: quiet and slanted after ↳.
+func (m *model) relationRow(r string) cardRow {
+	return cardRow{left: []chunk{{text: "↳ ", color: m.theme.subtle}, {text: r, color: m.theme.subtle, italic: true}}}
+}
+
+// whoColor returns the color of session id of agent, quiet for a new session, which has none.
+func (m *model) whoColor(agent, id string) color.Color {
+	if id == "" {
+		return m.theme.muted
+	}
+	return m.sessionColor(session{agent, id})
+}
+
+// earlierRows tells qs, questions about a file that have no place in its diff now, under
+// EARLIER QUESTIONS and their count: each with the lines it asked about quoted, then as in a
+// thread, all of it dim.
+func (m *model) earlierRows(qs []*question, width int) []cardRow {
 	if len(qs) == 0 {
 		return nil
 	}
-	paragraphs := []paragraph{{}, {text: "Earlier questions · " + strconv.Itoa(len(qs)), tone: heading}}
+	rows := []cardRow{m.label("EARLIER QUESTIONS", strconv.Itoa(len(qs)))}
 	for i, q := range qs {
 		if i > 0 {
-			paragraphs = append(paragraphs, paragraph{})
+			rows = append(rows, cardRow{})
 		}
-		for _, k := range q.Asked() {
-			l := q.Lines[k]
-			mark := "> "
-			if l.Kind == "-" {
-				mark = "- "
-			}
-			paragraphs = append(paragraphs, paragraph{text: mark + display(l.Text), tone: quiet})
+		rows = append(rows, m.quoted(q.Lines, q.Asked(), width)...)
+		rows = append(rows, m.dim(m.exchange(q, width))...)
+	}
+	return rows
+}
+
+// quoted returns the lines of lines at picked as rows, quiet, each after > for a line of the
+// current file or - for a deleted one. A line wider than width goes on in the rows under it,
+// under its text.
+func (m *model) quoted(lines []state.Line, picked []int, width int) []cardRow {
+	rows := make([]cardRow, 0, len(picked))
+	for _, k := range picked {
+		l := lines[k]
+		mark := "> "
+		if l.Kind == "-" {
+			mark = "- "
 		}
-		for _, p := range m.exchange(q) {
-			p.bar, p.tone, p.badge.tone, p.note.tone = dimBar, quiet, quiet, quiet
-			paragraphs = append(paragraphs, p)
+		for _, part := range splitPieces([]piece{{text: display(l.Text)}}, max(width-len(mark), 1)) {
+			rows = append(rows, cardRow{left: []chunk{{text: mark + join(part), color: m.theme.muted}}})
+			mark = "  "
 		}
 	}
-	return paragraphs
+	return rows
 }
 
 // askedWho names who q asked: the agent and the session, or a new session of the agent.
@@ -265,52 +326,53 @@ func relationText(r review.Relation) string {
 	return ""
 }
 
-// badge returns the badge of an answer of kind k, as answerKind reads it from its tag, and
-// none for none.
-func badge(k string) part {
+// badge returns the chip of an answer of kind k, as answerKind reads it from its tag: green
+// for decided, blue for chose and amber for a guess. It reports false for no kind.
+func (m *model) badge(k string) (chunk, bool) {
+	t := &m.theme
 	switch k {
 	case decided:
-		return part{text: "● decided", tone: agreed}
+		return chunk{text: decided, color: t.add, chip: true}, true
 	case chose:
-		return part{text: "● chose", tone: chosen}
+		return chunk{text: chose, color: t.accent, chip: true}, true
 	case guess:
-		return part{text: "● guess", tone: guessed}
+		return chunk{text: guess, color: t.pending, chip: true}, true
 	}
-	return part{}
+	return chunk{}, false
 }
 
 // answeredBy returns the note on answer a to q: the model that answered, without its
 // provider, and how long it took, as modelNote writes it, or as pickedNote writes it when q
 // picked its model with ^. A new session has no model of its own to compare with.
-func answeredBy(q *question, a *state.Answer) part {
+func (m *model) answeredBy(q *question, a *state.Answer) chunk {
 	took := time.Duration(a.TookMS) * time.Millisecond
 	if q.Model != "" {
-		return pickedNote(a.Model, q.Model, took)
+		return m.pickedNote(a.Model, q.Model, took)
 	}
 	own := modelName(q.own)
 	if review.Relation(q.Relation) == review.NewSession {
 		own = ""
 	}
-	return modelNote(modelName(a.Model), own, took)
+	return m.modelNote(modelName(a.Model), own, took)
 }
 
 // modelNote returns "model · took", in the warning color with ", not own" after the model
 // when the session's own model is known and model is unknown or another. Without its own
 // model, dr cannot compare, so the note stays quiet.
-func modelNote(model, own string, took time.Duration) part {
+func (m *model) modelNote(model, own string, took time.Duration) chunk {
 	tail := " · " + took.Round(time.Second).String()
 	if own != "" && model != own {
-		return part{text: cmp.Or(model, "unknown") + ", not " + own + tail, tone: trouble}
+		return chunk{text: cmp.Or(model, "unknown") + ", not " + own + tail, color: m.theme.pending}
 	}
-	return part{text: cmp.Or(model, "unknown") + tail, tone: quiet}
+	return chunk{text: cmp.Or(model, "unknown") + tail, color: m.theme.subtle}
 }
 
 // pickedNote returns "^model · took" for an answer or a fix asked with picked, a model picked
 // with ^: model, the one that answered, or picked when the CLI did not tell, both without
 // their provider. It is always quiet: the person chose the model, and an alias such as
 // "sonnet" cannot be compared with the full name the CLI tells.
-func pickedNote(model, picked string, took time.Duration) part {
-	return part{text: "^" + cmp.Or(modelName(model), modelName(picked)) + " · " + took.Round(time.Second).String(), tone: quiet}
+func (m *model) pickedNote(model, picked string, took time.Duration) chunk {
+	return chunk{text: "^" + cmp.Or(modelName(model), modelName(picked)) + " · " + took.Round(time.Second).String(), color: m.theme.subtle}
 }
 
 // modelName returns model, made visible, without the provider before its last slash:
@@ -333,103 +395,60 @@ func ago(d time.Duration) string {
 	return strconv.Itoa(int(d/(24*time.Hour))) + "d"
 }
 
-// boxLeft returns the cell of a diff w cells wide where the origin box starts: the code
-// column of the cursor row, on the left side in the split view, so the box hangs under the
-// code across the whole diff, but no further right than a third of the diff.
-func (m *model) boxLeft(w int) int {
-	return min(m.codeColumn(m.files[m.rows[m.cursor].file]), w/3)
-}
-
-// boxRows returns how many lines of its text the origin box shows at most: the diff height
-// less the cursor row, the boxes of its comments, one more row and the box's two borders.
+// boxRows returns how many lines of its body the origin card shows at most: the diff height
+// less the cursor row, one more row, and the card's header and last row.
 func (m *model) boxRows() int {
-	return max(m.diffHeight()-4-m.commentHeight(m.cursor), 1)
+	return max(m.diffHeight()-4, 1)
 }
 
-// boxHeight returns how many rows of the screen the origin box takes, its borders included,
-// for a text of n lines.
-func (m *model) boxHeight(n int) int {
-	return min(n, m.boxRows()) + 2
+// boxHeight returns how many rows of the screen the open origin card takes, its header and
+// its last row included.
+func (m *model) boxHeight() int {
+	return min(m.blockHeight(), m.boxRows()) + 2
 }
 
-// originLines returns the lines of the origin box's text in the diff as the screen lays it
-// out.
-func (m *model) originLines() []string {
+// blockHeight returns how many lines the open origin card's body scrolls through: its own
+// rows, and the cards of the cursor row's comments after them.
+func (m *model) blockHeight() int {
 	_, w := m.layout()
-	return m.boxText(w)
+	_, width := m.boxLeft(w)
+	return len(m.block(m.originCard(width), width))
 }
 
-// boxWidth returns how wide the origin box lays out its text in a diff w cells wide: inside
-// "│ " and a margin, up to maxReadWidth.
-func (m *model) boxWidth(w int) int {
-	return max(min(w-m.boxLeft(w)-3, maxReadWidth), 1)
-}
-
-// boxText returns the origin of the row under the cursor as the origin box shows it in a
-// diff w cells wide, each paragraph laid out by paragraphLines.
-func (m *model) boxText(w int) []string {
-	width := m.boxWidth(w)
-	var lines []string
-	for _, p := range m.originText() {
-		lines = append(lines, m.paragraphLines(p, width)...)
+// block returns the lines the body of c, the origin card width cells wide, scrolls through:
+// its rows, then, when the cursor row has comments, an empty row and the cards of the
+// comments, each whole and one cell narrower, for the scroll bar.
+func (m *model) block(c card, width int) []blockLine {
+	lines := m.cardBody(c, width)
+	cs := m.commentsAt(m.cursor)
+	if len(cs) == 0 {
+		return lines
+	}
+	lines = append(lines, m.cardBody(card{band: c.band, rows: []cardRow{{}}}, width)...)
+	for _, cm := range cs {
+		lines = append(lines, m.fullCard(m.commentCard(cm, width-1), width-1)...)
 	}
 	return lines
 }
 
-// paragraphLines returns p as the origin box shows it, width cells wide and styled: a rule
-// across the box, a header of a thread on a line of its own, or the text wrapped after the
-// bar of its thread when it is part of one.
-func (m *model) paragraphLines(p paragraph, width int) []string {
-	t := &m.theme
-	switch {
-	case p.rule:
-		return []string{t.paint(t.subtle, t.surface).Render(strings.Repeat("─", width))}
-	case p.head:
-		return []string{m.headLine(p, width)}
-	}
-	var prefix string
-	if p.bar != noBar {
-		prefix = m.barStyle(p.bar).Render("▍") + t.paint(nil, t.surface).Render(" ")
-		width = max(width-2, 1)
-	}
-	style := m.toneStyle(p.tone)
-	lines := strings.Split(lipgloss.NewStyle().Width(width).Render(p.text), "\n")
-	for i, s := range lines {
-		lines[i] = prefix + style.Render(s)
-	}
-	return lines
+// boxLeft returns where the origin card starts in a diff w cells wide, and how wide it is.
+func (m *model) boxLeft(w int) (x, width int) {
+	x = m.cardLeft(m.files[m.rows[m.cursor].file], w)
+	return x, w - x
 }
 
-// headLine draws p, a header of a thread, width cells wide: its bar and its text, cut to fit
-// without splitting a wide character, then its badge and its note at the right edge, each
-// only when it fits whole two cells after what comes before. Line breaks and tabs in any of
-// them draw as spaces, so the header stays one row.
-func (m *model) headLine(p paragraph, width int) string {
-	t := &m.theme
-	base := t.paint(nil, t.surface)
-	l := newLine(width)
-	l.add("▍", m.barStyle(p.bar))
-	l.add(" ", base)
-	l.add(oneLine.Replace(p.text), m.toneStyle(p.tone))
-	if b := oneLine.Replace(p.badge.text); b != "" && ansi.StringWidth(b)+2 <= l.free {
-		l.add("  ", base)
-		l.add(b, m.toneStyle(p.badge.tone))
-	}
-	note := oneLine.Replace(p.note.text)
-	if n := ansi.StringWidth(note); n > 0 && n+2 <= l.free {
-		l.add(strings.Repeat(" ", l.free-n), base)
-		l.add(note, m.toneStyle(p.note.tone))
-	}
-	return l.fill(base)
+// originLines returns the rows of the origin card's body in the diff as the screen lays it
+// out.
+func (m *model) originLines() []cardRow {
+	_, w := m.layout()
+	_, width := m.boxLeft(w)
+	return m.originRows(textWidth(width))
 }
 
-// oneLine turns line breaks and tabs into spaces for text drawn on a single row.
-var oneLine = strings.NewReplacer("\r\n", " ", "\n", " ", "\r", " ", "\t", " ")
-
-// questionTop returns the first line of the origin box's text to show so that the box shows
+// questionTop returns the first row of the origin card's body to show so that the card shows
 // q, a question about the cursor row, and its answer: the top when the thread fits down to
-// the end of the answer, or else the line that brings that end to the bottom of the box,
-// but no further down than q's header. It returns 0 when q is not about the cursor row.
+// the end of the answer, or else the row that brings that end to the bottom of the card,
+// but no further down than q's first row. It returns 0 when q is not about the cursor row.
 func (m *model) questionTop(q *question) int {
 	qs := m.questionsAt(m.cursor)
 	k := slices.Index(qs, q)
@@ -437,87 +456,23 @@ func (m *model) questionTop(q *question) int {
 		return 0
 	}
 	_, w := m.layout()
-	width := m.boxWidth(w)
-	count := func(paragraphs []paragraph) int {
-		n := 0
-		for _, p := range paragraphs {
-			n += len(m.paragraphLines(p, width))
-		}
-		return n
+	_, width := m.boxLeft(w)
+	width = textWidth(width)
+	start := 1 + k // the label, and the empty row after each question before q
+	for _, p := range qs[:k] {
+		start += len(m.exchange(p, width))
 	}
-	start := count(m.threadText(qs[:k])) + min(k, 1) // the questions before q, and the blank line after them
-	end := start + count(m.exchange(q))
+	end := start + len(m.exchange(q, width))
 	return min(start, max(end-m.boxRows(), 0))
 }
 
-// box draws the open origin box, w cells wide: a top border with the tag of the request
-// behind the cursor row and where the row is, the part of the text the box shows from
-// readTop, and a bottom border. Like tuicr's line comments it hangs from the code column to
-// the right edge and has no right border, so a wide character never pushes a border out of
-// line.
+// box draws the open origin card under the cursor row of a diff w cells wide: its header, its
+// body and the cards of the row's comments, which scroll as one from readTop, and its last
+// row.
 func (m *model) box(w int) []string {
-	t := &m.theme
-	x := m.boxLeft(w)
-	text := m.boxText(w)
-	text = text[m.readTop:min(m.readTop+m.boxRows(), len(text))]
-	pad := strings.Repeat(" ", x)
-	base, border := t.paint(nil, t.surface), t.paint(t.subtle, t.surface)
-	lines := make([]string, 0, len(text)+2)
-	lines = append(lines, pad+m.boxTop(w-x))
-	for _, s := range text {
-		l := newLine(w - x)
-		l.add("│ ", border)
-		l.add(s, lipgloss.NewStyle())
-		lines = append(lines, pad+l.fill(base))
-	}
-	return append(lines, pad+border.Render("╰"+strings.Repeat("─", max(w-x-1, 0))))
-}
-
-// boxTop draws the top border of the origin box, w cells wide: the tag of the request behind
-// a changed cursor row, where the row is, and the keys that ask from the box and close it
-// when there is room for them, or else the one that closes it. a shows when the box has
-// lines to ask about, the changed line of its row or those its newest question asked about.
-// A row of the split view goes by its main line, as the status line does.
-func (m *model) boxTop(w int) string {
-	t := &m.theme
-	border := t.paint(t.subtle, t.surface)
-	r := m.rows[m.cursor]
-	var title []span
-	if r.isChange() {
-		e := m.lines[r.main()].Edit
-		tag := span{text: "unknown", color: m.originColor(e), bold: true}
-		if e != nil {
-			tag.text = review.Tag(e, m.short)
-		}
-		title = append(title, tag, span{text: "  "})
-	}
-	title = append(title, span{text: m.where(), color: t.muted})
-	l := newLine(w)
-	l.add("╭─ ", border)
-	for _, s := range title {
-		l.add(s.text, t.paint(s.color, t.surface).Bold(s.bold))
-	}
-	l.add(" ", border)
-	esc := []span{{text: " "}, {text: "Esc", color: t.accent, bold: true}, {text: " close ", color: t.muted}}
-	hints := [][]span{esc}
-	if r.isChange() || m.hasQuestions(m.cursor) {
-		ask := []span{{text: " "}, {text: "a", color: t.accent, bold: true}, {text: " ask · ", color: t.muted}}
-		hints = [][]span{append(ask, esc[1:]...), esc}
-	}
-	var hint []span
-	rule := l.free
-	for _, h := range hints {
-		if n := l.free - spansWidth(h) - 1; n >= 2 { // a rule before the hint and a cell of it after
-			hint, rule = h, n
-			break
-		}
-	}
-	l.add(strings.Repeat("─", rule), border)
-	for _, s := range hint {
-		l.add(s.text, t.paint(s.color, t.surface).Bold(s.bold))
-	}
-	l.add(strings.Repeat("─", l.free), border)
-	return l.fill(border)
+	x, width := m.boxLeft(w)
+	c := m.originCard(width)
+	return m.frame(c, x, width, m.block(c, width), m.readTop, m.boxRows())
 }
 
 // where returns where the cursor row is: the path of its file, and the line number of the
@@ -534,56 +489,6 @@ func (m *model) where() string {
 		n = l.Old
 	}
 	return path + ":" + strconv.Itoa(n)
-}
-
-// toneStyle returns the style of a paragraph of tone k in the origin box.
-func (m *model) toneStyle(k tone) lipgloss.Style {
-	t := &m.theme
-	switch k {
-	case heading:
-		return t.paint(t.muted, t.surface).Bold(true)
-	case strong:
-		return t.paint(t.fg, t.surface).Bold(true)
-	case quiet:
-		return t.paint(t.muted, t.surface)
-	case warn:
-		return t.paint(t.pending, t.surface).Bold(true)
-	case trouble, guessed:
-		return t.paint(t.pending, t.surface)
-	case removal:
-		return t.paint(t.del, t.surface)
-	case leftSide:
-		return t.paint(t.del, t.surface).Bold(true)
-	case rightSide:
-		return t.paint(t.add, t.surface).Bold(true)
-	case agreed:
-		return t.paint(t.add, t.surface)
-	case chosen:
-		return t.paint(t.accent, t.surface)
-	case unsent:
-		return t.paint(t.pending, t.surface).Bold(true)
-	case fixOld:
-		return t.paint(t.fg, t.delbg)
-	case fixNew:
-		return t.paint(t.fg, t.addbg)
-	}
-	return t.paint(t.fg, t.surface)
-}
-
-// barStyle returns the style of bar b of a thread: a question's in the accent color, an
-// answer's in the color of added lines, a comment's in the warning color, and an earlier
-// one's dim.
-func (m *model) barStyle(b bar) lipgloss.Style {
-	t := &m.theme
-	switch b {
-	case askBar:
-		return t.paint(t.accent, t.surface)
-	case answerBar:
-		return t.paint(t.add, t.surface)
-	case changeBar:
-		return t.paint(t.pending, t.surface)
-	}
-	return t.paint(t.muted, t.surface)
 }
 
 // spansWidth returns the width of spans in cells.

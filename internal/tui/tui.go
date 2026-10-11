@@ -473,9 +473,8 @@ func (m *model) diffHeight() int {
 func (m *model) scroll() {
 	h := m.diffHeight()
 	if m.reading {
-		n := len(m.originLines())
-		m.readTop = max(min(m.readTop, n-m.boxRows()), 0)
-		h = max(h-m.boxHeight(n), 1) // the lines that fit beside the box
+		m.readTop = max(min(m.readTop, m.blockHeight()-m.boxRows()), 0)
+		h = max(h-m.boxHeight(), 1) // the lines that fit beside the card
 	}
 	m.top = max(min(m.top, m.cursor, m.fitTop(len(m.rows)-1, h)), m.fitTop(m.cursor, h))
 	if r := m.entryRow(); r >= 0 {

@@ -202,10 +202,11 @@ func (m *model) layout() (list, diff int) {
 // diffLines draws the rows on the screen, w cells wide and h lines high. A blank line comes
 // above the header of each file but the top row, as GitHub leaves a gap between files; it
 // is only drawn, and moving through the rows does not see it. While the top row is inside a
-// file, the header of that file stays on the top line above it. The boxes of the comments on
+// file, the header of that file stays on the top line above it. The cards of the comments on
 // lines come under the row of their last line of the current file, and the open input box
-// of a or c under the row it is about, after them; they are only drawn too. The open origin
-// box comes right under the cursor row and its comments, and pushes the rows after it down.
+// of a or c under the row it is about, before them; they are only drawn too. The open origin
+// card comes right under the cursor row, before its comments, and pushes the rows after it
+// down.
 func (m *model) diffLines(w, h int) []string {
 	blank := strings.Repeat(" ", w)
 	lines := make([]string, 0, h+1)
@@ -222,9 +223,6 @@ func (m *model) diffLines(w, h int) []string {
 		}
 		lines = append(lines, m.drawRow(i, w))
 		lines = append(lines, m.underLines(i, w)...)
-		if m.reading && i == m.cursor {
-			lines = append(lines, m.box(w)...)
-		}
 	}
 	return lines[:h]
 }

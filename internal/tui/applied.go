@@ -1,37 +1,27 @@
 package tui
 
 import (
-	"strings"
-
 	"github.com/JinmuGo/dr/internal/agent"
 	"github.com/JinmuGo/dr/internal/origin"
-	"github.com/JinmuGo/dr/internal/review"
 )
 
-// fixText tells who wrote or deleted l when a fix dr applied did: the session the comment
-// went to, that dr applied a fix it sent for the comment, the comment, what the session
-// said with the fix, and the fork and the model that sent it.
-func (m *model) fixText(l origin.Line) []paragraph {
+// fixRows tells who wrote or deleted l when a fix dr applied did, wrapped to width: that dr
+// applied a fix the session sent for the comment, the comment, what the session said with
+// the fix, and the session, the fork and the model that sent it.
+func (m *model) fixRows(l origin.Line, width int) []cardRow {
+	t := &m.theme
 	e := l.Edit
-	paragraphs := []paragraph{
-		{text: "Session", tone: heading},
-		{text: review.Tag(e, m.short), tone: strong},
-		{text: review.Visible(e.Session), tone: quiet},
-	}
+	var deleted []cardRow
 	if l.New == 0 {
-		paragraphs = append(paragraphs, paragraph{text: "This fix deleted the line", tone: removal})
+		deleted = wrapped("This fix deleted the line", chunk{color: t.del}, width)
 	}
-	paragraphs = append(paragraphs, paragraph{}, paragraph{text: "dr applied a fix this session sent for your comment"})
-	paragraphs = append(paragraphs, section("Comment", e.Fix.Comment)...)
-	paragraphs = append(paragraphs, section("Note", e.Fix.Note)...)
-	var sent []string
-	if e.Fix.Fork != "" {
-		sent = append(sent, "fork "+e.Fix.Fork)
-	}
-	if e.Model != "" {
-		sent = append(sent, modelName(e.Model))
-	}
-	return append(paragraphs, section("Sent by", strings.Join(sent, " · "))...)
+	return joinGroups(
+		deleted,
+		append([]cardRow{m.label("FIX", "")}, wrapped("dr applied a fix this session sent for your comment", chunk{color: t.fg}, width)...),
+		m.section("YOUR COMMENT", "", e.Fix.Comment, chunk{color: t.fg}, width),
+		m.section("NOTE", "", e.Fix.Note, chunk{color: t.muted, italic: true}, width),
+		m.sessionRows(e, e.Fix.Fork),
+	)
 }
 
 // requestText returns what was asked for the edit e: the request of its session, or the

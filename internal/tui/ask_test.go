@@ -78,32 +78,49 @@ func typeAndKeep(m *model, keys string) tea.Cmd {
 	return cmd
 }
 
-// boxText returns the text of the origin box of the cursor row, as paragraphText writes it.
+// boxText returns the text of the origin card's body of the cursor row, as rowsText writes
+// it.
 func boxText(m *model) string {
-	return paragraphText(m.originText())
+	return rowsText(m.originLines())
 }
 
-// paragraphText returns the text of paragraphs, a paragraph a line: a paragraph of a thread
-// after "▍ ", a header with its badge and its note two spaces after its text, and a rule as
-// "─".
-func paragraphText(paragraphs []paragraph) string {
-	var texts []string
-	for _, p := range paragraphs {
-		text := p.text
-		for _, s := range []string{p.badge.text, p.note.text} {
-			if s != "" {
-				text += "  " + s
+// cardText returns the text of the origin card of the cursor row as the screen lays it out,
+// its header first, as rowsText writes it.
+func cardText(m *model) string {
+	_, w := m.layout()
+	_, width := m.boxLeft(w)
+	k := m.originCard(width)
+	return rowsText(append([]cardRow{k.head}, k.rows...))
+}
+
+// rowsText returns the text of rows, a row a line: its chunks at the left, then two spaces
+// and those at the right edge; a rule as "╌", and a line of a small diff as its sign and its
+// code.
+func rowsText(rows []cardRow) string {
+	texts := make([]string, len(rows))
+	for i, r := range rows {
+		switch {
+		case r.rule:
+			texts[i] = "╌"
+		case r.sign != 0:
+			texts[i] = string(r.sign) + " " + join(r.code)
+		default:
+			texts[i] = chunksText(r.left)
+			if right := chunksText(r.right); right != "" {
+				texts[i] += "  " + right
 			}
 		}
-		switch {
-		case p.rule:
-			text = "─"
-		case p.bar != noBar:
-			text = strings.TrimSuffix("▍ "+text, " ")
-		}
-		texts = append(texts, text)
 	}
 	return strings.Join(texts, "\n")
+}
+
+// chunksText returns the text of chunks.
+func chunksText(chunks []chunk) string {
+	var b strings.Builder
+	for _, c := range chunks {
+		b.WriteString(c.text)
+	}
+	return b.String()
 }
 
 // askFiles returns testFiles and two more files. In d.go, rows 27 to 34, a Codex session
@@ -335,11 +352,11 @@ func TestAskOthers(t *testing.T) {
 		if got := f.asked(); len(got) != 1 || got[0] != want {
 			t.Errorf("%s: asked\n%+v\nwant\n%+v", tc.name, got, want)
 		}
-		thread := "Questions · 1\n▍ You  just now\n▍ " + tc.placeholder + "\n▍\n▍ " + tc.who + "  ● decided  " + tc.note + "\n"
+		thread := "THREAD · 1\nyou  just now\n" + tc.placeholder + "\n● " + tc.who + "  decided  " + tc.note + "\n"
 		if tc.relation != "" {
-			thread += "▍ " + tc.relation + "\n"
+			thread += "↳ " + tc.relation + "\n"
 		}
-		thread += "▍ 토큰 버킷이라 float64로 했어요.\n─\n"
+		thread += "토큰 버킷이라 float64로 했어요.\n╌\n"
 		if text := boxText(m); !strings.HasPrefix(text, thread) {
 			t.Errorf("%s: the box\n%s\nwant it to start with\n%s", tc.name, text, thread)
 		}
@@ -358,7 +375,7 @@ func TestAskNewSession(t *testing.T) {
 	}
 	// A new session has no model of its own that another could answer in place of. The model
 	// shows without its provider.
-	const thread = "▍ Why gone?\n▍\n▍ omp, new session  ● guess  claude-opus-5-5 · 1s\n▍ new session, without this code's history\n▍ 추측이에요.\n─\n"
+	const thread = "Why gone?\n● omp, new session  guess  claude-opus-5-5 · 1s\n↳ new session, without this code's history\n추측이에요.\n╌\n"
 	if text := boxText(m); !strings.Contains(text, thread) {
 		t.Errorf("the box:\n%s\nwant the question, who was asked, the answer and its model", text)
 	}
@@ -420,7 +437,7 @@ func TestAskAnswer(t *testing.T) {
 	m := askScreen(testFiles(), Saved{Dir: dir}, f)
 	m.now = func() time.Time { return start }
 	cmd := typeAndKeep(m, "4ja<enter>")
-	waiting := "Questions · 1\n▍ You  just now\n▍ " + whyAdded + "\n▍\n▍ claude c1a0  asking… 0s\n─\nSession\nclaude c1a0 #1\n"
+	waiting := "THREAD · 1\nyou  just now\n" + whyAdded + "\n● claude c1a0  " + askingFor(0) + "\n╌\n\nREQUEST · #1\n"
 	if text := boxText(m); !m.reading || m.cursor != 4 || !strings.HasPrefix(text, waiting) {
 		t.Fatalf("after Enter: box open %t at row %d with\n%s\nwant it open at row 4, starting with\n%s", m.reading, m.cursor, text, waiting)
 	}
@@ -435,12 +452,12 @@ func TestAskAnswer(t *testing.T) {
 	if got := f.asked(); len(got) != 1 || got[0] != want {
 		t.Errorf("asked %+v, want %+v", got, want)
 	}
-	answered := "Questions · 1\n▍ You  just now\n▍ " + whyAdded + "\n▍\n▍ claude c1a0  ● decided  claude-opus-5-5 · 7s\n▍ 토큰 버킷이라 float64로 했어요.\n─\nSession\n"
+	answered := "THREAD · 1\nyou  just now\n" + whyAdded + "\n● claude c1a0  decided  claude-opus-5-5 · 7s\n토큰 버킷이라 float64로 했어요.\n╌\n\nREQUEST"
 	if text := boxText(m); !strings.HasPrefix(text, answered) {
 		t.Errorf("the box:\n%s\nwant it to start with\n%s", text, answered)
 	}
 	s := screen(t, m)
-	if !strings.Contains(s, "▍ 토큰 버킷이라 float64로 했어요.") || strings.Contains(s, "[decided]") || strings.Contains(s, "asking…") || m.message != "" {
+	if !strings.Contains(s, "▎ 토큰 버킷이라 float64로 했어요.") || strings.Contains(s, "[decided]") || strings.Contains(s, "asking…") || m.message != "" {
 		t.Errorf("the box shows the answer without its tag, so the status line says nothing, got %q:\n%s", m.message, s)
 	}
 
@@ -451,7 +468,7 @@ func TestAskAnswer(t *testing.T) {
 	if got := f.asked(); len(got) != 2 || got[1].Fork != "fork-1" || !strings.Contains(got[1].Prompt, "a.go, deleted line 2 of the base file.") {
 		t.Errorf("the second question: got %+v, want it in fork-1 about the deleted line 2", got)
 	}
-	if text := boxText(m); !strings.Contains(text, "▍ Why delete it?\n▍\n▍ claude c1a0  claude-opus-5-5 · 7s\n▍ 지운 줄이에요.\n") || strings.Contains(text, whyAdded) {
+	if text := boxText(m); !strings.Contains(text, "Why delete it?\n● claude c1a0  claude-opus-5-5 · 7s\n지운 줄이에요.\n") || strings.Contains(text, whyAdded) {
 		t.Errorf("the box of row 3:\n%s\nwant only its own question", text)
 	}
 	records, bad, err := state.NewLog(filepath.Join(dir, logFile)).Read()
@@ -482,45 +499,80 @@ func TestAskAnswer(t *testing.T) {
 }
 
 func TestAskModels(t *testing.T) {
-	// The header of an answer has the badge of its tag, and at its right edge the model that
-	// answered, without its provider, and how long it took; in the warning color with the
-	// session's model when that is another. A question without an answer says no answer,
-	// and why under it.
+	// The header of an answer has the session's dot and name in its color, the badge of its
+	// tag as a chip, green, blue or amber, and at its right edge the model that answered,
+	// without its provider, and how long it took; in the warning color with the session's
+	// model when that is another. A question without an answer says no answer on a red chip,
+	// and why under it in red.
+	type pick func(*theme) color.Color
 	for _, tc := range []struct {
-		name        string
-		answer      agent.Answer
-		err         error
-		badge, note part
-		body        paragraph
+		name       string
+		answer     agent.Answer
+		err        error
+		badge      string
+		badgeColor pick // nil for no badge
+		note       string
+		warn       bool
+		body       string
+		bodyColor  pick
 	}{
 		{
 			name: "the session's model", answer: answer,
-			badge: part{"● decided", agreed}, note: part{"claude-opus-5-5 · 7s", quiet},
-			body: paragraph{text: "토큰 버킷이라 float64로 했어요.", bar: answerBar},
+			badge: "decided", badgeColor: func(t *theme) color.Color { return t.add }, note: "claude-opus-5-5 · 7s",
+			body: "토큰 버킷이라 float64로 했어요.", bodyColor: func(t *theme) color.Color { return t.fg },
 		},
 		{
 			name: "the session's model from a provider", answer: agent.Answer{Fork: "f", Text: "[chose] a", Model: "anthropic/claude-opus-5-5", Took: 41 * time.Second},
-			badge: part{"● chose", chosen}, note: part{"claude-opus-5-5 · 41s", quiet}, body: paragraph{text: "a", bar: answerBar},
+			badge: "chose", badgeColor: func(t *theme) color.Color { return t.accent }, note: "claude-opus-5-5 · 41s",
+			body: "a", bodyColor: func(t *theme) color.Color { return t.fg },
 		},
 		{
 			name: "another model", answer: agent.Answer{Fork: "f", Text: "a [guess]", Model: "claude-sonnet-5", Took: 7 * time.Second},
-			badge: part{"● guess", guessed}, note: part{"claude-sonnet-5, not claude-opus-5-5 · 7s", trouble}, body: paragraph{text: "a", bar: answerBar},
+			badge: "guess", badgeColor: func(t *theme) color.Color { return t.pending }, note: "claude-sonnet-5, not claude-opus-5-5 · 7s", warn: true,
+			body: "a", bodyColor: func(t *theme) color.Color { return t.fg },
 		},
 		{
 			name: "no model", answer: agent.Answer{Fork: "f", Text: "a"},
-			note: part{"unknown, not claude-opus-5-5 · 0s", trouble}, body: paragraph{text: "a", bar: answerBar},
+			note: "unknown, not claude-opus-5-5 · 0s", warn: true, body: "a", bodyColor: func(t *theme) color.Color { return t.fg },
 		},
 		{
 			name: "no answer", err: errors.New("claude is not installed or not in PATH"),
-			badge: part{"no answer", trouble}, body: paragraph{text: "claude is not installed or not in PATH", tone: trouble, bar: answerBar},
+			badge: "no answer", badgeColor: func(t *theme) color.Color { return t.del },
+			body: "claude is not installed or not in PATH", bodyColor: func(t *theme) color.Color { return t.del },
 		},
 	} {
 		m := askScreen(testFiles(), Saved{}, &fakeAsk{answer: tc.answer, err: tc.err})
 		typeKeys(m, "4ja<enter>")
-		got := m.originText()
-		i := slices.IndexFunc(got, func(p paragraph) bool { return p.head && p.bar == answerBar })
-		if i < 0 || got[i].badge != tc.badge || got[i].note != tc.note || got[i+1] != tc.body {
-			t.Errorf("%s: the box\n%s\nwant the badge %+v, the note %+v and then %+v", tc.name, boxText(m), tc.badge, tc.note, tc.body)
+		th := &m.theme
+		rows := m.originLines()
+		i := slices.IndexFunc(rows, func(r cardRow) bool { return strings.HasPrefix(chunksText(r.left), "● claude c1a0") })
+		if i < 0 || i+1 >= len(rows) {
+			t.Fatalf("%s: no answer header in\n%s", tc.name, boxText(m))
+		}
+		head, own := rows[i].left, m.sessionColor(session{"claude", claudeSession})
+		if head[0].color != own || head[1] != (chunk{text: "claude c1a0", color: own, bold: true}) {
+			t.Errorf("%s: who answered %+v, want the dot and the name in the session's color", tc.name, head[:2])
+		}
+		last := head[len(head)-1]
+		switch {
+		case tc.badgeColor == nil && last.chip:
+			t.Errorf("%s: badge %+v, want none", tc.name, last)
+		case tc.badgeColor != nil && last != (chunk{text: tc.badge, color: tc.badgeColor(th), chip: true}):
+			t.Errorf("%s: badge %+v, want the chip %q", tc.name, last, tc.badge)
+		}
+		var note []chunk
+		if tc.note != "" {
+			c := th.subtle
+			if tc.warn {
+				c = th.pending
+			}
+			note = []chunk{{text: tc.note, color: c}}
+		}
+		if !slices.Equal(rows[i].right, note) {
+			t.Errorf("%s: note %+v, want %+v", tc.name, rows[i].right, note)
+		}
+		if body := rows[i+1].left; len(body) != 1 || body[0] != (chunk{text: tc.body, color: tc.bodyColor(th)}) {
+			t.Errorf("%s: then %+v, want %q", tc.name, body, tc.body)
 		}
 	}
 }
@@ -532,27 +584,33 @@ func TestModelNote(t *testing.T) {
 	// one picked when the CLI did not tell.
 	for _, tc := range []struct {
 		name, model, own, picked string
-		want                     part
+		want                     string
+		warn                     bool
 	}{
-		{name: "own unknown", model: "claude-opus-5-5", want: part{"claude-opus-5-5 · 8s", quiet}},
-		{name: "both unknown", want: part{"unknown · 8s", quiet}},
-		{name: "answering unknown", own: "claude-opus-5-5", want: part{"unknown, not claude-opus-5-5 · 8s", trouble}},
-		{name: "another model", model: "claude-sonnet-5", own: "claude-opus-5-5", want: part{"claude-sonnet-5, not claude-opus-5-5 · 8s", trouble}},
-		{name: "same model", model: "anthropic/claude-opus-5-5", own: "claude-opus-5-5", want: part{"claude-opus-5-5 · 8s", quiet}},
-		{name: "picked, another answering", model: "claude-sonnet-5-5", own: "claude-opus-5-5", picked: "sonnet", want: part{"^claude-sonnet-5-5 · 8s", quiet}},
-		{name: "picked, answering unknown", own: "claude-opus-5-5", picked: "anthropic/claude-haiku-5-5", want: part{"^claude-haiku-5-5 · 8s", quiet}},
+		{name: "own unknown", model: "claude-opus-5-5", want: "claude-opus-5-5 · 8s"},
+		{name: "both unknown", want: "unknown · 8s"},
+		{name: "answering unknown", own: "claude-opus-5-5", want: "unknown, not claude-opus-5-5 · 8s", warn: true},
+		{name: "another model", model: "claude-sonnet-5", own: "claude-opus-5-5", want: "claude-sonnet-5, not claude-opus-5-5 · 8s", warn: true},
+		{name: "same model", model: "anthropic/claude-opus-5-5", own: "claude-opus-5-5", want: "claude-opus-5-5 · 8s"},
+		{name: "picked, another answering", model: "claude-sonnet-5-5", own: "claude-opus-5-5", picked: "sonnet", want: "^claude-sonnet-5-5 · 8s"},
+		{name: "picked, answering unknown", own: "claude-opus-5-5", picked: "anthropic/claude-haiku-5-5", want: "^claude-haiku-5-5 · 8s"},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
-			q := &question{Question: state.Question{Relation: string(review.Author), Model: tc.picked}, own: tc.own}
-			if got := answeredBy(q, &state.Answer{Model: tc.model, TookMS: 8000}); got != tc.want {
-				t.Errorf("answer note: got %+v, want %+v", got, tc.want)
-			}
 			m := &model{
+				theme:   newTheme(nil, true, false),
 				newest:  map[session]*agent.Edit{{"claude", "s"}: {Model: tc.own}},
 				records: state.Records{Requests: []state.Request{{ID: "r", Agent: "claude", Session: "s", Model: tc.picked}}},
 			}
-			if got := m.fixedBy(&state.Fix{Request: "r", Agent: "claude", Session: "s", Model: tc.model, TookMS: 8000}); got != tc.want {
-				t.Errorf("fix note: got %+v, want %+v", got, tc.want)
+			want := chunk{text: tc.want, color: m.theme.subtle}
+			if tc.warn {
+				want.color = m.theme.pending
+			}
+			q := &question{Question: state.Question{Relation: string(review.Author), Model: tc.picked}, own: tc.own}
+			if got := m.answeredBy(q, &state.Answer{Model: tc.model, TookMS: 8000}); got != want {
+				t.Errorf("answer note: got %+v, want %+v", got, want)
+			}
+			if got := m.fixedBy(&state.Fix{Request: "r", Agent: "claude", Session: "s", Model: tc.model, TookMS: 8000}); got != want {
+				t.Errorf("fix note: got %+v, want %+v", got, want)
 			}
 		})
 	}
@@ -569,19 +627,19 @@ func TestAskNotice(t *testing.T) {
 	}{
 		{
 			name: "box closed", keys: "<esc>G", notice: "Answer from claude c1a0 #1 on a.go:2. Enter to read",
-			answer: "▍ claude c1a0  ● decided  claude-opus-5-5 · 7s\n▍ 토큰 버킷이라 float64로 했어요.\n─",
+			answer: "● claude c1a0  decided  claude-opus-5-5 · 7s\n토큰 버킷이라 float64로 했어요.\n╌",
 		},
 		{
 			name: "box on another line", keys: "<esc>2j<enter>", notice: "Answer from claude c1a0 #1 on a.go:2. Enter to read",
-			answer: "▍ claude c1a0  ● decided  claude-opus-5-5 · 7s\n▍ 토큰 버킷이라 float64로 했어요.\n─",
+			answer: "● claude c1a0  decided  claude-opus-5-5 · 7s\n토큰 버킷이라 float64로 했어요.\n╌",
 		},
 		{
 			name: "file folded since", keys: "<esc>v", notice: "Answer from claude c1a0 #1 on a.go:2. Enter to read",
-			answer: "▍ claude c1a0  ● decided  claude-opus-5-5 · 7s\n▍ 토큰 버킷이라 float64로 했어요.\n─",
+			answer: "● claude c1a0  decided  claude-opus-5-5 · 7s\n토큰 버킷이라 float64로 했어요.\n╌",
 		},
 		{
 			name: "no answer", keys: "<esc>", err: errors.New("no answer in 3 minutes"), notice: "No answer from claude c1a0 #1 on a.go:2. Enter to read",
-			answer: "▍ claude c1a0  no answer\n▍ no answer in 3 minutes\n─",
+			answer: "● claude c1a0  no answer\nno answer in 3 minutes\n╌",
 		},
 	} {
 		m := askScreen(testFiles(), Saved{Dir: t.TempDir()}, &fakeAsk{answer: answer, err: tc.err})
@@ -592,7 +650,7 @@ func TestAskNotice(t *testing.T) {
 			t.Errorf("%s: status line %q with tone %d, want %q", tc.name, status, m.tone, tc.notice)
 		}
 		typeKeys(m, "<enter>")
-		want := "Questions · 1\n▍ You  just now\n▍ " + whyAdded + "\n▍\n" + tc.answer
+		want := "THREAD · 1\nyou  just now\n" + whyAdded + "\n" + tc.answer
 		if text := boxText(m); m.cursor != 4 || !m.reading || !strings.HasPrefix(text, want) || m.message != "" {
 			t.Errorf("%s: Enter left the cursor at row %d with the box open %t:\n%s\nwant the box of row 4 starting with\n%s", tc.name, m.cursor, m.reading, text, want)
 		}
@@ -603,7 +661,7 @@ func TestAskNotice(t *testing.T) {
 	typeKeys(m, "<esc>G")
 	send(m, cmd())
 	typeKeys(m, "k<enter>")
-	if m.cursor != 25 || m.unread != nil || strings.Contains(boxText(m), "Questions") {
+	if m.cursor != 25 || m.unread != nil || strings.Contains(boxText(m), "THREAD") {
 		t.Errorf("k, Enter: cursor at row %d, still unread %t; want the box of row 25", m.cursor, m.unread != nil)
 	}
 }
@@ -622,20 +680,20 @@ func TestAskTick(t *testing.T) {
 	}
 	typeKeys(m, "4j<enter>jk<esc>")
 	cmd := typeAndKeep(m, "a<enter>")
-	if text := boxText(m); ticks != 1 || !strings.Contains(text, "\n▍ claude c1a0  asking… 0s\n") {
+	if text := boxText(m); ticks != 1 || !strings.Contains(text, "\n● claude c1a0  "+askingFor(0)+"\n") {
 		t.Errorf("after the question went: %d ticks, the box\n%s\nwant 1 tick and the question waiting 0s", ticks, text)
 	}
 	now = now.Add(12 * time.Second)
 	typeKeys(m, "j") // keys while the tick is on its way ask for no more
 	m.Update(tickMsg{})
-	if text := boxText(m); ticks != 2 || !strings.Contains(text, "\n▍ You  just now\n") || !strings.Contains(text, "\n▍ claude c1a0  asking… 12s\n") {
+	if text := boxText(m); ticks != 2 || !strings.Contains(text, "\nyou  just now\n") || !strings.Contains(text, "\n● claude c1a0  "+askingFor(12*time.Second)+"\n") {
 		t.Errorf("after a tick 12s later: %d ticks, the box\n%s\nwant 2 ticks and the question waiting 12s", ticks, text)
 	}
 	send(m, cmd())
 	m.Update(tickMsg{}) // the tick on its way when the answer came
 	now = now.Add(4 * time.Minute)
 	typeKeys(m, "jk")
-	if text := boxText(m); ticks != 2 || !strings.Contains(text, "\n▍ You  4m\n") || !strings.Contains(text, "\n▍ claude c1a0  ● decided  claude-opus-5-5 · 7s\n") {
+	if text := boxText(m); ticks != 2 || !strings.Contains(text, "\nyou  4m\n") || !strings.Contains(text, "\n● claude c1a0  decided  claude-opus-5-5 · 7s\n") {
 		t.Errorf("after the answer: %d ticks, the box\n%s\nwant still 2 ticks, the question 4m ago and its answer", ticks, text)
 	}
 }
@@ -647,15 +705,16 @@ func TestAskFromBox(t *testing.T) {
 	// opens the origin box again, which stays under its row and shows the newest question with
 	// its answer when the thread does not fit. In a box without questions a asks about the
 	// box's changed line, and in a box with nothing to ask about it says why and the origin
-	// box stays. The top border of the origin box tells of a where it asks.
+	// box stays. The header of the origin card tells of a where it asks, as a follow-up in a
+	// thread.
 	f := &fakeAsk{answer: answer}
 	m := askScreen(testFiles(), Saved{}, f)
 	m.Update(tea.WindowSizeMsg{Width: 125, Height: 14}) // the box shows 9 lines of its text
 	top := func() string { return strings.Split(screen(t, m), "\n")[cursorLine(m)+1] }
 	typeKeys(m, "2jVjja<enter>")
 	f.answer.Text = "[chose] 둘 다 버킷 상태라서요."
-	if !strings.Contains(top(), "a ask · Esc close") {
-		t.Errorf("the top border %q does not tell of a", top())
+	if !strings.Contains(top(), "a follow-up   ⏎ close") {
+		t.Errorf("the card's header %q does not tell of a", top())
 	}
 	typeKeys(m, "a")
 	if box := entryBox(t, m); m.reading || m.cursor != 4 || !strings.Contains(top(), "┏━ Ask claude c1a0 #1 · L1-2 ") ||
@@ -667,12 +726,12 @@ func TestAskFromBox(t *testing.T) {
 	if got := f.asked(); len(got) != 2 || got[1].Fork != "fork-1" || !strings.HasSuffix(got[1].Prompt, lines+"Why both?"+questionEnd) {
 		t.Errorf("asked %+v, want the follow-up in fork-1 about the selection", got)
 	}
-	thread := "Questions · 2\n▍ You  just now\n▍ " + whyLines + "\n▍\n▍ claude c1a0  ● decided  claude-opus-5-5 · 7s\n▍ 토큰 버킷이라 float64로 했어요.\n\n" +
-		"▍ You  just now\n▍ Why both?\n▍\n▍ claude c1a0  ● chose  claude-opus-5-5 · 7s\n▍ 둘 다 버킷 상태라서요.\n─\n"
+	thread := "THREAD · 2\nyou  just now\n" + whyLines + "\n● claude c1a0  decided  claude-opus-5-5 · 7s\n토큰 버킷이라 float64로 했어요.\n\n" +
+		"you  just now\nWhy both?\n● claude c1a0  chose  claude-opus-5-5 · 7s\n둘 다 버킷 상태라서요.\n╌\n"
 	if text := boxText(m); !m.reading || m.typing() || m.cursor != 4 || !strings.HasPrefix(text, thread) {
 		t.Errorf("box open %t at row %d:\n%s\nwant it open at row 4 starting with\n%s", m.reading, m.cursor, text, thread)
 	}
-	if s := screen(t, m); !strings.Contains(s, "Why both?") || !strings.Contains(s, "둘 다 버킷 상태라서요.") || strings.Contains(s, "Questions · 2") {
+	if s := screen(t, m); !strings.Contains(s, "Why both?") || !strings.Contains(s, "둘 다 버킷 상태라서요.") || strings.Contains(s, "THREAD · 2") {
 		t.Errorf("the box does not show the newest question and its answer:\n%s", s)
 	}
 	for _, tc := range []struct {
@@ -687,7 +746,7 @@ func TestAskFromBox(t *testing.T) {
 		}
 	}
 	typeKeys(m, "<esc><esc>gg5j<enter>a")
-	if why := "Move to a changed line to ask"; !m.reading || m.typing() || m.message != why || !strings.Contains(top(), "─ Esc close") {
+	if why := "Move to a changed line to ask"; !m.reading || m.typing() || m.message != why || !strings.Contains(top(), "⏎ close") || strings.Contains(top(), "a ask") {
 		t.Errorf("a on an unchanged line: origin box open %t, input box open %t, message %q; want the origin box and %q", m.reading, m.typing(), m.message, why)
 	}
 }
@@ -710,41 +769,6 @@ func TestAskFromBoxEsc(t *testing.T) {
 	if !m.reading || m.typing() || m.readTop != 2 || m.cursor != 4 || len(f.asked()) != 0 {
 		t.Errorf("Esc: origin box open %t from line %d at row %d, input box open %t, %d questions; want the origin box as it was and none asked",
 			m.reading, m.readTop, m.cursor, m.typing(), len(f.asked()))
-	}
-}
-
-func TestThreadHeader(t *testing.T) {
-	// A header of a thread is a line as wide as the box. Its badge and its note are each left
-	// out whole when they do not fit two cells after the rest, a wide character that does not
-	// fit is left out whole, and line breaks and tabs draw as spaces.
-	m := askScreen(testFiles(), Saved{}, &fakeAsk{})
-	you := paragraph{text: "You", tone: strong, bar: askBar, head: true, note: part{"just now", quiet}}
-	who := paragraph{text: "claude 세션", tone: strong, bar: answerBar, head: true, badge: part{"● guess", guessed}, note: part{"claude-opus-5-5 · 7s", quiet}}
-	asking := paragraph{text: "claude c1a0de00", tone: strong, bar: answerBar, head: true, badge: part{"asking… 12s", quiet}}
-	decidedWho := paragraph{text: "claude 세션", tone: strong, bar: answerBar, head: true, badge: part{"● decided", agreed}}
-	broken := paragraph{text: "claude c1a0\nde00", tone: strong, bar: answerBar, head: true, badge: part{"● chose\r", chosen}, note: part{"opus\t5 · 7s", quiet}}
-	for _, tc := range []struct {
-		p     paragraph
-		width int
-		want  string
-	}{
-		{you, 20, "▍ You       just now"},
-		{you, 15, "▍ You  just now"},
-		{you, 14, "▍ You"},
-		{who, 44, "▍ claude 세션  ● guess  claude-opus-5-5 · 7s"},
-		{who, 43, "▍ claude 세션  ● guess"},
-		{who, 10, "▍ claude"},
-		{asking, 30, "▍ claude c1a0de00  asking… 12s"},
-		{asking, 29, "▍ claude c1a0de00"},
-		{asking, 28, "▍ claude c1a0de00"},
-		{decidedWho, 24, "▍ claude 세션  ● decided"},
-		{decidedWho, 23, "▍ claude 세션"},
-		{broken, 41, "▍ claude c1a0 de00  ● chose   opus 5 · 7s"},
-	} {
-		line := m.headLine(tc.p, tc.width)
-		if got := strings.TrimRight(ansi.Strip(line), " "); got != tc.want || ansi.StringWidth(line) != tc.width {
-			t.Errorf("%q at %d cells: got %q, %d cells; want %q", tc.p.text, tc.width, got, ansi.StringWidth(line), tc.want)
-		}
 	}
 }
 
@@ -921,7 +945,7 @@ func TestAskSelection(t *testing.T) {
 		if got := f.asked(); len(got) != 1 || got[0].Prompt != want {
 			t.Errorf("%q: asked %+v, want the prompt %q", tc.keys, got, want)
 		}
-		if m.selecting || !m.reading || m.cursor != tc.cursor || !strings.HasPrefix(boxText(m), "Questions · 1\n▍ You  just now\n▍ "+tc.placeholder+"\n") {
+		if m.selecting || !m.reading || m.cursor != tc.cursor || !strings.HasPrefix(boxText(m), "THREAD · 1\nyou  just now\n"+tc.placeholder+"\n") {
 			t.Errorf("%q: selecting %t, box open %t at row %d:\n%s\nwant the box of row %d with the question", tc.keys, m.selecting, m.reading, m.cursor, boxText(m), tc.cursor)
 		}
 	}
@@ -1032,15 +1056,15 @@ func TestEarlierQuestions(t *testing.T) {
 	}{
 		{
 			keys: "4j<enter>",
-			want: []string{"Questions · 1\n▍ You\n▍ Why Changed?\n▍\n▍ claude c1a0  claude-opus-5-5 · 6s\n▍ Because.\n─\nSession"},
+			want: []string{"THREAD · 1\nyou\nWhy Changed?\n● claude c1a0  claude-opus-5-5 · 6s\nBecause.\n╌\n\nREQUEST"},
 			not:  []string{"Why gone?"},
 		},
 		{
 			keys: "<esc>gg<enter>",
-			want: []string{"Earlier questions · 1\n>     gone line\n▍ You\n▍ Why gone?\n▍\n▍ claude c1a0  no answer\n▍ no answer in 3 minutes"},
+			want: []string{"EARLIER QUESTIONS · 1\n>     gone line\nyou\nWhy gone?\n● claude c1a0  no answer\nno answer in 3 minutes"},
 			not:  []string{"Why Changed?"},
 		},
-		{keys: "<esc>G<enter>", want: []string{"▍ Why x?\n▍\n▍ claude c1a0  no answer\n▍ dr closed before it came\n─"}},
+		{keys: "<esc>G<enter>", want: []string{"Why x?\n● claude c1a0  no answer\ndr closed before it came\n╌"}},
 	} {
 		typeKeys(m, tc.keys)
 		text := boxText(m)
@@ -1057,9 +1081,16 @@ func TestEarlierQuestions(t *testing.T) {
 	}
 	// The earlier questions are dim, and the header tells of them with a ?.
 	typeKeys(m, "<esc>gg<enter>")
-	for _, p := range m.originText() {
-		if strings.Contains(p.text, "gone") && p.tone != quiet || p.bar != noBar && (p.bar != dimBar || p.tone != quiet || p.badge.tone != quiet) {
-			t.Errorf("%+v is not dim", p)
+	rows := m.originLines()
+	k := slices.IndexFunc(rows, func(r cardRow) bool { return chunksText(r.left) == "EARLIER QUESTIONS · 1" })
+	if k < 0 {
+		t.Fatalf("no earlier questions in\n%s", boxText(m))
+	}
+	for _, r := range rows[k+1:] {
+		for _, c := range slices.Concat(r.left, r.right) {
+			if strings.TrimSpace(c.text) != "" && (c.color != m.theme.muted || c.bold) {
+				t.Errorf("%+v is not dim", c)
+			}
 		}
 	}
 	typeKeys(m, "<esc>j")

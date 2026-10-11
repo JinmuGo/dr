@@ -347,21 +347,21 @@ func TestPickerAsk(t *testing.T) {
 	if qs := records(t, dir).Questions; len(qs) != 1 || qs[0].Model != "gpt-6-luna" || qs[0].Text != "why?" {
 		t.Errorf("question records %+v, want one with the model picked", qs)
 	}
-	note := func(m *model) part { // of the newest answer in the open origin box
-		var last part
-		for _, p := range m.originText() {
-			if p.head && p.bar == answerBar {
-				last = p.note
+	note := func(m *model) []chunk { // of the newest answer in the open origin card
+		var last []chunk
+		for _, r := range m.originLines() {
+			if r.right != nil {
+				last = r.right
 			}
 		}
 		return last
 	}
-	if got, want := note(m), (part{"^gpt-6-luna · 7s", quiet}); got != want {
+	if got, want := note(m), []chunk{{text: "^gpt-6-luna · 7s", color: m.theme.subtle}}; !slices.Equal(got, want) {
 		t.Errorf("the answer's note %+v, want %+v", got, want)
 	}
 	f.answer.Model = "gpt-6-luna-2026-09"
 	typeKeys(m, "<esc>a^gpt-6-luna<enter><enter>")
-	if got, want := note(m), (part{"^gpt-6-luna-2026-09 · 7s", quiet}); got != want {
+	if got, want := note(m), []chunk{{text: "^gpt-6-luna-2026-09 · 7s", color: m.theme.subtle}}; !slices.Equal(got, want) {
 		t.Errorf("the second answer's note %+v, want %+v", got, want)
 	}
 	m = pickScreen(pickFiles(), dir, f, agentModels())
@@ -385,11 +385,11 @@ func TestPickerComment(t *testing.T) {
 	if records := commentRecords(t, dir); len(records) != 1 || records[0].Text != "fix" || records[0].Model != "claude-sonnet-5-5" {
 		t.Fatalf("records %+v, want the comment with its model", records)
 	}
-	const header = "▍ To claude c1a0 · ^claude-sonnet-5-5  pending"
-	if box := boxOf(m, m.comments[0]); !strings.HasPrefix(box, header+"\n") {
+	const header = "✎ you → ● claude c1a0 · a.go:2 · ^claude-sonnet-5-5   pending"
+	if box := boxOf(m, m.comments[0]); !strings.HasPrefix(box, header+"  c edit\n") {
 		t.Errorf("the comment's box:\n%s\nwant it headed %q", box, header)
 	}
-	if s := screen(t, m); !strings.Contains(s, "To claude c1a0 · ^claude-sonnet-5-5  pending") {
+	if s := screen(t, m); !strings.Contains(s, "✎ you → ● claude c1a0 · a.go:2 · ^claude-sonnet-5-5    pending ") {
 		t.Errorf("the screen\n%s\nhas no header with the model", s)
 	}
 	m = pickScreen(pickFiles(), dir, &fakeAsk{answer: answer}, agentModels())
@@ -466,14 +466,14 @@ func TestPickerSubmit(t *testing.T) {
 			}) {
 				t.Errorf("requests %+v, want the picked comment's with sonnet", requests)
 			}
-			if box := boxOf(m, picked); !strings.Contains(box, "fix  ^claude-sonnet-5-5 · 7s") {
+			if box := boxOf(m, picked); !strings.Contains(box, "◆ fix  from claude c1a0  ^claude-sonnet-5-5 · 7s") {
 				t.Errorf("box of %q:\n%s\nwant the fix's note marked with ^", tc.picked, box)
 			}
 			other := commentOf(m, "one")
 			if other == picked {
 				other = commentOf(m, "three")
 			}
-			if box := boxOf(m, other); !strings.Contains(box, "fix  claude-sonnet-5-5, not claude-opus-5-5 · 7s") {
+			if box := boxOf(m, other); !strings.Contains(box, "◆ fix  from claude c1a0  claude-sonnet-5-5, not claude-opus-5-5 · 7s") {
 				t.Errorf("box of %q:\n%s\nwant the fix's note warning of another model", other.Text, box)
 			}
 			typeAll(m, tc.edit)

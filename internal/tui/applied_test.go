@@ -26,14 +26,14 @@ func TestFixOrigin(t *testing.T) {
 	files, _ := fixFiles()
 	for _, tc := range []struct {
 		name, keys string
-		want       []string // in the box, in this order
+		want       []string // in the card, in this order
 		not        []string
 	}{
 		{
-			// The tag says fix in place of the request, and the box tells the comment, the
-			// note, the fork and the model.
+			// The tag says fix in place of the request, and the card tells the comment, the
+			// note, then the session, the fork and the model.
 			name: "a fixed line", keys: "4j",
-			want: []string{"claude c1a0 fix", claudeSession, "use errors.Is\nand wrap it", "the caller checks it too", "fork-7", "claude-sonnet-5"},
+			want: []string{"◆ claude c1a0 fix", "FIX\n", "YOUR COMMENT\nuse errors.Is\nand wrap it", "NOTE\nthe caller checks it too", "session " + claudeSession + " · fork fork-7 · claude-sonnet-5"},
 			not:  []string{"#"},
 		},
 		{
@@ -49,7 +49,7 @@ func TestFixOrigin(t *testing.T) {
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			m := end(t, openFiles(t, files, tc.keys))
-			text := boxText(m)
+			text := cardText(m)
 			at := 0
 			for _, s := range tc.want {
 				i := strings.Index(text[at:], s)
