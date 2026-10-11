@@ -237,7 +237,7 @@ func (m *model) exchange(q *question, width int) []cardRow {
 		tell(chunk{text: "no answer", color: t.del, chip: true})
 		answer = wrapped(review.Visible(a.Error), chunk{color: t.del}, width)
 	default:
-		kind, text := answerKind(a.Text)
+		kind, text := review.AnswerKind(a.Text)
 		if b, ok := m.badge(kind); ok {
 			tell(b)
 		}
@@ -326,17 +326,17 @@ func relationText(r review.Relation) string {
 	return ""
 }
 
-// badge returns the chip of an answer of kind k, as answerKind reads it from its tag: green
+// badge returns the chip of an answer of kind k, as review.AnswerKind reads it from its tag: green
 // for decided, blue for chose and amber for a guess. It reports false for no kind.
 func (m *model) badge(k string) (chunk, bool) {
 	t := &m.theme
 	switch k {
-	case decided:
-		return chunk{text: decided, color: t.add, chip: true}, true
-	case chose:
-		return chunk{text: chose, color: t.accent, chip: true}, true
-	case guess:
-		return chunk{text: guess, color: t.pending, chip: true}, true
+	case review.Decided:
+		return chunk{text: review.Decided, color: t.add, chip: true}, true
+	case review.Chose:
+		return chunk{text: review.Chose, color: t.accent, chip: true}, true
+	case review.Guess:
+		return chunk{text: review.Guess, color: t.pending, chip: true}, true
 	}
 	return chunk{}, false
 }

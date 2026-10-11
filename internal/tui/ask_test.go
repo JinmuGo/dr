@@ -284,58 +284,60 @@ func TestAskOthers(t *testing.T) {
 		installed   []string
 		label       string
 		placeholder string
-		ask         agent.Question // without the prompt
-		lines, end  string         // the prompt after the first line up to the question, and after it
-		who, note   string         // the header of the answer, without the badge
-		relation    string         // the dim line under it
+		ask         agent.Question  // without the prompt
+		rel         review.Relation // what the prompt tells the session of how it relates to the lines
+		path        string
+		lines       []origin.Line // the lines the prompt quotes
+		who, note   string        // the header of the answer, without the badge
+		relation    string        // the dim line under it
 	}{
 		{
 			name: "an OMP subagent", keys: "12j",
 			label: "omp a1f2 #1", placeholder: whyDeleted,
-			ask:   agent.Question{Agent: "omp", Session: ompSession, Log: subagent.Log, Cwd: "/work"},
-			lines: "a.go, deleted line 15 of the base file. Lines marked - were deleted.\n-line 15\n", end: questionEnd,
+			ask: agent.Question{Agent: "omp", Session: ompSession, Log: subagent.Log, Cwd: "/work"},
+			rel: review.Author, path: "a.go", lines: []origin.Line{{Text: "line 15", Old: 15}},
 			who: "omp a1f2", note: "claude-opus-5-5 · 7s",
 		},
 		{
 			name: "the parent of a Claude subagent", keys: "32G",
 			label: "claude c1a0, which started the subagent", placeholder: whyAddedOther,
-			ask:   agent.Question{Agent: "claude", Session: claudeSession, Cwd: "/work", Model: "claude-opus-5-5"},
-			lines: parentIntro + "\nd.go:3\n>subagent line\n", end: parentEnd,
+			ask: agent.Question{Agent: "claude", Session: claudeSession, Cwd: "/work", Model: "claude-opus-5-5"},
+			rel: review.Parent, path: "d.go", lines: []origin.Line{{Text: "subagent line", New: 3}},
 			who: "claude c1a0", note: "claude-opus-5-5 · 7s", relation: "started the subagent that wrote these lines",
 		},
 		{
 			name: "the session that edited the file last", keys: "16j",
 			label: "omp a1f2, which edited this file", placeholder: whyAddedOther,
-			ask:   agent.Question{Agent: "omp", Session: ompSession, Log: subagent.Log, Cwd: "/work"},
-			lines: editorIntro + "\na.go:18\n>new after 18\n", end: editorEnd,
+			ask: agent.Question{Agent: "omp", Session: ompSession, Log: subagent.Log, Cwd: "/work"},
+			rel: review.Editor, path: "a.go", lines: []origin.Line{{Text: "new after 18", New: 18}},
 			who: "omp a1f2", note: "claude-opus-5-5 · 7s", relation: "edited this file, not these lines",
 		},
 		{
 			name: "a deleted line the editor of the file did not write", keys: "34G",
 			label: "codex 3333, which edited this file", placeholder: whyDeletedOther,
-			ask:   agent.Question{Agent: "codex", Session: "c0dex000-3333", Cwd: "/work", Model: "gpt-6.1-sol", Effort: "medium"},
-			lines: editorIntro + "\nd.go, deleted line 3 of the base file. Lines marked - were deleted.\n-old line\n", end: editorEnd,
+			ask: agent.Question{Agent: "codex", Session: "c0dex000-3333", Cwd: "/work", Model: "gpt-6.1-sol", Effort: "medium"},
+			rel: review.Editor, path: "d.go", lines: []origin.Line{{Text: "old line", Old: 3}},
 			who: "codex 3333", note: "claude-opus-5-5, not gpt-6.1-sol · 7s", relation: "edited this file, not these lines",
 		},
 		{
 			name: "a new session", keys: "40G", installed: []string{"omp"},
 			label: "omp in a new session", placeholder: whyAddedOther,
-			ask:   agent.Question{Agent: "omp", Cwd: root},
-			lines: newIntro + "\ne.go:2\n>new\n", end: newEnd,
+			ask: agent.Question{Agent: "omp", Cwd: root},
+			rel: review.NewSession, path: "e.go", lines: []origin.Line{{Text: "new", New: 2}},
 			who: "omp, new session", note: "claude-opus-5-5 · 7s", relation: "new session, without this code's history",
 		},
 		{
 			name: "a new session of the agent behind the most edits", keys: "39G",
 			label: "claude in a new session", placeholder: whyDeletedOther,
-			ask:   agent.Question{Agent: "claude", Cwd: root},
-			lines: newIntro + "\ne.go, deleted line 2 of the base file. Lines marked - were deleted.\n-gone\n", end: newEnd,
+			ask: agent.Question{Agent: "claude", Cwd: root},
+			rel: review.NewSession, path: "e.go", lines: []origin.Line{{Text: "gone", Old: 2}},
 			who: "claude, new session", note: "claude-opus-5-5 · 7s", relation: "new session, without this code's history",
 		},
 		{
 			name: "lines for a new session", keys: "39GVj", installed: []string{"codex", "omp"},
 			label: "codex in a new session", placeholder: whyLinesOther,
-			ask:   agent.Question{Agent: "codex", Cwd: root},
-			lines: newIntro + "\ne.go:2. Lines marked - were deleted.\n-gone\n>new\n", end: newEnd,
+			ask: agent.Question{Agent: "codex", Cwd: root},
+			rel: review.NewSession, path: "e.go", lines: []origin.Line{{Text: "gone", Old: 2}, {Text: "new", New: 2}},
 			who: "codex, new session", note: "claude-opus-5-5 · 7s", relation: "new session, without this code's history",
 		},
 	} {
@@ -347,7 +349,7 @@ func TestAskOthers(t *testing.T) {
 		}
 		typeKeys(m, "<enter>")
 		want := tc.ask
-		want.Prompt = "[dr] Review question. Do not change any code, just answer.\n" + tc.lines + tc.placeholder + tc.end
+		want.Prompt = review.Prompt(tc.rel, tc.path, tc.lines, tc.placeholder)
 		if got := f.asked(); len(got) != 1 || got[0] != want {
 			t.Errorf("%s: asked\n%+v\nwant\n%+v", tc.name, got, want)
 		}
@@ -446,7 +448,7 @@ func TestAskAnswer(t *testing.T) {
 	send(m, cmd())
 	want := agent.Question{
 		Agent: "claude", Session: claudeSession, Cwd: "/work", Model: "claude-opus-5-5",
-		Prompt: "[dr] Review question. Do not change any code, just answer.\na.go:2\n>Changed 2\n" + whyAdded + questionEnd,
+		Prompt: review.Prompt(review.Author, "a.go", []origin.Line{{Text: "Changed 2", New: 2}}, whyAdded),
 	}
 	if got := f.asked(); len(got) != 1 || got[0] != want {
 		t.Errorf("asked %+v, want %+v", got, want)
@@ -733,8 +735,8 @@ func TestAskFromBox(t *testing.T) {
 		t.Errorf("a in the box: origin box open %t at row %d, the line under it %q; want the input box for the selection there", m.reading, m.cursor, top())
 	}
 	typeKeys(m, "Why both?<enter>")
-	const lines = "\na.go:1-2. Lines marked - were deleted.\n>line 1\n-line 2\n>Changed 2\n"
-	if got := f.asked(); len(got) != 2 || got[1].Fork != "fork-1" || !strings.HasSuffix(got[1].Prompt, lines+"Why both?"+questionEnd) {
+	lines := []origin.Line{{Text: "line 1", Old: 1, New: 1}, {Text: "line 2", Old: 2}, {Text: "Changed 2", New: 2}}
+	if got := f.asked(); len(got) != 2 || got[1].Fork != "fork-1" || got[1].Prompt != review.Prompt(review.Author, "a.go", lines, "Why both?") {
 		t.Errorf("asked %+v, want the follow-up in fork-1 about the selection", got)
 	}
 	thread := "THREAD · 2\nyou  just now\n" + whyLines + "\n● claude c1a0  decided  claude-opus-5-5 · 7s\n토큰 버킷이라 float64로 했어요.\n\n" +
@@ -780,33 +782,6 @@ func TestAskFromBoxEsc(t *testing.T) {
 	if !m.reading || m.typing() || m.readTop != 2 || m.cursor != 4 || len(f.asked()) != 0 {
 		t.Errorf("Esc: origin box open %t from line %d at row %d, input box open %t, %d questions; want the origin box as it was and none asked",
 			m.reading, m.readTop, m.cursor, m.typing(), len(f.asked()))
-	}
-}
-
-func TestAnswerKind(t *testing.T) {
-	// The tag of an answer is at its start after any space, or else at its end, in any case,
-	// also wrapped in ** or backticks. The box shows the answer without it.
-	for _, tc := range []struct {
-		text, kind, rest string
-	}{
-		{"[decided] Agreed in the first request.", decided, "Agreed in the first request."},
-		{" \n[chose] I picked it.", chose, "I picked it."},
-		{"[GUESS] Probably for speed.", guess, "Probably for speed."},
-		{"[Decided]\nWe agreed.", decided, "We agreed."},
-		{"**[chose]** I picked it.", chose, "I picked it."},
-		{"`[guess]` Maybe.", guess, "Maybe."},
-		{"I picked it. [chose]", chose, "I picked it."},
-		{"토큰 버킷이라서요. **[Decided]**\n", decided, "토큰 버킷이라서요."},
-		{"It was agreed. `[DECIDED]`", decided, "It was agreed."},
-		{"[guess] Maybe. [chose]", guess, "Maybe. [chose]"}, // the start goes first
-		{"No tag.", "", "No tag."},
-		{"[unsure] Maybe.", "", "[unsure] Maybe."},
-		{"A [chose] in the middle is no tag.", "", "A [chose] in the middle is no tag."},
-		{"", "", ""},
-	} {
-		if kind, rest := answerKind(tc.text); kind != tc.kind || rest != tc.rest {
-			t.Errorf("%q: got %q and %q, want %q and %q", tc.text, kind, rest, tc.kind, tc.rest)
-		}
 	}
 }
 
@@ -962,25 +937,25 @@ func TestAskSelection(t *testing.T) {
 		keys        string
 		cursor      int
 		placeholder string
-		prompt      string
+		lines       []origin.Line // the lines the prompt quotes
 	}{
 		{
 			keys: "2jVjja<enter>", cursor: 4, placeholder: whyLines,
-			prompt: "a.go:1-2. Lines marked - were deleted.\n>line 1\n-line 2\n>Changed 2\n",
+			lines: []origin.Line{{Text: "line 1", Old: 1, New: 1}, {Text: "line 2", Old: 2}, {Text: "Changed 2", New: 2}},
 		},
 		{
 			keys: "s3jVa<enter>", cursor: 3, placeholder: whyLines,
-			prompt: "a.go:2. Lines marked - were deleted.\n-line 2\n>Changed 2\n",
+			lines: []origin.Line{{Text: "line 2", Old: 2}, {Text: "Changed 2", New: 2}},
 		},
 		{
 			keys: "3jVa<enter>", cursor: 3, placeholder: whyDeleted, // one line selected
-			prompt: "a.go, deleted line 2 of the base file. Lines marked - were deleted.\n-line 2\n",
+			lines: []origin.Line{{Text: "line 2", Old: 2}},
 		},
 	} {
 		f := &fakeAsk{answer: answer}
 		m := askScreen(testFiles(), Saved{}, f)
 		typeKeys(m, tc.keys)
-		want := "[dr] Review question. Do not change any code, just answer.\n" + tc.prompt + tc.placeholder + questionEnd
+		want := review.Prompt(review.Author, "a.go", tc.lines, tc.placeholder)
 		if got := f.asked(); len(got) != 1 || got[0].Prompt != want {
 			t.Errorf("%q: asked %+v, want the prompt %q", tc.keys, got, want)
 		}
@@ -994,70 +969,6 @@ func TestAskSelection(t *testing.T) {
 	for _, row := range []int{2, 3, 4} {
 		if len(m.questionsAt(row)) != 1 {
 			t.Errorf("row %d has %d questions, want the selection's", row, len(m.questionsAt(row)))
-		}
-	}
-}
-
-func TestPrompt(t *testing.T) {
-	for _, tc := range []struct {
-		name  string
-		lines []origin.Line
-		want  string // after the first line and before the question
-	}{
-		{"one added line", []origin.Line{{Text: "\tburst  float64", New: 14}}, "ratelimit.go:14\n>\tburst  float64\n"},
-		{"one deleted line", []origin.Line{{Text: "\trate   int", Old: 15}}, "ratelimit.go, deleted line 15 of the base file. Lines marked - were deleted.\n-\trate   int\n"},
-		{
-			"a mixed selection",
-			[]origin.Line{{Text: "\tburst  float64", Old: 14, New: 14}, {Text: "\trate   int", Old: 15}, {Text: "\trate   float64", New: 15}, {Text: "\ttokens float64", New: 16}},
-			"ratelimit.go:14-16. Lines marked - were deleted.\n>\tburst  float64\n-\trate   int\n>\trate   float64\n>\ttokens float64\n",
-		},
-		{
-			"deleted lines only",
-			[]origin.Line{{Text: "a", Old: 14}, {Text: "b", Old: 15}, {Text: "c", Old: 16}},
-			"ratelimit.go, deleted lines 14-16 of the base file. Lines marked - were deleted.\n-a\n-b\n-c\n",
-		},
-	} {
-		want := "[dr] Review question. Do not change any code, just answer.\n" + tc.want + "Why?" + questionEnd
-		if got := prompt(review.Author, "ratelimit.go", tc.lines, "Why?"); got != want {
-			t.Errorf("%s:\n got %q\nwant %q", tc.name, got, want)
-		}
-	}
-	// A session that did not write the lines first learns how it relates to them, and the
-	// end of the question asks for what it can know.
-	lines := []origin.Line{{Text: "\tburst  float64", New: 14}}
-	for _, tc := range []struct {
-		relation   review.Relation
-		intro, end string
-	}{
-		{review.Parent, parentIntro, parentEnd},
-		{review.Editor, editorIntro, editorEnd},
-		{review.NewSession, newIntro, newEnd},
-	} {
-		want := "[dr] Review question. Do not change any code, just answer.\n" + tc.intro + "\nratelimit.go:14\n>\tburst  float64\nWhy?" + tc.end
-		if got := prompt(tc.relation, "ratelimit.go", lines, "Why?"); got != want {
-			t.Errorf("%s:\n got %q\nwant %q", tc.relation, got, want)
-		}
-	}
-	// Each end of the question asks for the tags the session can give, then one sentence of
-	// at most 25 words: a new session knows only a guess.
-	for _, tc := range []struct {
-		relation review.Relation
-		tags     []string
-	}{
-		{review.Author, []string{"[decided]", "[chose]", "[guess]"}},
-		{review.Parent, []string{"[decided]", "[chose]", "[guess]"}},
-		{review.Editor, []string{"[decided]", "[chose]", "[guess]"}},
-		{review.NewSession, []string{"[guess]"}},
-	} {
-		got := prompt(tc.relation, "ratelimit.go", lines, "Why?")
-		_, end, _ := strings.Cut(got, "\nWhy?")
-		for _, tag := range []string{"[decided]", "[chose]", "[guess]"} {
-			if want := slices.Contains(tc.tags, tag); strings.Contains(end, tag) != want {
-				t.Errorf("%s: the end of the question %q asks for %s: %t, want %t", tc.relation, end, tag, !want, want)
-			}
-		}
-		if !strings.Contains(end, "one sentence of at most 25 words") || !strings.HasSuffix(end, "No preamble, no restating the question or the code, no suggestions.") {
-			t.Errorf("%s: the end of the question %q does not ask for one sentence of at most 25 words", tc.relation, end)
 		}
 	}
 }
