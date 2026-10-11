@@ -115,8 +115,8 @@ func (m *model) startAsk() {
 		m.warn(why)
 		return
 	}
-	t.reading, t.readTop = m.reading, m.readTop
-	m.asking, m.entry, m.reading = t, textBox{}, false
+	t.reading, t.readTop = m.originBox.open, m.originBox.top
+	m.asking, m.entry, m.originBox.open = t, textBox{}, false
 }
 
 // target returns what a asks about, and who: whom.Target decides, which m.whom is for a.
@@ -127,7 +127,7 @@ func (m *model) startAsk() {
 func (m *model) target(whom review.Asking) (*target, string) {
 	t := &target{row: m.cursor}
 	switch r := m.rows[m.cursor]; {
-	case m.reading && m.hasQuestions(m.cursor):
+	case m.originBox.open && m.hasQuestions(m.cursor):
 		qs := m.questionsAt(m.cursor)
 		t.lines, t.followUp = slices.Clone(qs[len(qs)-1].lines), true
 	case m.selecting:
@@ -242,8 +242,8 @@ func (m *model) send() tea.Cmd {
 	}
 	m.addQuestion(q)
 	m.busy[who] = true
-	m.cursor, m.reading = t.row, true
-	m.readTop = m.questionTop(q)
+	m.cursor, m.originBox.open = t.row, true
+	m.originBox.top = m.questionTop(q)
 	a := t.Ask
 	if pick != "" {
 		a.Model, a.Effort = pick, ""
@@ -316,8 +316,8 @@ func (m *model) answered(msg answeredMsg) {
 		return
 	}
 	q := m.questions[i]
-	shown := m.reading && slices.Contains(m.questionsAt(m.cursor), q)
-	following := shown && m.readTop == m.questionTop(q) // the box shows the question waiting
+	shown := m.originBox.open && slices.Contains(m.questionsAt(m.cursor), q)
+	following := shown && m.originBox.top == m.questionTop(q) // the box shows the question waiting
 	q.pending, q.answer = false, &msg.answer
 	who := session{q.Agent, q.Session}
 	delete(m.busy, who)
@@ -325,7 +325,7 @@ func (m *model) answered(msg answeredMsg) {
 		m.forks[who] = runFork{id: msg.answer.Fork, base: msg.base}
 	}
 	if following {
-		m.readTop = m.questionTop(q) // to show the answer that came
+		m.originBox.top = m.questionTop(q) // to show the answer that came
 	}
 	t := &m.theme
 	from := []chunk{{text: q.tag, color: m.whoColor(q.Agent, q.Session), bold: true}, {text: " on ", color: t.fg}}
@@ -373,14 +373,14 @@ func (m *model) read(q *question) tea.Cmd {
 		cmd = m.toggleViewed(q.file)
 	}
 	m.selecting = false
-	m.reading = true
+	m.originBox.open = true
 	if q.lines == nil {
 		m.jumpTo(m.headRow(q.file))
-		m.readTop = m.blockHeight() // scroll keeps it in the text
+		m.originBox.top = m.blockHeight() // scroll keeps it in the text
 		return cmd
 	}
 	m.jumpTo(m.lineRow(q.lines[len(q.lines)-1]))
-	m.readTop = m.questionTop(q)
+	m.originBox.top = m.questionTop(q)
 	return cmd
 }
 

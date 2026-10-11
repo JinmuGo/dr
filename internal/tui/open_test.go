@@ -160,13 +160,13 @@ func TestOpenSessionBox(t *testing.T) {
 		ed, op := &fakeEditor{}, &fakeOpen{}
 		m := openScreen(askFiles(), Saved{Reload: reloading(askFiles())}, nil, ed, op)
 		question := typeAndKeep(m, tc.keys)
-		if !m.reading && !m.selecting {
+		if !m.originBox.open && !m.selecting {
 			t.Fatalf("%s: neither the origin box open nor a selection before ga", tc.name)
 		}
 		opened := typeAndKeep(m, "ga")
-		if len(op.questions) != 1 || op.questions[0] != tc.want || m.reading || m.selecting {
+		if len(op.questions) != 1 || op.questions[0] != tc.want || m.originBox.open || m.selecting {
 			t.Errorf("%s: opened %+v, origin box open %t, selecting %t; want %+v opened, the box closed, no selection",
-				tc.name, op.questions, m.reading, m.selecting, tc.want)
+				tc.name, op.questions, m.originBox.open, m.selecting, tc.want)
 		}
 		if opened == nil {
 			t.Fatalf("%s: ga gave no command", tc.name)

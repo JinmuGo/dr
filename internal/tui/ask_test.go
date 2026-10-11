@@ -181,9 +181,9 @@ func TestAskInput(t *testing.T) {
 		t.Errorf("status line %q, want the ASK pill, the origin and the row of the cursor row without the hint", status)
 	}
 	typeKeys(m, "<esc>")
-	if m.asking != nil || m.reading || m.cursor != 4 || len(f.asked()) != 0 || entryBox(t, m) != nil || m.View().Cursor != nil {
+	if m.asking != nil || m.originBox.open || m.cursor != 4 || len(f.asked()) != 0 || entryBox(t, m) != nil || m.View().Cursor != nil {
 		t.Errorf("Esc: box open %t, origin box open %t, cursor at row %d, %d questions; want all closed at row 4 and none asked",
-			m.asking != nil, m.reading, m.cursor, len(f.asked()))
+			m.asking != nil, m.originBox.open, m.cursor, len(f.asked()))
 	}
 	// A deleted line is asked about differently, and goes by its line in base.
 	typeKeys(m, "ka")
@@ -439,8 +439,8 @@ func TestAskAnswer(t *testing.T) {
 	m.now = func() time.Time { return start }
 	cmd := typeAndKeep(m, "4ja<enter>")
 	waiting := "THREAD · 1\nyou  just now\n" + whyAdded + "\n● claude c1a0  " + askingFor(0) + "\n╌\n\nREQUEST · #1\n"
-	if text := boxText(m); !m.reading || m.cursor != 4 || !strings.HasPrefix(text, waiting) {
-		t.Fatalf("after Enter: box open %t at row %d with\n%s\nwant it open at row 4, starting with\n%s", m.reading, m.cursor, text, waiting)
+	if text := boxText(m); !m.originBox.open || m.cursor != 4 || !strings.HasPrefix(text, waiting) {
+		t.Fatalf("after Enter: box open %t at row %d with\n%s\nwant it open at row 4, starting with\n%s", m.originBox.open, m.cursor, text, waiting)
 	}
 	if s := screen(t, m); !strings.Contains(s, "asking… 0s") {
 		t.Errorf("the screen has no asking… 0s:\n%s", s)
@@ -653,8 +653,8 @@ func TestAskNotice(t *testing.T) {
 		}
 		typeKeys(m, "<enter>")
 		want := "THREAD · 1\nyou  just now\n" + whyAdded + "\n" + tc.answer
-		if text := boxText(m); m.cursor != 4 || !m.reading || !strings.HasPrefix(text, want) || noticeLines(t, m) != nil {
-			t.Errorf("%s: Enter left the cursor at row %d with the box open %t:\n%s\nwant the box of row 4 starting with\n%s", tc.name, m.cursor, m.reading, text, want)
+		if text := boxText(m); m.cursor != 4 || !m.originBox.open || !strings.HasPrefix(text, want) || noticeLines(t, m) != nil {
+			t.Errorf("%s: Enter left the cursor at row %d with the box open %t:\n%s\nwant the box of row 4 starting with\n%s", tc.name, m.cursor, m.originBox.open, text, want)
 		}
 	}
 	// Esc only dismisses the notice; another key dismisses it and does its own work, and
@@ -673,8 +673,8 @@ func TestAskNotice(t *testing.T) {
 		typeKeys(m, "<esc>G")
 		send(m, cmd())
 		typeKeys(m, tc.keys)
-		if m.cursor != tc.cursor || m.reading != tc.box || strings.Contains(boxText(m), "THREAD") || noticeLines(t, m) != nil {
-			t.Errorf("%q: cursor at row %d, box open %t, notice %q; want row %d, box %t and no notice", tc.keys, m.cursor, m.reading, noticeLines(t, m), tc.cursor, tc.box)
+		if m.cursor != tc.cursor || m.originBox.open != tc.box || strings.Contains(boxText(m), "THREAD") || noticeLines(t, m) != nil {
+			t.Errorf("%q: cursor at row %d, box open %t, notice %q; want row %d, box %t and no notice", tc.keys, m.cursor, m.originBox.open, noticeLines(t, m), tc.cursor, tc.box)
 		}
 	}
 }
@@ -730,9 +730,9 @@ func TestAskFromBox(t *testing.T) {
 		t.Errorf("the card's header %q does not tell of a", top())
 	}
 	typeKeys(m, "a")
-	if box := entryBox(t, m); m.reading || m.cursor != 4 || !strings.Contains(top(), "╭─ ASK  claude c1a0 #1 · follow-up · L1-2 ") ||
+	if box := entryBox(t, m); m.originBox.open || m.cursor != 4 || !strings.Contains(top(), "╭─ ASK  claude c1a0 #1 · follow-up · L1-2 ") ||
 		!slices.Equal(shownText(box), []string{whyLines}) {
-		t.Errorf("a in the box: origin box open %t at row %d, the line under it %q; want the input box for the selection there", m.reading, m.cursor, top())
+		t.Errorf("a in the box: origin box open %t at row %d, the line under it %q; want the input box for the selection there", m.originBox.open, m.cursor, top())
 	}
 	typeKeys(m, "Why both?<enter>")
 	lines := []origin.Line{{Text: "line 1", Old: 1, New: 1}, {Text: "line 2", Old: 2}, {Text: "Changed 2", New: 2}}
@@ -741,8 +741,8 @@ func TestAskFromBox(t *testing.T) {
 	}
 	thread := "THREAD · 2\nyou  just now\n" + whyLines + "\n● claude c1a0  decided  claude-opus-5-5 · 7s\n토큰 버킷이라 float64로 했어요.\n\n" +
 		"you  just now\nWhy both?\n● claude c1a0  chose  claude-opus-5-5 · 7s\n둘 다 버킷 상태라서요.\n╌\n"
-	if text := boxText(m); !m.reading || m.typing() || m.cursor != 4 || !strings.HasPrefix(text, thread) {
-		t.Errorf("box open %t at row %d:\n%s\nwant it open at row 4 starting with\n%s", m.reading, m.cursor, text, thread)
+	if text := boxText(m); !m.originBox.open || m.typing() || m.cursor != 4 || !strings.HasPrefix(text, thread) {
+		t.Errorf("box open %t at row %d:\n%s\nwant it open at row 4 starting with\n%s", m.originBox.open, m.cursor, text, thread)
 	}
 	if s := screen(t, m); !strings.Contains(s, "Why both?") || !strings.Contains(s, "둘 다 버킷 상태라서요.") || strings.Contains(s, "THREAD · 2") {
 		t.Errorf("the box does not show the newest question and its answer:\n%s", s)
@@ -754,13 +754,13 @@ func TestAskFromBox(t *testing.T) {
 		{keys: "<esc><esc>gg12j<enter>a", top: "╭─ ASK  omp a1f2 #1 · L15 "},           // no questions
 	} {
 		typeKeys(m, tc.keys)
-		if m.reading || !m.typing() || !strings.Contains(top(), tc.top) {
-			t.Errorf("%q: origin box open %t, the line under the row %q; want the input box %q", tc.keys, m.reading, top(), tc.top)
+		if m.originBox.open || !m.typing() || !strings.Contains(top(), tc.top) {
+			t.Errorf("%q: origin box open %t, the line under the row %q; want the input box %q", tc.keys, m.originBox.open, top(), tc.top)
 		}
 	}
 	typeKeys(m, "<esc><esc>gg5j<enter>a")
-	if why := "Move to a changed line to ask"; !m.reading || m.typing() || m.message != why || !strings.Contains(top(), "⏎ close") || strings.Contains(top(), "a ask") {
-		t.Errorf("a on an unchanged line: origin box open %t, input box open %t, message %q; want the origin box and %q", m.reading, m.typing(), m.message, why)
+	if why := "Move to a changed line to ask"; !m.originBox.open || m.typing() || m.message != why || !strings.Contains(top(), "⏎ close") || strings.Contains(top(), "a ask") {
+		t.Errorf("a on an unchanged line: origin box open %t, input box open %t, message %q; want the origin box and %q", m.originBox.open, m.typing(), m.message, why)
 	}
 }
 
@@ -771,17 +771,17 @@ func TestAskFromBoxEsc(t *testing.T) {
 	m := askScreen(testFiles(), Saved{}, f)
 	m.Update(tea.WindowSizeMsg{Width: 125, Height: 10}) // the origin box shows 5 lines of its text
 	typeKeys(m, "4j<enter>jj")
-	if m.readTop != 2 {
-		t.Fatalf("the origin box shows its text from line %d, want 2", m.readTop)
+	if m.originBox.top != 2 {
+		t.Fatalf("the origin box shows its text from line %d, want 2", m.originBox.top)
 	}
 	typeKeys(m, "a")
-	if m.reading || !m.typing() {
-		t.Fatalf("a: origin box open %t, input box open %t; want only the input box", m.reading, m.typing())
+	if m.originBox.open || !m.typing() {
+		t.Fatalf("a: origin box open %t, input box open %t; want only the input box", m.originBox.open, m.typing())
 	}
 	typeKeys(m, "why<esc>")
-	if !m.reading || m.typing() || m.readTop != 2 || m.cursor != 4 || len(f.asked()) != 0 {
+	if !m.originBox.open || m.typing() || m.originBox.top != 2 || m.cursor != 4 || len(f.asked()) != 0 {
 		t.Errorf("Esc: origin box open %t from line %d at row %d, input box open %t, %d questions; want the origin box as it was and none asked",
-			m.reading, m.readTop, m.cursor, m.typing(), len(f.asked()))
+			m.originBox.open, m.originBox.top, m.cursor, m.typing(), len(f.asked()))
 	}
 }
 
@@ -959,8 +959,8 @@ func TestAskSelection(t *testing.T) {
 		if got := f.asked(); len(got) != 1 || got[0].Prompt != want {
 			t.Errorf("%q: asked %+v, want the prompt %q", tc.keys, got, want)
 		}
-		if m.selecting || !m.reading || m.cursor != tc.cursor || !strings.HasPrefix(boxText(m), "THREAD · 1\nyou  just now\n"+tc.placeholder+"\n") {
-			t.Errorf("%q: selecting %t, box open %t at row %d:\n%s\nwant the box of row %d with the question", tc.keys, m.selecting, m.reading, m.cursor, boxText(m), tc.cursor)
+		if m.selecting || !m.originBox.open || m.cursor != tc.cursor || !strings.HasPrefix(boxText(m), "THREAD · 1\nyou  just now\n"+tc.placeholder+"\n") {
+			t.Errorf("%q: selecting %t, box open %t at row %d:\n%s\nwant the box of row %d with the question", tc.keys, m.selecting, m.originBox.open, m.cursor, boxText(m), tc.cursor)
 		}
 	}
 	// The question goes with each line of the selection.

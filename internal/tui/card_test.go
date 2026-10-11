@@ -406,7 +406,7 @@ func TestCardAboveTallComment(t *testing.T) {
 	lines := strings.Split(screen(t, m), "\n")
 	y := cursorLine(m)
 	n := min(len(m.originLines()), m.diffHeight()-4)
-	if !m.reading || y < 0 || y+n+2 >= m.diffHeight() || !strings.Contains(lines[y], "Changed 2") ||
+	if !m.originBox.open || y < 0 || y+n+2 >= m.diffHeight() || !strings.Contains(lines[y], "Changed 2") ||
 		!strings.Contains(lines[y+1], "▎ ● claude c1a0 #1  a.go:2") || !strings.HasSuffix(strings.TrimRight(lines[y+n+2], " "), cardBand) {
 		t.Errorf("want the row, the origin card's header, %d rows of its body and its last row on the screen:\n%s", n, strings.Join(lines, "\n"))
 	}

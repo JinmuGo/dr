@@ -329,7 +329,7 @@ func TestNoticeOverInput(t *testing.T) {
 			name: "comment box", keys: "<esc>Gcfix it",
 			open: func(m *model) bool { return m.drafting != nil && m.entry.text == "fix it" },
 			entered: func(m *model) string {
-				if c := commentOf(m, "fix it"); c == nil || m.drafting != nil || m.reading || m.cursor != 26 {
+				if c := commentOf(m, "fix it"); c == nil || m.drafting != nil || m.originBox.open || m.cursor != 26 {
 					return "want the comment saved and the cursor kept"
 				}
 				return ""
@@ -339,7 +339,7 @@ func TestNoticeOverInput(t *testing.T) {
 			name: ": line", keys: "<esc>G:und",
 			open: func(m *model) bool { return m.cmdline.open && m.cmdline.input == "und" },
 			entered: func(m *model) string {
-				if m.cmdline.open || m.message != "No fix to undo" || m.reading {
+				if m.cmdline.open || m.message != "No fix to undo" || m.originBox.open {
 					return "want :undo run"
 				}
 				return ""
@@ -349,7 +349,7 @@ func TestNoticeOverInput(t *testing.T) {
 			name: "search", keys: "<esc>G/line 3",
 			open: func(m *model) bool { return m.search.open && m.search.input == "line 3" },
 			entered: func(m *model) string {
-				if m.search.open || !strings.Contains(rowName(m, m.cursor), "line 3") || m.reading {
+				if m.search.open || !strings.Contains(rowName(m, m.cursor), "line 3") || m.originBox.open {
 					return "want the search run"
 				}
 				return ""
@@ -375,7 +375,7 @@ func TestNoticeOverInput(t *testing.T) {
 				}
 			case "<enter>":
 				if why := tc.entered(m); why != "" {
-					t.Errorf("%s, Enter: cursor at row %d, box open %t, message %q; %s", tc.name, m.cursor, m.reading, m.message, why)
+					t.Errorf("%s, Enter: cursor at row %d, box open %t, message %q; %s", tc.name, m.cursor, m.originBox.open, m.message, why)
 				}
 			}
 		}

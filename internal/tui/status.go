@@ -107,7 +107,7 @@ func (m *model) mode() mode {
 		return modeAsk
 	case m.drafting != nil:
 		return modeComment
-	case m.reading:
+	case m.originBox.open:
 		return modeOrigin
 	case m.selecting:
 		return modeVisual
@@ -218,9 +218,9 @@ func (m *model) status() string {
 			}
 			found = []seg{{text: fmt.Sprintf("%d of %d", at, h.total), st: on(t.pending).Bold(true)}}
 		}
-		if m.reading {
+		if m.originBox.open {
 			if n, rows := m.blockHeight(), m.boxRows(); n > rows {
-				position = []seg{{text: fmt.Sprintf("origin %d/%d", min(m.readTop+rows, n), n), st: on(t.muted)}}
+				position = []seg{{text: fmt.Sprintf("origin %d/%d", min(m.originBox.top+rows, n), n), st: on(t.muted)}}
 			}
 		}
 		if m.splitOn && !m.splitShown {

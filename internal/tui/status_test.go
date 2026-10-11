@@ -73,7 +73,7 @@ func TestStatusInFlight(t *testing.T) {
 		}
 	}
 	send(m, cmd())
-	if typeKeys(m, "<esc><enter>"); !m.reading || !strings.HasPrefix(keyLine(t, m), "  j k  scroll    a  ask a follow-up") {
+	if typeKeys(m, "<esc><enter>"); !m.originBox.open || !strings.HasPrefix(keyLine(t, m), "  j k  scroll    a  ask a follow-up") {
 		t.Errorf("origin box with a thread: key row %q, want a follow-up", keyLine(t, m))
 	}
 	typeKeys(m, "<esc>cone<enter>")

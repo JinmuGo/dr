@@ -97,7 +97,7 @@ func (m *model) openSession() tea.Cmd {
 		m.fail(review.Visible(err.Error()))
 		return nil
 	}
-	m.reading, m.selecting = false, false
+	m.originBox.open, m.selecting = false, false
 	return m.handOver(cmd, t.Ask.Agent+" exited")
 }
 
@@ -249,7 +249,7 @@ func (m *model) rebuild(files []review.File, problems []agent.Problem) {
 	if m.typing() || m.cmdline.open {
 		m.asking, m.drafting, m.entry, m.cmdline.open, m.cmdline.input = nil, nil, textBox{}, false, ""
 	}
-	m.reading, m.selecting, m.enteredAt = false, false, -1 // the split view has other rows now
+	m.originBox.open, m.selecting, m.enteredAt = false, false, -1 // the split view has other rows now
 	m.message, m.tone, m.notice = "", toneWarn, nil
 	m.unreadable = unreadableAgents(problems)
 	m.setFiles(files)

@@ -64,7 +64,7 @@ func (m *model) typeBox(msg tea.KeyPressMsg) tea.Cmd {
 // closed the origin box to open it, the origin box opens again as it was.
 func (m *model) closeBox() {
 	if t := m.asking; t != nil && t.reading {
-		m.reading, m.readTop = true, t.readTop
+		m.originBox.open, m.originBox.top = true, t.readTop
 	}
 	m.asking, m.drafting, m.entry = nil, nil, textBox{}
 }
@@ -397,7 +397,7 @@ func (m *model) underLines(i, w int) []string {
 	if i == m.entryRow() {
 		lines = m.entryLines(w)
 	}
-	if m.reading && i == m.cursor {
+	if m.originBox.open && i == m.cursor {
 		lines = append(lines, m.box(w)...)
 	}
 	return append(lines, m.commentLines(i, w)...)

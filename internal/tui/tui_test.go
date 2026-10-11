@@ -405,8 +405,8 @@ func TestHalfPageJK(t *testing.T) {
 		{"JJK", "ddu"},
 	} {
 		got, want := box(tc.keys), box(tc.same)
-		if !got.reading || got.readTop != want.readTop || got.readTop == 0 {
-			t.Errorf("%q in the origin box: open %t, text from line %d; want it open from line %d as %q", tc.keys, got.reading, got.readTop, want.readTop, tc.same)
+		if !got.originBox.open || got.originBox.top != want.originBox.top || got.originBox.top == 0 {
+			t.Errorf("%q in the origin box: open %t, text from line %d; want it open from line %d as %q", tc.keys, got.originBox.open, got.originBox.top, want.originBox.top, tc.same)
 		}
 	}
 }
@@ -693,11 +693,11 @@ func TestBox(t *testing.T) {
 		// where it was.
 		for _, keys := range []string{"q", "<esc>", "<enter>"} {
 			s, cmd := send(keys)
-			if m.reading || cmd != nil || m.cursor != cursor || m.top != top || !strings.Contains(s, "x := 1") ||
+			if m.originBox.open || cmd != nil || m.cursor != cursor || m.top != top || !strings.Contains(s, "x := 1") ||
 				strings.Contains(s, "▎ ● claude c1a0 #3") {
 				t.Errorf("width %d, %q: open %t, command %t, cursor at row %d with row %d at the top; "+
 					"want the diff without the box, the cursor at row %d and row %d at the top:\n%s",
-					width, keys, m.reading, cmd != nil, m.cursor, m.top, cursor, top, s)
+					width, keys, m.originBox.open, cmd != nil, m.cursor, m.top, cursor, top, s)
 			}
 			send("<enter>G") // open it again for the next key
 		}
@@ -1128,8 +1128,8 @@ func TestWheel(t *testing.T) {
 	}
 	// With the origin box open the wheel moves its text and not the cursor.
 	m := end(t, openFiles(t, longFiles(), "G<enter>"), down, down, up, down)
-	if m.readTop != 6 || m.cursor != len(m.rows)-1 {
-		t.Errorf("wheel in the origin box: its text from line %d with the cursor at row %d, want line 6 and row %d", m.readTop, m.cursor, len(m.rows)-1)
+	if m.originBox.top != 6 || m.cursor != len(m.rows)-1 {
+		t.Errorf("wheel in the origin box: its text from line %d with the cursor at row %d, want line 6 and row %d", m.originBox.top, m.cursor, len(m.rows)-1)
 	}
 	// The help ignores the wheel.
 	if m := end(t, open(t, "?"), down); m.cursor != 0 || !m.help {

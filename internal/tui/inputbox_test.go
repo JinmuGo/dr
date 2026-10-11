@@ -346,7 +346,7 @@ func TestEntryKeys(t *testing.T) {
 	if qs := Load(dir).Log.Questions; len(qs) != 1 || qs[0].Text != "a\nb\nc\ndj?q" {
 		t.Errorf("question records %+v, want the text with its line breaks", qs)
 	}
-	if s := screen(t, m); !strings.Contains(s, "▎ a ") || !strings.Contains(s, "▎ dj?q") || !m.reading {
+	if s := screen(t, m); !strings.Contains(s, "▎ a ") || !strings.Contains(s, "▎ dj?q") || !m.originBox.open {
 		t.Errorf("the thread does not show each line:\n%s", s)
 	}
 }
@@ -376,9 +376,9 @@ func TestEntryCtrlC(t *testing.T) {
 					t.Fatal("Ctrl+C in the box: got tea.QuitMsg, want the box closed")
 				}
 			}
-			if m.typing() || m.reading != tc.origin || len(f.asked()) != 0 || entryBox(t, m) != nil {
+			if m.typing() || m.originBox.open != tc.origin || len(f.asked()) != 0 || entryBox(t, m) != nil {
 				t.Errorf("Ctrl+C: box open %t, origin box open %t, %d questions; want the box closed, origin box open %t, none asked",
-					m.typing(), m.reading, len(f.asked()), tc.origin)
+					m.typing(), m.originBox.open, len(f.asked()), tc.origin)
 			}
 			if l := Load(dir).Log; len(l.Questions) != 0 || len(l.Comments) != 0 {
 				t.Errorf("Ctrl+C: records %+v, want none", l)

@@ -53,17 +53,16 @@ type model struct {
 	folded        bool // the file tree was dragged narrow and shows as a handle
 	dragging      bool // the line between the file tree and the diff is being dragged
 
-	count   int         // number typed before a key, 0 when none
-	pending string      // "g" waiting for the key that completes it
-	help    bool        // the key help is open
-	reading bool        // the origin box is open under the cursor row
-	readTop int         // first line of the origin box's text on the screen
-	asking  *target     // the input box of a is open, and what it asks about
-	search  search      // the search: whether its input is open, what is typed, the last query and where it is
-	cmdline cmdline     // the : input: whether it is open, what is typed and the highlighted command
-	message string      // shown in the status line until the next key
-	tone    messageTone // how the message reads: a warning or an error
-	notice  *notice     // floats at the top right of the diff until the next key
+	count     int         // number typed before a key, 0 when none
+	pending   string      // "g" waiting for the key that completes it
+	help      bool        // the key help is open
+	originBox originBox   // the origin box under the cursor row: whether it is open and how far it is scrolled
+	asking    *target     // the input box of a is open, and what it asks about
+	search    search      // the search: whether its input is open, what is typed, the last query and where it is
+	cmdline   cmdline     // the : input: whether it is open, what is typed and the highlighted command
+	message   string      // shown in the status line until the next key
+	tone      messageTone // how the message reads: a warning or an error
+	notice    *notice     // floats at the top right of the diff until the next key
 
 	drafting   *commentInput // the input box of c is open, and what it comments on
 	entry      textBox       // what is typed in the input box of a or c
@@ -337,7 +336,7 @@ func (m *model) mouse(msg tea.MouseMsg) tea.Cmd {
 	switch msg.(type) {
 	case tea.MouseClickMsg:
 		m.dragging = mouse.Button == tea.MouseLeft && mouse.Y < m.diffHeight() && m.onDivider(mouse.X)
-		if mouse.Button == tea.MouseLeft && !m.dragging && !m.help && !m.reading && !m.search.open {
+		if mouse.Button == tea.MouseLeft && !m.dragging && !m.help && !m.originBox.open && !m.search.open {
 			return m.click(mouse.X, mouse.Y)
 		}
 	case tea.MouseMotionMsg:
@@ -356,8 +355,8 @@ func (m *model) mouse(msg tea.MouseMsg) tea.Cmd {
 		}
 		switch {
 		case m.help:
-		case m.reading:
-			m.readTop += n // scroll keeps it in the text
+		case m.originBox.open:
+			m.originBox.top += n // scroll keeps it in the text
 		default:
 			m.moveTo(m.cursor + n)
 		}
@@ -484,8 +483,8 @@ func (m *model) rowsHeight() int {
 // over the diff scrolls its rows to show the highlighted one.
 func (m *model) scroll() {
 	h := m.rowsHeight()
-	if m.reading {
-		m.readTop = max(min(m.readTop, m.blockHeight()-m.boxRows()), 0)
+	if m.originBox.open {
+		m.originBox.top = max(min(m.originBox.top, m.blockHeight()-m.boxRows()), 0)
 		h = max(h-m.boxHeight(), 1) // the lines that fit beside the card
 	}
 	m.top = max(min(m.top, m.cursor, m.fitTop(len(m.rows)-1, h)), m.fitTop(m.cursor, h))
