@@ -163,4 +163,22 @@ func TestBlame(t *testing.T) {
 			}
 		})
 	}
+	t.Run("unreadable record", func(t *testing.T) {
+		// A session log line dr cannot read is named on stderr, and the output stays the same.
+		bad := filepath.Join(home, ".codex/sessions/2026/10/09/rollout-bad.jsonl")
+		writeFile(t, bad, "not json, from "+repo+"\n")
+		var out bytes.Buffer
+		_, stderr := std(t, func() {
+			if err := blame(&out, "omp/notes.md"); err != nil {
+				t.Fatal(err)
+			}
+		})
+		if want := "dr: some codex records could not be read: " + bad + "\n"; stderr != want {
+			t.Errorf("stderr: got %q, want %q", stderr, want)
+		}
+		got := bytes.ReplaceAll(out.Bytes(), []byte(repo), []byte("$REPO"))
+		if want := readFile(t, filepath.Join(goldenDir, "omp.golden")); string(got) != want {
+			t.Errorf("stdout: got\n%s\nwant\n%s", got, want)
+		}
+	})
 }
