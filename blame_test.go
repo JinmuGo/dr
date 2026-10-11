@@ -61,9 +61,8 @@ func TestBlame(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	repo, home := filepath.Join(tmp, "repo"), filepath.Join(tmp, "home")
+	repo, home := filepath.Join(tmp, "repo"), filepath.Join(tmp, "home") // home holds the session logs
 	for k, v := range map[string]string{
-		"HOME":              home, // where dr finds the session logs
 		"GIT_CONFIG_GLOBAL": os.DevNull, "GIT_CONFIG_NOSYSTEM": "1",
 		"GIT_AUTHOR_NAME": "t", "GIT_AUTHOR_EMAIL": "t@t", "GIT_COMMITTER_NAME": "t", "GIT_COMMITTER_EMAIL": "t@t",
 		// The base commit comes before the sessions.
@@ -138,9 +137,12 @@ func TestBlame(t *testing.T) {
 		{"outside", "../outside.md"},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
-			var out bytes.Buffer
-			if err := blame(&out, tc.path); err != nil {
+			var out, stderr bytes.Buffer
+			if err := blame(&out, &stderr, ".", home, tc.path); err != nil {
 				fmt.Fprintf(&out, "dr: %v\n", err) // what run writes for the error
+			}
+			if stderr.Len() > 0 {
+				t.Errorf("dr blame %s: got stderr %q, want none", tc.path, stderr.Bytes())
 			}
 			// The worktree is a new directory each time.
 			got := bytes.ReplaceAll(out.Bytes(), []byte(repo), []byte("$REPO"))
@@ -167,14 +169,12 @@ func TestBlame(t *testing.T) {
 		// A session log line dr cannot read is named on stderr, and the output stays the same.
 		bad := filepath.Join(home, ".codex/sessions/2026/10/09/rollout-bad.jsonl")
 		writeFile(t, bad, "not json, from "+repo+"\n")
-		var out bytes.Buffer
-		_, stderr := std(t, func() {
-			if err := blame(&out, "omp/notes.md"); err != nil {
-				t.Fatal(err)
-			}
-		})
-		if want := "dr: some codex records could not be read: " + bad + "\n"; stderr != want {
-			t.Errorf("stderr: got %q, want %q", stderr, want)
+		var out, stderr bytes.Buffer
+		if err := blame(&out, &stderr, ".", home, "omp/notes.md"); err != nil {
+			t.Fatal(err)
+		}
+		if want := "dr: some codex records could not be read: " + bad + "\n"; stderr.String() != want {
+			t.Errorf("stderr: got %q, want %q", stderr.Bytes(), want)
 		}
 		got := bytes.ReplaceAll(out.Bytes(), []byte(repo), []byte("$REPO"))
 		if want := readFile(t, filepath.Join(goldenDir, "omp.golden")); string(got) != want {
