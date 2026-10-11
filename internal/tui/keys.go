@@ -93,19 +93,16 @@ func keyLabels(keys ...string) string {
 	return strings.Join(labels, " ")
 }
 
-// key handles a key press. Every key of the diff is a case of one switch on the key's
-// name, so a new key is a new case. It returns the command the key starts: quitting, saving
-// the viewed files, asking a question, opening the editor or a session's agent, sending fix
-// requests or reading the diff again after a fix. While the input box of a or c is open,
-// every key goes to it, and ctrl+c cancels the box there. When no changed file is left, only
-// q, ?, : and ctrl+c do anything, so :undo can bring back the change a fix took away. While
-// the editor or the agent has the terminal, and for ctrlCGuard after it hands it back,
-// ctrl+c does nothing. A key takes the message off the status line and the notice off the
-// diff. While a notice shows, Esc does only that, whatever is open, so the input and what is
-// typed in it stay. Enter on a notice of an answer or of fixes goes to read them, unless an
-// input is open, which Enter belongs to; any other key then does its own work. Esc clears a
-// count or a g waiting for its key, the selection with them; without them it ends a
-// selection, and without one it clears the search query and its marks.
+// key handles a key press and hands it to the handler of what is open: the : input, the
+// empty screen, the search input, the input box, the origin box or the diff. It returns the
+// command the key starts: quitting, saving the viewed files, asking a question, opening the
+// editor or a session's agent, sending fix requests or reading the diff again after a fix.
+// While the input box of a or c is open, every key goes to it, and ctrl+c cancels the box
+// there. While the editor or the agent has the terminal, and for ctrlCGuard after it hands
+// it back, ctrl+c does nothing. A key takes the message off the status line and the notice
+// off the diff. While a notice shows, Esc does only that, whatever is open, so the input and
+// what is typed in it stay. Enter on a notice of an answer or of fixes goes to read them,
+// unless an input is open, which Enter belongs to; any other key then does its own work.
 func (m *model) key(msg tea.KeyPressMsg) tea.Cmd {
 	k := msg.String()
 	n := m.notice
@@ -124,15 +121,7 @@ func (m *model) key(msg tea.KeyPressMsg) tea.Cmd {
 	case m.commanding:
 		return m.typeCommand(k, msg.Text)
 	case len(m.rows) == 0:
-		switch k {
-		case keyQuit:
-			return tea.Quit
-		case keyHelp:
-			m.help = true
-		case keyCommand:
-			m.openCommand()
-		}
-		return nil
+		return m.emptyKey(k)
 	case m.searching:
 		m.typeSearch(k, msg.Text)
 		return nil
@@ -145,17 +134,44 @@ func (m *model) key(msg tea.KeyPressMsg) tea.Cmd {
 	case m.reading:
 		return m.readKey(k)
 	case k == keyEsc:
-		switch {
-		case m.count > 0 || m.pending != "":
-			m.count, m.pending, m.selecting = 0, "", false
-		case m.selecting:
-			m.selecting = false
-		default:
-			m.query = "" // and its marks
-		}
+		m.escKey()
 		return nil
 	}
+	return m.normalKey(k)
+}
 
+// emptyKey handles a key when no changed file is left: only q, ? and : do anything, so :undo
+// can bring back the change a fix took away.
+func (m *model) emptyKey(k string) tea.Cmd {
+	switch k {
+	case keyQuit:
+		return tea.Quit
+	case keyHelp:
+		m.help = true
+	case keyCommand:
+		m.openCommand()
+	}
+	return nil
+}
+
+// escKey handles Esc in the diff. It clears a count or a g waiting for its key, the
+// selection with them; without them it ends a selection, and without one it clears the
+// search query and its marks.
+func (m *model) escKey() {
+	switch {
+	case m.count > 0 || m.pending != "":
+		m.count, m.pending, m.selecting = 0, "", false
+	case m.selecting:
+		m.selecting = false
+	default:
+		m.query = "" // and its marks
+	}
+}
+
+// normalKey handles a key of the diff, with the count and the g typed before it. Every key
+// of the diff is a case of a switch on the key's name, here or in moveKey for the keys that
+// count and move, so a new key is a new case.
+func (m *model) normalKey(k string) tea.Cmd {
 	k = m.pending + k
 	count := m.count
 	m.count, m.pending = 0, ""
@@ -163,42 +179,12 @@ func (m *model) key(msg tea.KeyPressMsg) tea.Cmd {
 	case keyPrevFile, keyLeft, keyNextFile, keyRight, keySearch, keySplit, keyViewed, keyOrigin:
 		m.selecting = false // these end a selection, then do what they do
 	}
+	if m.moveKey(k, count) {
+		return nil
+	}
 	switch k {
-	case "1", "2", "3", "4", "5", "6", "7", "8", "9":
-		m.count = count*10 + int(k[0]-'0')
-	case "0":
-		m.count = count * 10 // a count does not start with 0
-	case keyPrefix:
-		m.count, m.pending = count, k
-	case keyLineDown, keyDown:
-		m.moveTo(m.cursor + max(count, 1))
-	case keyLineUp, keyUp:
-		m.moveTo(m.cursor - max(count, 1))
-	case keyTop:
-		m.jumpTo(max(count, 1) - 1)
-	case keyBottom:
-		if count == 0 {
-			count = len(m.rows)
-		}
-		m.jumpTo(count - 1)
-	case keyHalfDown, keyHalfDownAlt:
-		m.halfPage(1)
-	case keyHalfUp, keyHalfUpAlt:
-		m.halfPage(-1)
-	case keyNextChange:
-		m.jump(count, 1, m.changeStart)
-	case keyPrevChange:
-		m.jump(count, -1, m.changeStart)
-	case keyNextFile, keyRight:
-		m.jump(count, 1, m.fileStart)
-	case keyPrevFile, keyLeft:
-		m.jump(count, -1, m.fileStart)
 	case keySearch:
 		m.searching, m.input = true, ""
-	case keyNextMatch:
-		m.find(count, 1)
-	case keyPrevMatch:
-		m.find(count, -1)
 	case keyOrigin:
 		m.reading, m.readTop = true, 0
 		if qs := m.questionsAt(m.cursor); len(qs) > 0 {
@@ -234,6 +220,49 @@ func (m *model) key(msg tea.KeyPressMsg) tea.Cmd {
 		return tea.Quit
 	}
 	return nil
+}
+
+// moveKey handles k when it is a digit of a count, the g that waits for its key, or a key
+// that moves the cursor count times, or to row count, and reports whether it was one.
+func (m *model) moveKey(k string, count int) bool {
+	switch k {
+	case "1", "2", "3", "4", "5", "6", "7", "8", "9":
+		m.count = count*10 + int(k[0]-'0')
+	case "0":
+		m.count = count * 10 // a count does not start with 0
+	case keyPrefix:
+		m.count, m.pending = count, k
+	case keyLineDown, keyDown:
+		m.moveTo(m.cursor + max(count, 1))
+	case keyLineUp, keyUp:
+		m.moveTo(m.cursor - max(count, 1))
+	case keyTop:
+		m.jumpTo(max(count, 1) - 1)
+	case keyBottom:
+		if count == 0 {
+			count = len(m.rows)
+		}
+		m.jumpTo(count - 1)
+	case keyHalfDown, keyHalfDownAlt:
+		m.halfPage(1)
+	case keyHalfUp, keyHalfUpAlt:
+		m.halfPage(-1)
+	case keyNextChange:
+		m.jump(count, 1, m.changeStart)
+	case keyPrevChange:
+		m.jump(count, -1, m.changeStart)
+	case keyNextFile, keyRight:
+		m.jump(count, 1, m.fileStart)
+	case keyPrevFile, keyLeft:
+		m.jump(count, -1, m.fileStart)
+	case keyNextMatch:
+		m.find(count, 1)
+	case keyPrevMatch:
+		m.find(count, -1)
+	default:
+		return false
+	}
+	return true
 }
 
 // typeSearch handles a key while the search input is open: Enter searches, going to the
