@@ -224,8 +224,7 @@ func TestSaver(t *testing.T) {
 func TestTreeLines(t *testing.T) {
 	// The file tree shows a status icon and the name of each file, no line counts, and a
 	// check at the right edge of a viewed file. Its title counts the viewed files, and the
-	// line under it shows their share: a quarter of its 17 cells, 4. TestLegend checks the
-	// legend under the files.
+	// line under it shows their share: a quarter of its 17 cells, 4.
 	files := append(testFiles(), review.File{Path: "gone.go", Status: 'D', Lines: origin.Blame("x\n", "", nil)})
 	m := New(files, nil, Saved{Viewed: state.Viewed{"a.go": files[0].Hash(contextLines)}}, Asker{}).(*model)
 	progress := strings.Repeat("━", 4) + strings.Repeat("─", 13)

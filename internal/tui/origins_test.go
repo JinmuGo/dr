@@ -240,45 +240,6 @@ func TestRail(t *testing.T) {
 	}
 }
 
-func TestLegend(t *testing.T) {
-	// The legend lists the sessions in the order of their colors with their requests and how
-	// many changed lines each wrote, a subagent's parent under it, then the lines without an
-	// origin. What does not fit in half the tree is counted as +N more.
-	m := New(append(testFiles(), changedFile("d.go", claudeFx)), nil, Saved{}, Asker{}).(*model)
-	text := func(lines []string) []string {
-		var out []string
-		for _, l := range lines {
-			out = append(out, strings.Join(strings.Fields(ansi.Strip(l)), " "))
-		}
-		return out
-	}
-	full := []string{"Sessions", "● claude c1a0 #1 #2 fix 8", "● omp a1f2 #1 1", "↳ subagent of omp a1f1", "┆ unknown 1"}
-	if got := text(m.legendLines(30, 20)); !slices.Equal(got, full) {
-		t.Errorf("legend %q, want %q", got, full)
-	}
-	cut := []string{"", "Sessions", "● claude c1a0 #1 #2 fix 8", "+2 more"}
-	if got := text(m.legendLines(30, 8)); !slices.Equal(got, cut) {
-		t.Errorf("legend in 8 lines %q, want %q", got, cut)
-	}
-	for _, l := range m.legendLines(30, 8) {
-		if ansi.StringWidth(l) != 30 {
-			t.Errorf("legend line %q is not 30 cells wide", ansi.Strip(l))
-		}
-	}
-
-	// A click on the legend does nothing; one on a file goes to it.
-	m.Update(tea.WindowSizeMsg{Width: 125, Height: 24})
-	h := m.diffHeight()
-	m.Update(tea.MouseClickMsg{X: 2, Y: h - 1, Button: tea.MouseLeft})
-	if m.cursor != 0 {
-		t.Errorf("a click on the legend moved the cursor to row %d", m.cursor)
-	}
-	m.Update(tea.MouseClickMsg{X: 4, Y: treeHead + 1, Button: tea.MouseLeft})
-	if m.cursor != m.files[1].head {
-		t.Errorf("a click on b.bin moved the cursor to row %d, want %d", m.cursor, m.files[1].head)
-	}
-}
-
 func TestHeaderDots(t *testing.T) {
 	// A header has a dot for each session that changed its file in the order of their
 	// colors, whatever order its lines have, then ┆ for lines without an origin.

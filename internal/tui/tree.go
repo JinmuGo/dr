@@ -4,11 +4,9 @@ import (
 	"fmt"
 	"image/color"
 	"slices"
-	"strconv"
 	"strings"
 
 	"charm.land/lipgloss/v2"
-	"github.com/JinmuGo/dr/internal/review"
 	"github.com/charmbracelet/x/ansi"
 )
 
@@ -64,7 +62,7 @@ const treeHead = 3
 
 // treeWidth returns the width the file tree needs to show every row whole: a file with its
 // status, the count of its comments and, when it is viewed or changed since, a mark at the
-// right edge; and a session of the legend with its agent, id and count of lines.
+// right edge.
 func (m *model) treeWidth() int {
 	w := ansi.StringWidth(treeTitle) + 2 + ansi.StringWidth(treeCount(len(m.files), len(m.files))+treeViewed) + 2
 	for _, r := range m.tree {
@@ -73,9 +71,6 @@ func (m *model) treeWidth() int {
 		} else {
 			w = max(w, 4+2*r.depth+ansi.StringWidth(r.name)+3+m.countWidth(r.file))
 		}
-	}
-	for _, r := range m.legend {
-		w = max(w, 1+2+ansi.StringWidth(agentColumn(r.agent))+ansi.StringWidth(m.short[r.id])+2+len(strconv.Itoa(r.lines))+1)
 	}
 	return w
 }
@@ -106,15 +101,15 @@ func (m *model) treeTop(body int) int {
 	return max(min(at-body/2, len(m.tree)-body), 0)
 }
 
-// treeBody returns how many lines of a file tree h lines high show its rows: those between
-// its head and the legend that legendLines draws.
+// treeBody returns how many lines of a file tree h lines high show its rows: those under its
+// head.
 func (m *model) treeBody(h int) int {
-	return max(h-treeHead-m.legendHeight(h), 0)
+	return max(h-treeHead, 0)
 }
 
 // fileTree draws the file tree, w cells wide and h rows high: the title with how many files
 // are viewed, a progress line of that share under it, then the rows, with the file under the
-// cursor marked and on the screen, and the legend of the sessions at the bottom.
+// cursor marked and on the screen.
 func (m *model) fileTree(w, h int) []string {
 	t := &m.theme
 	viewed := 0
@@ -150,115 +145,7 @@ func (m *model) fileTree(w, h int) []string {
 			lines = append(lines, blank)
 		}
 	}
-	lines = append(lines, m.legendLines(w, h)...)
 	return lines[:h]
-}
-
-// legendItem is an entry of the legend of the file tree: a session, with the line under it
-// that names the session that started it when it is a subagent, or the changed lines
-// without an origin.
-type legendItem []string
-
-// legendHeight returns how many lines of a file tree h lines high the legend takes: all of
-// it when it fits in half the tree, leaving a line for a file under the head, and else as
-// many as that leaves it.
-func (m *model) legendHeight(h int) int {
-	n := 0
-	if len(m.legend) > 0 || m.unknown > 0 {
-		n = 1 // the title
-		for _, r := range m.legend {
-			n++
-			if r.parent != "" {
-				n++
-			}
-		}
-		if m.unknown > 0 {
-			n++
-		}
-	}
-	room := min(h/2, h-treeHead-1)
-	if n > room {
-		n = room
-		if n < 2 { // the title and +N more
-			n = 0
-		}
-	}
-	return n
-}
-
-// legendLines draws the legend of the sessions at the bottom of a file tree w cells wide and
-// h lines high, legendHeight(h) lines: a title, then each session with changed lines in the
-// order of their colors, a dot in its color, its agent and short id, its requests behind
-// changed lines and fix when dr applied a fix for a comment to it, and at the right edge how
-// many changed lines it wrote, with the session that started it under it when it is a
-// subagent; last, how many changed lines have no origin. What does not fit is left out and
-// counted as +N more.
-func (m *model) legendLines(w, h int) []string {
-	n := m.legendHeight(h)
-	if n == 0 {
-		return nil
-	}
-	t := &m.theme
-	on := func(fg color.Color) lipgloss.Style { return t.paint(fg, t.panel) }
-	margin := seg{text: " ", st: on(nil)}
-	row := func(left []seg, count int) string {
-		return spread(append([]seg{margin}, left...), []seg{{text: strconv.Itoa(count), st: on(t.subtle)}, margin}, w, on(nil))
-	}
-	var items []legendItem
-	for _, r := range m.legend {
-		var asked []string
-		for _, turn := range r.turns {
-			asked = append(asked, "#"+strconv.Itoa(turn))
-		}
-		if r.fix {
-			asked = append(asked, "fix")
-		}
-		item := legendItem{row([]seg{
-			{text: "● ", st: on(m.sessionColor(r.session))},
-			{text: agentColumn(review.Visible(r.agent)), st: on(t.fg)},
-			{text: m.short[r.id], st: on(t.muted)},
-			{text: "  " + strings.Join(asked, " "), st: on(t.subtle), cut: true},
-		}, r.lines)}
-		if r.parent != "" {
-			parent := newLine(w)
-			parent.add("   ", on(nil))
-			parent.add(ansi.Truncate("↳ subagent of "+review.Visible(r.agent)+" "+m.short[r.parent], max(w-4, 0), "…"), on(t.subtle))
-			item = append(item, parent.fill(on(nil)))
-		}
-		items = append(items, item)
-	}
-	if m.unknown > 0 {
-		items = append(items, legendItem{row([]seg{{text: "┆ ", st: on(t.subtle)}, {text: "unknown", st: on(t.subtle)}}, m.unknown)})
-	}
-	title := newLine(w)
-	title.add(" ", on(nil))
-	title.add("Sessions", on(t.strong).Bold(true))
-	lines := []string{title.fill(on(nil))}
-	shown := 0
-	for k, item := range items {
-		need := len(lines) + len(item)
-		if k < len(items)-1 {
-			need++ // a line for +N more, should a later item not fit
-		}
-		if need > n {
-			break
-		}
-		lines = append(lines, item...)
-		shown++
-	}
-	if shown < len(items) {
-		more := newLine(w)
-		more.add(" +"+strconv.Itoa(len(items)-shown)+" more", on(t.subtle))
-		lines = append(lines, more.fill(on(nil)))
-	}
-	blank := on(nil).Render(strings.Repeat(" ", w)) // above the title, for the lines an item left out did not take
-	return append(slices.Repeat([]string{blank}, n-len(lines)), lines...)
-}
-
-// agentColumn returns the name of an agent as the legend shows it, padded to line up the
-// ids after it.
-func agentColumn(name string) string {
-	return fmt.Sprintf("%-6s ", name)
 }
 
 // treeLine draws a row of the file tree, w cells wide, as GitHub's file tree does: a

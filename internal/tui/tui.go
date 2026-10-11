@@ -43,8 +43,6 @@ type model struct {
 	tree       []treeRow         // the file tree
 	short      map[string]string // short session ids, from review.ShortIDs
 	colors     map[session]int   // the color of each session, as placeSessions gives them, kept while the screen is open
-	legend     []*sessionRow     // the sessions with changed lines in the diff, in the order of their colors
-	unknown    int               // how many changed lines of the diff have no origin
 	unreadable []string          // the agents whose session logs dr could not fully read
 	listWidth  int               // width the file tree needs
 	theme      theme
@@ -214,9 +212,8 @@ func New(files []review.File, problems []agent.Problem, saved Saved, asker Asker
 
 // setFiles builds everything the screen keeps of files, when it opens and when it rebuilds
 // the diff: the lines and rows of both views, which files are viewed, the newest edit of
-// each session, the file tree, short session ids, the colors of the sessions and what the
-// legend shows of them, where the comments go with the fixes under them, who a asks and
-// where the questions go.
+// each session, the file tree, short session ids, the colors of the sessions, where the
+// comments go with the fixes under them, who a asks and where the questions go.
 func (m *model) setFiles(files []review.File) {
 	m.lines, m.labeled = nil, nil
 	m.build(files)
@@ -379,8 +376,8 @@ func (m *model) mouse(msg tea.MouseMsg) tea.Cmd {
 
 // click handles a click at column x of line y. On a file of the file tree it goes to the
 // file's header, and on the Viewed box of a file header it marks the file viewed or not, as
-// v does there. Either ends a selection first. A click on the legend of the sessions or on a
-// band does nothing. It returns the command that saves the viewed files then.
+// v does there. Either ends a selection first. A click on a band does nothing. It returns
+// the command that saves the viewed files then.
 func (m *model) click(x, y int) tea.Cmd {
 	h := m.diffHeight()
 	if y >= h {
