@@ -86,3 +86,12 @@ Each agent is one file in `internal/agent/`, like `claude.go`, `codex.go` and `o
 3. Add tests:
    - a fixture in `internal/agent/testdata/`: a session log from a real session, trimmed to what the test needs, and a test of the edits `Load` reads from it;
    - cases in `internal/agent/ask_test.go` with the fake CLI, which `fakeAgents` puts in PATH for every agent: the arguments, stdin and directory for a fork, a continued fork and a new session, the answer and model it reads, and its errors.
+
+## Releasing
+
+Pushing a `v*` tag, such as `v0.1.0`, runs `.github/workflows/release.yml`. GoReleaser builds the archives for macOS and Linux, attaches them and `checksums.txt` to the GitHub release, and pushes the cask to [JinmuGo/homebrew-tap](https://github.com/JinmuGo/homebrew-tap). The install script and the Homebrew cask pick up the new release from there.
+
+- The `HOMEBREW_TAP_TOKEN` secret must hold a token that can push to the tap.
+- `goreleaser release --snapshot --clean` builds the same archives locally into `dist/` without publishing anything.
+
+Changes to `site/` deploy to <https://dr.jinmugo.com> through `.github/workflows/site.yml`, which needs the `CLOUDFLARE_API_TOKEN` and `CLOUDFLARE_ACCOUNT_ID` secrets. The Cloudflare Pages project is `dr-jinmugo-com`, and its custom domain is dr.jinmugo.com.

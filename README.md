@@ -38,8 +38,8 @@ dr shows, for every changed line, which AI agent session wrote it and what you a
 ## Quick start
 
 ```sh
-go install github.com/JinmuGo/dr@latest
-cd your-repo   # after an agent has finished its work
+brew install jinmugo/tap/dr   # or: curl -fsSL https://dr.jinmugo.com/install.sh | sh
+cd your-repo                  # after an agent has finished its work
 dr
 ```
 
@@ -53,11 +53,16 @@ Not built yet: `:ship`, to commit, push and open a pull request from dr, and pul
 
 ## Install
 
-dr needs Go 1.26 or later and git. It runs on macOS and Linux; other systems build but are not tested.
+dr runs on macOS and Linux and needs git. Pick one:
 
 ```sh
-go install github.com/JinmuGo/dr@latest
+brew install jinmugo/tap/dr                        # Homebrew
+curl -fsSL https://dr.jinmugo.com/install.sh | sh   # install script, into ~/.local/bin
+nix profile install github:JinmuGo/dr               # Nix
+go install github.com/JinmuGo/dr@latest             # Go 1.26 or later
 ```
+
+The install script downloads the release for your system and checks its checksum before it installs. Choosing a version or a directory, building from source, upgrading and removing dr are in [docs/install.md](docs/install.md).
 
 Finding origins needs only the agents' session logs on your machine. Asking, fixing and `ga` also need the CLI of the agent that wrote the lines in your `PATH`: `claude`, `codex` or `omp`.
 
