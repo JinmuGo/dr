@@ -78,7 +78,7 @@ The diff stays in the middle, and the origin of every changed line shows in the 
 | `internal/git/` | Base, branch, worktrees, file contents |
 | `internal/diff/` | Line matching between two versions and word diff inside a line |
 | `internal/origin/` | Replays session edits to find the origin of each line |
-| `internal/review/` | Data shared by `dr blame` and the screen: changed files, origin per line, hunks |
+| `internal/review/` | Data shared by `dr blame` and the screen: changed files, origin per line, hunks, and the question prompt with its answer tags |
 | `internal/agent/` | Reads each agent's session logs and asks forks |
 | `internal/tui/` | Screen and keys. File tree, syntax colors, colors for dark and light terminals |
 | `internal/fix/` | Fix requests and their answers, and writing fixes to files only when it is safe |
