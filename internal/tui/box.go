@@ -490,12 +490,3 @@ func (m *model) where() string {
 	}
 	return path + ":" + strconv.Itoa(n)
 }
-
-// spansWidth returns the width of spans in cells.
-func spansWidth(spans []span) int {
-	w := 0
-	for _, s := range spans {
-		w += ansi.StringWidth(s.text)
-	}
-	return w
-}

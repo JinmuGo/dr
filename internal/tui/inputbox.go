@@ -418,14 +418,3 @@ func (m *model) lineOf(i int) int {
 	}
 	return line
 }
-
-// cutSpans returns spans cut to w cells, without splitting a wide character.
-func cutSpans(spans []span, w int) []span {
-	var out []span
-	for _, s := range spans {
-		s.text = ansi.Truncate(s.text, max(w, 0), "")
-		w -= ansi.StringWidth(s.text)
-		out = append(out, s)
-	}
-	return out
-}
