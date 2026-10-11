@@ -60,28 +60,59 @@ func (m *model) fail(text string) {
 	m.message, m.tone = text, toneErr
 }
 
-// mode returns the name of what the keys do now, which the pill of the status line shows
-// and whose keys the key row lists: HELP, SEARCH or COMMAND while their input is open, ASK
+// mode is what the keys do now. The pill of the status line shows its name, and the key row
+// lists its keys.
+type mode int
+
+const (
+	modeNormal  mode = iota // none of the others
+	modeVisual              // lines are selected
+	modeOrigin              // the origin box is open
+	modeAsk                 // the input box of a is open
+	modeComment             // the input box of c is open
+	modeSearch              // the search input is open
+	modeCommand             // the : input is open
+	modeHelp                // the key help is open
+)
+
+// modeNames are the names of the modes, as the pill shows them.
+var modeNames = [...]string{
+	modeNormal:  "NORMAL",
+	modeVisual:  "VISUAL",
+	modeOrigin:  "ORIGIN",
+	modeAsk:     "ASK",
+	modeComment: "COMMENT",
+	modeSearch:  "SEARCH",
+	modeCommand: "COMMAND",
+	modeHelp:    "HELP",
+}
+
+// String returns the name of md, as the pill shows it.
+func (md mode) String() string {
+	return modeNames[md]
+}
+
+// mode returns what the keys do now: HELP, SEARCH or COMMAND while their input is open, ASK
 // or COMMENT while the input box of a or c is, ORIGIN while the origin box is, VISUAL while
 // lines are selected, and NORMAL otherwise.
-func (m *model) mode() string {
+func (m *model) mode() mode {
 	switch {
 	case m.help:
-		return "HELP"
+		return modeHelp
 	case m.searching:
-		return "SEARCH"
+		return modeSearch
 	case m.commanding:
-		return "COMMAND"
+		return modeCommand
 	case m.asking != nil:
-		return "ASK"
+		return modeAsk
 	case m.drafting != nil:
-		return "COMMENT"
+		return modeComment
 	case m.reading:
-		return "ORIGIN"
+		return modeOrigin
 	case m.selecting:
-		return "VISUAL"
+		return modeVisual
 	}
-	return "NORMAL"
+	return modeNormal
 }
 
 // pill returns what the status line starts with: the mode in its pill, a chip after it while
@@ -92,22 +123,22 @@ func (m *model) pill() []seg {
 	var bg color.Color
 	fg := t.base
 	switch mode {
-	case "NORMAL":
+	case modeNormal:
 		fg, bg = t.fg, t.line
-	case "VISUAL":
+	case modeVisual:
 		bg = t.accent
-	case "ORIGIN":
+	case modeOrigin:
 		bg = t.fg
-	case "ASK":
+	case modeAsk:
 		bg = t.ask
-	case "COMMENT":
+	case modeComment:
 		bg = t.pending
-	case "SEARCH", "COMMAND":
+	case modeSearch, modeCommand:
 		bg = t.strong
-	case "HELP":
+	case modeHelp:
 		bg = t.muted
 	}
-	segs := []seg{{text: " " + mode + " ", st: t.pill(fg, bg)}}
+	segs := []seg{{text: " " + mode.String() + " ", st: t.pill(fg, bg)}}
 	if m.typing() && m.entry.picker != nil {
 		segs = append(segs, seg{text: " ^ model ", st: t.chip(t.fg, t.ask)})
 	}
@@ -322,7 +353,7 @@ func (m *model) keyRow() string {
 	t := &m.theme
 	keyStyle := t.paint(t.strong, t.surface2).Bold(true).Reverse(t.plain)
 	label := t.paint(t.muted, nil)
-	mixed := m.mode() == "VISUAL" && m.mixed() // a and c only say why they do nothing
+	mixed := m.mode() == modeVisual && m.mixed() // a and c only say why they do nothing
 	add := func(segs []seg, k keycap) []seg {
 		if mixed && (k.key == "a" || k.key == "c") {
 			return append(segs, seg{text: " " + k.key + " ", st: t.paint(t.subtle, t.panel).Reverse(t.plain)}, seg{text: " " + k.does, st: t.paint(t.faint, nil)})
@@ -330,7 +361,7 @@ func (m *model) keyRow() string {
 		return append(segs, seg{text: " " + k.key + " ", st: keyStyle}, seg{text: " " + k.does, st: label})
 	}
 	var right []seg
-	if mode := m.mode(); len(m.rows) > 0 && (mode == "NORMAL" || mode == "VISUAL") {
+	if mode := m.mode(); len(m.rows) > 0 && (mode == modeNormal || mode == modeVisual) {
 		end := keycap{"q", "quit"}
 		if n := m.pendingCount(); n > 0 {
 			end = keycap{":submit", "send " + strconv.Itoa(n)}

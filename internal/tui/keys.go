@@ -313,13 +313,13 @@ type keycap struct {
 // selection that mixes sessions, a and c say only ask and comment, as keyRow dims them.
 func (m *model) keycaps() []keycap {
 	switch m.mode() {
-	case "HELP":
+	case modeHelp:
 		return []keycap{{"any key", "close"}}
-	case "SEARCH": // n and N type into the query here
+	case modeSearch: // n and N type into the query here
 		return []keycap{{"⏎", "search"}, {"esc", "cancel"}}
-	case "COMMAND":
+	case modeCommand:
 		return []keycap{{"↑ ↓", "choose"}, {"tab", "complete"}, {"⏎", "run"}, {"esc", "cancel"}}
-	case "ASK", "COMMENT":
+	case modeAsk, modeComment:
 		if m.entry.picker != nil {
 			back := "back to the question"
 			if m.drafting != nil {
@@ -335,7 +335,7 @@ func (m *model) keycaps() []keycap {
 			newline = "⇧⏎"
 		}
 		return []keycap{{"⏎", verb}, {newline, "new line"}, {"^", "pick a model"}, {"esc", "cancel"}}
-	case "ORIGIN":
+	case modeOrigin:
 		// a asks from the box where its title offers it: on a changed line, or a line with
 		// questions, which a follows up.
 		keys := []keycap{{"j k", "scroll"}}
@@ -346,7 +346,7 @@ func (m *model) keycaps() []keycap {
 			keys = append(keys, keycap{"a", "ask"})
 		}
 		return append(keys, keycap{"⏎ esc", "close"})
-	case "VISUAL":
+	case modeVisual:
 		if m.mixed() {
 			return []keycap{{"a", "ask"}, {"c", "comment"}, {"j k", "extend"}, {"V esc", "stop selecting"}}
 		}
