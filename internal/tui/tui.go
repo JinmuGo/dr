@@ -70,9 +70,7 @@ type model struct {
 
 	selection selection // the lines V selected
 
-	viewed  state.Viewed // the files marked viewed, of this diff and of others
-	saver   *saver       // writes viewed to its file
-	version int          // how many times viewed changed
+	viewed viewedState // the files marked viewed and how they are saved
 
 	asker     Asker                 // how a asks agents
 	whom      review.Asking         // decides who a asks
@@ -166,8 +164,7 @@ func newModel(files []review.File, problems []agent.Problem, saved Saved, asker 
 		unreadable: unreadableAgents(problems),
 		theme:      newTheme(nil, true, false),
 		message:    saved.Problem,
-		viewed:     saved.Viewed,
-		saver:      &saver{},
+		viewed:     viewedState{files: saved.Viewed, saver: &saver{}},
 		asker:      asker,
 		earlier:    saved.Log,
 		records:    saved.Log,
@@ -185,11 +182,11 @@ func newModel(files []review.File, problems []agent.Problem, saved Saved, asker 
 		tick:       tick,
 	}
 	if saved.Dir != "" {
-		m.saver.path = state.ViewedPath(saved.Dir)
+		m.viewed.saver.path = state.ViewedPath(saved.Dir)
 		m.log = state.NewLog(state.LogPath(saved.Dir))
 	}
-	if m.viewed == nil {
-		m.viewed = state.Viewed{}
+	if m.viewed.files == nil {
+		m.viewed.files = state.Viewed{}
 	}
 	m.questions = earlierQuestions(saved.Log)
 	m.comments = loggedComments(saved.Log)
@@ -207,7 +204,7 @@ func (m *model) setFiles(files []review.File) {
 	m.build(files)
 	for i := range m.files {
 		f := &m.files[i]
-		f.viewed, f.changed = m.viewed.Check(f.key, f.hash)
+		f.viewed, f.changed = m.viewed.files.Check(f.key, f.hash)
 	}
 	m.place()
 	m.newest = newestEdits(m.files)
@@ -248,7 +245,7 @@ func Run(files []review.File, problems []agent.Problem, saved Saved, asker Asker
 	if err != nil {
 		return err
 	}
-	if err := m.saver.save(m.version, m.viewed); err != nil {
+	if err := m.viewed.saver.save(m.viewed.version, m.viewed.files); err != nil {
 		return fmt.Errorf("save viewed state: %w", err)
 	}
 	return nil
