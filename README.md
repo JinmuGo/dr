@@ -1,3 +1,8 @@
+<picture>
+  <source media="(prefers-color-scheme: dark)" srcset="docs/logo-dark.svg">
+  <img src="docs/logo.svg" alt="dr logo" width="96">
+</picture>
+
 # dr
 
 [![CI](https://github.com/JinmuGo/dr/actions/workflows/ci.yml/badge.svg)](https://github.com/JinmuGo/dr/actions/workflows/ci.yml)
