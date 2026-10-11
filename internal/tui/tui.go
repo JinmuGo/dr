@@ -68,9 +68,7 @@ type model struct {
 	entry      textBox       // what is typed in the input box of a or c
 	shiftEnter bool          // the terminal tells Shift+Enter from Enter, so the input box names it for a new line
 
-	selecting               bool // V started a selection of lines
-	anchor                  int  // the row it started at; it runs from there to the cursor
-	selectFirst, selectLast int  // the first and the last line row of its file, which the cursor stays between
+	selection selection // the lines V selected
 
 	viewed  state.Viewed // the files marked viewed, of this diff and of others
 	saver   *saver       // writes viewed to its file
@@ -376,7 +374,7 @@ func (m *model) click(x, y int) tea.Cmd {
 	if list, _ := m.layout(); !m.folded && x < list {
 		body := m.treeBody(h)
 		if i := m.treeTop(body) + y - treeHead; y >= treeHead && y < treeHead+body && i < len(m.tree) && m.tree[i].file >= 0 {
-			m.selecting = false
+			m.selection.on = false
 			m.jumpTo(m.headRow(m.tree[i].file))
 		}
 		return nil
@@ -386,7 +384,7 @@ func (m *model) click(x, y int) tea.Cmd {
 		return nil
 	}
 	if i := m.rowAt(y - m.bandLines()); i >= 0 && m.rows[i].kind == fileRow && x >= m.width-1-box && x < m.width-1 {
-		m.cursor, m.selecting = i, false
+		m.cursor, m.selection.on = i, false
 		return m.toggleViewed(m.rows[i].file)
 	}
 	return nil
@@ -431,7 +429,7 @@ func (m *model) relayout() {
 	if split == m.splitShown {
 		return
 	}
-	m.splitShown, m.selecting, m.search.hits.ok = split, false, false
+	m.splitShown, m.selection.on, m.search.hits.ok = split, false, false
 	switch {
 	case m.asking != nil:
 		m.asking.row = m.rows[m.asking.row].twin

@@ -117,8 +117,8 @@ func TestOpenSessionRefusals(t *testing.T) {
 		if m.message != tc.want || m.tone == toneOK || len(ed.cmds) != 0 {
 			t.Errorf("%q: message %q, tone %d, ran %q; want the warning %q and nothing run", tc.keys, m.message, m.tone, ran(ed), tc.want)
 		}
-		if selecting := strings.Contains(tc.keys, "V"); m.selecting != selecting {
-			t.Errorf("%q: selecting %t, want %t", tc.keys, m.selecting, selecting)
+		if selecting := strings.Contains(tc.keys, "V"); m.selection.on != selecting {
+			t.Errorf("%q: selecting %t, want %t", tc.keys, m.selection.on, selecting)
 		}
 	}
 }
@@ -160,13 +160,13 @@ func TestOpenSessionBox(t *testing.T) {
 		ed, op := &fakeEditor{}, &fakeOpen{}
 		m := openScreen(askFiles(), Saved{Reload: reloading(askFiles())}, nil, ed, op)
 		question := typeAndKeep(m, tc.keys)
-		if !m.originBox.open && !m.selecting {
+		if !m.originBox.open && !m.selection.on {
 			t.Fatalf("%s: neither the origin box open nor a selection before ga", tc.name)
 		}
 		opened := typeAndKeep(m, "ga")
-		if len(op.questions) != 1 || op.questions[0] != tc.want || m.originBox.open || m.selecting {
+		if len(op.questions) != 1 || op.questions[0] != tc.want || m.originBox.open || m.selection.on {
 			t.Errorf("%s: opened %+v, origin box open %t, selecting %t; want %+v opened, the box closed, no selection",
-				tc.name, op.questions, m.originBox.open, m.selecting, tc.want)
+				tc.name, op.questions, m.originBox.open, m.selection.on, tc.want)
 		}
 		if opened == nil {
 			t.Fatalf("%s: ga gave no command", tc.name)

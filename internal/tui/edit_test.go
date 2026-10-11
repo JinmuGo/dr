@@ -268,8 +268,8 @@ func TestRebuildCloses(t *testing.T) {
 		m := editScreen(testFiles(), Saved{Reload: reloading(editedFiles())}, &fakeEditor{})
 		typeKeys(m, keys)
 		send(m, editedMsg{})
-		if m.originBox.open || m.selecting || m.typing() || m.entry.text != "" || findRow(m, "+Line 5 edited") < 0 || m.View().Cursor != nil {
-			t.Errorf("%q: origin box open %t, selecting %t, input box open %t with %q after the rebuild", keys, m.originBox.open, m.selecting, m.typing(), m.entry.text)
+		if m.originBox.open || m.selection.on || m.typing() || m.entry.text != "" || findRow(m, "+Line 5 edited") < 0 || m.View().Cursor != nil {
+			t.Errorf("%q: origin box open %t, selecting %t, input box open %t with %q after the rebuild", keys, m.originBox.open, m.selection.on, m.typing(), m.entry.text)
 		}
 	}
 }

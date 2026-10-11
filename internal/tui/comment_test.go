@@ -109,8 +109,8 @@ func TestCommentSelection(t *testing.T) {
 		t.Fatalf("c on a selection: the box titled %q", title)
 	}
 	typeKeys(m, "fix<enter>")
-	if c := m.comments; m.selecting || len(c) != 1 || len(c[0].Lines) != 2 || c[0].Lines[0].Kind != "-" {
-		t.Fatalf("after Enter: selecting %t, comments %+v; want the selection ended and a comment on -line 2 and +Changed 2", m.selecting, c)
+	if c := m.comments; m.selection.on || len(c) != 1 || len(c[0].Lines) != 2 || c[0].Lines[0].Kind != "-" {
+		t.Fatalf("after Enter: selecting %t, comments %+v; want the selection ended and a comment on -line 2 and +Changed 2", m.selection.on, c)
 	}
 	for _, tc := range []struct {
 		keys, why string

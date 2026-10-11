@@ -7,6 +7,13 @@ import (
 	"github.com/JinmuGo/dr/internal/review"
 )
 
+// selection is the state of a selection of lines.
+type selection struct {
+	on          bool // V started a selection of lines
+	anchor      int  // the row it started at; it runs from there to the cursor
+	first, last int  // the first and the last line row of its file, which the cursor stays between
+}
+
 // startSelection starts a selection of lines at the cursor, as vim's V does. Moves then
 // extend it, but not out of the file it started in. A header is not a line, so the
 // selection starts at the first line after it; a file that shows no lines has nothing to
@@ -21,7 +28,7 @@ func (m *model) startSelection() {
 	for m.rows[m.cursor].kind != lineRow {
 		m.cursor++ // past a hunk header, which always has lines after it
 	}
-	m.selecting, m.anchor, m.selectFirst, m.selectLast = true, m.cursor, first, last
+	m.selection.on, m.selection.anchor, m.selection.first, m.selection.last = true, m.cursor, first, last
 }
 
 // lineRows returns the first and the last row of file f on the screen that shows lines, or
@@ -43,7 +50,7 @@ func (m *model) lineRows(f int) (first, last int) {
 // between them are not part of it.
 func (m *model) selectedRows() []int {
 	var rows []int
-	for i := min(m.anchor, m.cursor); i <= max(m.anchor, m.cursor); i++ {
+	for i := min(m.selection.anchor, m.cursor); i <= max(m.selection.anchor, m.cursor); i++ {
 		if m.rows[i].kind == lineRow {
 			rows = append(rows, i)
 		}
@@ -97,5 +104,5 @@ func (m *model) mixed() bool {
 
 // isSelected reports whether row i is part of the selection.
 func (m *model) isSelected(i int) bool {
-	return m.selecting && m.rows[i].kind == lineRow && i >= min(m.anchor, m.cursor) && i <= max(m.anchor, m.cursor)
+	return m.selection.on && m.rows[i].kind == lineRow && i >= min(m.selection.anchor, m.cursor) && i <= max(m.selection.anchor, m.cursor)
 }

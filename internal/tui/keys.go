@@ -160,9 +160,9 @@ func (m *model) emptyKey(k string) tea.Cmd {
 func (m *model) escKey() {
 	switch {
 	case m.count > 0 || m.pending != "":
-		m.count, m.pending, m.selecting = 0, "", false
-	case m.selecting:
-		m.selecting = false
+		m.count, m.pending, m.selection.on = 0, "", false
+	case m.selection.on:
+		m.selection.on = false
 	default:
 		m.search.query = "" // and its marks
 	}
@@ -177,7 +177,7 @@ func (m *model) normalKey(k string) tea.Cmd {
 	m.count, m.pending = 0, ""
 	switch k {
 	case keyPrevFile, keyLeft, keyNextFile, keyRight, keySearch, keySplit, keyViewed, keyOrigin:
-		m.selecting = false // these end a selection, then do what they do
+		m.selection.on = false // these end a selection, then do what they do
 	}
 	if m.moveKey(k, count) {
 		return nil
@@ -197,8 +197,8 @@ func (m *model) normalKey(k string) tea.Cmd {
 	case keyHelp:
 		m.help = true
 	case keySelect:
-		if m.selecting {
-			m.selecting = false
+		if m.selection.on {
+			m.selection.on = false
 		} else {
 			m.startSelection()
 		}
@@ -337,8 +337,8 @@ func (m *model) readKey(k string) tea.Cmd {
 // nearest row is in the selection's file, between its first and its last line.
 func (m *model) moveTo(i int) {
 	first, last := 0, len(m.rows)-1
-	if m.selecting {
-		first, last = m.selectFirst, m.selectLast
+	if m.selection.on {
+		first, last = m.selection.first, m.selection.last
 	}
 	m.cursor = max(min(i, last), first)
 }

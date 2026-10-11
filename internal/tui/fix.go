@@ -401,7 +401,7 @@ func (m *model) readFix(c *comment) tea.Cmd {
 	if m.files[c.file].viewed {
 		cmd = m.toggleViewed(c.file)
 	}
-	m.selecting = false
+	m.selection.on = false
 	m.jumpTo(m.lineRow(c.under))
 	return cmd
 }

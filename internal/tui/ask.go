@@ -130,7 +130,7 @@ func (m *model) target(whom review.Asking) (*target, string) {
 	case m.originBox.open && m.hasQuestions(m.cursor):
 		qs := m.questionsAt(m.cursor)
 		t.lines, t.followUp = slices.Clone(qs[len(qs)-1].lines), true
-	case m.selecting:
+	case m.selection.on:
 		rows := m.selectedRows()
 		for _, i := range rows {
 			for _, k := range [2]int{m.rows[i].left, m.rows[i].right} {
@@ -211,7 +211,7 @@ func (m *model) send() tea.Cmd {
 		text = t.placeholder
 	}
 	pick := m.entry.pick
-	m.asking, m.entry, m.selecting = nil, textBox{}, false
+	m.asking, m.entry, m.selection.on = nil, textBox{}, false
 	f := m.files[t.file]
 	who := session{t.Ask.Agent, t.Ask.Session}
 	asked := make([]origin.Line, len(t.lines))
@@ -372,7 +372,7 @@ func (m *model) read(q *question) tea.Cmd {
 	if m.files[q.file].viewed {
 		cmd = m.toggleViewed(q.file)
 	}
-	m.selecting = false
+	m.selection.on = false
 	m.originBox.open = true
 	if q.lines == nil {
 		m.jumpTo(m.headRow(q.file))
