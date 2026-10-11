@@ -23,26 +23,33 @@
   <a href="docs/design.md">Design</a>
 </p>
 
-dr shows, for every changed line, which AI agent session wrote it and what you asked for. It reads the local session logs of Claude Code, Codex and OMP.
+dr shows, for every changed line, which AI agent session wrote it and what you asked for. Ask that session why it wrote a line, leave review comments, and get fixes back from it. dr reads the local session logs of Claude Code, Codex and OMP.
+
+![dr showing which agent session wrote each changed line](docs/demo.gif)
+
+## Why dr
+
+- **See who wrote each line.** `git blame` names you, because you committed. dr names the agent session that wrote the line and the request you gave it.
+- **Ask the author.** Press `a` on a line to ask the session that wrote it why. dr asks a fork, so your conversation stays as it was.
+- **Get fixes from the author.** Leave comments as in a pull request review, then `:submit`. Each session fixes only the lines it wrote; `y` applies a fix and `x` drops it.
+- **Three agents, one diff.** Lines from Claude Code, Codex and OMP sessions sit side by side in one review.
+- **Local and exact.** Origins come from the session logs on your machine, with no model calls. Lines dr cannot explain stay unknown. There is no server, no account and no telemetry.
+
+## Quick start
+
+```sh
+go install github.com/JinmuGo/dr@latest
+cd your-repo   # after an agent has finished its work
+dr
+```
+
+Move with `j` and `k`. `Enter` shows where the line under the cursor came from, `a` asks its session, `c` leaves a comment, `?` lists every key, and `q` quits.
 
 ## Status
 
-Early. What works today:
+Early. Everything above works today, and so do `e`, to fix a line in your editor, and `ga`, to open the session that wrote a line in its agent, right in this terminal. `dr blame <path>` prints the origins of one file as text.
 
-- `dr`: a diff screen that shows the origin of each changed line, with unified and split views and a resizable file tree.
-- `dr blame <path>`: the same origins for one file, printed as text.
-- `a`: ask the session that wrote a line, or a selection made with `V`, why it wrote it. Claude Code, Codex and OMP sessions can all be asked. dr asks a fork of the session, so the original conversation is not touched, and the answer appears under the line.
-- `e`: fix a line by hand in your editor. The diff is rebuilt when you close it.
-- `c`: leave a change comment on a line or a selection, like a pending GitHub review comment. It shows in a box under its lines, and the file tree counts it. dr keeps comments for the next run.
-- `:submit`: send every comment at once, one request per session. The session that wrote the lines returns a fix for only those lines, shown under the comment. `y` applies it, `x` drops it, and `:undo` reverts the last fix dr applied.
-- `ga`: open a fork of the session that wrote a line in its agent, right in this terminal, for changes too big for a comment. dr redraws the diff when you leave the agent.
-
-Planned, not built yet:
-
-- `:ship`: commit, push and open a pull request from dr.
-- Pull request review: see what people and bots left on a pull request in the same screen, and decide what to apply.
-
-The plan and its reasoning are in [docs/design.md](docs/design.md).
+Not built yet: `:ship`, to commit, push and open a pull request from dr, and pull request review, to see what people and bots left on a pull request in the same screen. Both are planned in [docs/roadmap.md](docs/roadmap.md). Why dr works the way it does is in [docs/design.md](docs/design.md).
 
 ## Install
 
@@ -66,15 +73,25 @@ dr blame <path> # origins for one file, as text
 
 The base is the merge-base of `HEAD` and the default branch (`origin/HEAD`, else `main` or `master`). dr compares the base with the files in your working tree, so uncommitted changes are included. `dr blame` always uses the default branch.
 
+A session is one conversation with an agent, and a request is one message you sent in it. A line's origin is the session and request whose edit last changed the line.
+
 The status line shows the agent and request number for the line under the cursor. `Enter` opens the origin box below the line: the session, the request as you wrote it, the note the agent wrote right before the edit, and the reply that ended the request.
 
 Press `v` on a file to mark it viewed, like the Viewed box on GitHub. A viewed file folds to its header and the file tree shows a check next to it. dr remembers viewed files per worktree, inside the git directory. If the file's diff changes after you marked it, the mark is cleared and the header says `Changed since last view`.
 
 ## Asking with `a`
 
-On a changed line, `a` opens a box under the line to type your question in, like the comment box in tuicr. Left empty, it asks "Why did you write this line this way?". `Enter` sends, `Shift-Enter` or `Alt-Enter` starts a new line, and `Esc` cancels. Select several lines with `V` first to ask about all of them. The answer arrives in a few seconds as a thread at the top of the origin box, like a GitHub review comment. Answers are one short sentence unless you ask for more, with a badge for where the reason comes from: `decided` with you, `chose` by the agent, or a `guess`. Press `a` inside the origin box to ask a follow-up.
+On a changed line, `a` opens a box under the line to type your question in. Left empty, it asks "Why did you write this line this way?". `Enter` sends, `Shift-Enter` or `Alt-Enter` starts a new line, and `Esc` cancels. Select several lines with `V` first to ask about all of them. The answer arrives in a few seconds as a thread at the top of the origin box, like a GitHub review comment. Answers are one short sentence unless you ask for more, with a badge for where the reason comes from: `decided` with you, `chose` by the agent, or a `guess`. Press `a` inside the origin box to ask a follow-up.
 
-Type `^` in the box to pick the model that answers, the way OMP's `^` does: a list of the models that agent's CLI can run opens under the box, typing filters it, and `Enter` or `Tab` picks. The pick is for that one question; the next one goes back to the session's own model. A picked model shows with a `^` in the box title and next to the answer, and the session's reasoning effort is left out, because it belongs to the session's model. The list comes from each agent: OMP from `omp models`, newest first by the version in the name, Codex from the model list it keeps in `~/.codex`, and Claude Code, which has no list, from its aliases `fable`, `opus`, `sonnet` and `haiku`. Models the review's sessions used come first, and `Use "…" as typed` takes any name the list does not hold.
+Type `^` in the box to pick the model that answers. A list of the models that agent's CLI can run opens under the box; typing filters it, and `Enter` or `Tab` picks. The pick is for that one question, and the next one goes back to the session's own model. A picked model shows with a `^` in the box title and next to the answer. The session's reasoning effort is left out, because it belongs to the session's model.
+
+The list comes from each agent:
+
+- OMP: `omp models`, newest first by the version in the name.
+- Codex: the model list it keeps in `~/.codex`.
+- Claude Code, which has no list: its aliases `fable`, `opus`, `sonnet` and `haiku`.
+
+Models the review's sessions used come first, and `Use "…" as typed` takes any name the list does not hold.
 
 dr sends the question to a fork of the session that wrote the line, so the original conversation is not changed:
 
