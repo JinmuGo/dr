@@ -53,30 +53,6 @@ func (m *model) View() tea.View {
 	return v
 }
 
-// inputPrompt returns what the status line shows before the open input, "" when none is
-// open.
-func (m *model) inputPrompt() string {
-	switch {
-	case m.searching:
-		return "/"
-	case m.commanding:
-		return ":"
-	}
-	return ""
-}
-
-// inputText returns what the status line shows of the open search or : input after the
-// mode pill: its prompt and what is typed. When they do not fit on the line with the cursor
-// after them, their start is cut, so what is typed and the cursor stay on the screen. It
-// returns "" when no input is open.
-func (m *model) inputText() string {
-	prompt := m.inputPrompt()
-	if prompt == "" {
-		return ""
-	}
-	return keepEnd(prompt+review.Visible(m.input), m.width-m.pillWidth()-1) // the cursor after it
-}
-
 // draw returns the screen, m.height lines of m.width cells: the diff, or noChanges when no
 // changed file is left, the status line and, on a screen of minKeyRowHeight rows or more,
 // the key row. Over them float the notice at the top right of the diff, the command list
