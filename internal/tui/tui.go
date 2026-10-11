@@ -59,9 +59,8 @@ type model struct {
 	reading bool        // the origin box is open under the cursor row
 	readTop int         // first line of the origin box's text on the screen
 	asking  *target     // the input box of a is open, and what it asks about
-	input   string      // what is typed in the search or the : input
-	search  search      // the search: whether its input is open, the last query and where it is
-	choice  int         // the highlighted row of the command list
+	search  search      // the search: whether its input is open, what is typed, the last query and where it is
+	cmdline cmdline     // the : input: whether it is open, what is typed and the highlighted command
 	message string      // shown in the status line until the next key
 	tone    messageTone // how the message reads: a warning or an error
 	notice  *notice     // floats at the top right of the diff until the next key
@@ -69,7 +68,6 @@ type model struct {
 	drafting   *commentInput // the input box of c is open, and what it comments on
 	entry      textBox       // what is typed in the input box of a or c
 	shiftEnter bool          // the terminal tells Shift+Enter from Enter, so the input box names it for a new line
-	commanding bool          // the : input is open
 
 	selecting               bool // V started a selection of lines
 	anchor                  int  // the row it started at; it runs from there to the cursor

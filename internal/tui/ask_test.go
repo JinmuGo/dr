@@ -236,7 +236,7 @@ func TestInputRoom(t *testing.T) {
 				t.Errorf("%s: status line %q has %q", tc.name, status, g)
 			}
 		}
-		typed := m.input[len(m.input)-len("가"):] // the last character typed
+		typed := m.typed()[len(m.typed())-len("가"):] // the last character typed
 		want := ansi.StringWidth(status[:strings.LastIndex(status, typed)+len(typed)])
 		if c := m.View().Cursor; c == nil || c.X != want || c.Y != m.diffHeight() {
 			t.Errorf("%s: cursor %+v, want it at column %d of the status line", tc.name, c, want)

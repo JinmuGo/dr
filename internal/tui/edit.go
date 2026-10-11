@@ -246,8 +246,8 @@ func (m *model) rebuild(files []review.File, problems []agent.Problem) {
 	if m.sticky() {
 		offset++ // the header that stays on top takes a line
 	}
-	if m.typing() || m.commanding {
-		m.asking, m.drafting, m.entry, m.commanding, m.input = nil, nil, textBox{}, false, ""
+	if m.typing() || m.cmdline.open {
+		m.asking, m.drafting, m.entry, m.cmdline.open, m.cmdline.input = nil, nil, textBox{}, false, ""
 	}
 	m.reading, m.selecting, m.enteredAt = false, false, -1 // the split view has other rows now
 	m.message, m.tone, m.notice = "", toneWarn, nil
@@ -255,7 +255,7 @@ func (m *model) rebuild(files []review.File, problems []agent.Problem) {
 	m.setFiles(files)
 	if len(m.rows) == 0 {
 		m.cursor, m.top = 0, 0
-		m.search.open, m.input, m.count, m.pending = false, "", 0, ""
+		m.search.open, m.search.input, m.count, m.pending = false, "", 0, ""
 		return
 	}
 	m.cursor = m.restore(at)
