@@ -45,7 +45,7 @@ func TestCardBand(t *testing.T) {
 		{name: "split", keys: "s3j", rail: "▎", files: testFiles(), band: func(m *model) color.Color { return m.sessionColor(session{"claude", claudeSession}) }},
 		{name: "a file header", files: testFiles(), band: func(m *model) color.Color { return m.theme.accent }},
 	} {
-		m := New(tc.files, nil, Saved{}, Asker{}).(*model)
+		m := newModel(tc.files, nil, Saved{}, Asker{})
 		m.Update(tea.WindowSizeMsg{Width: 160, Height: 30})
 		typeKeys(m, tc.keys+"<enter>")
 		th := &m.theme
@@ -275,7 +275,7 @@ func TestCardScroll(t *testing.T) {
 		t.Errorf("the bar is not in quiet and faint colors: %q", raw)
 	}
 	// In the diff the bar follows the origin card's scroll.
-	m = New(longFiles(), nil, Saved{}, Asker{}).(*model)
+	m = newModel(longFiles(), nil, Saved{}, Asker{})
 	m.Update(tea.WindowSizeMsg{Width: 120, Height: 24})
 	typeKeys(m, "G<enter>")
 	thumb := func() int {

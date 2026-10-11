@@ -385,7 +385,7 @@ func TestNoticeOverInput(t *testing.T) {
 // bandScreen returns the screen on testFiles in a 125×24 terminal with both bands: the
 // session logs of codex could not be read, and another dr holds the lock.
 func bandScreen() *model {
-	m := New(testFiles(), []agent.Problem{{Agent: "codex", Path: "rollout-1.jsonl", Bad: 1}}, Saved{Lock: state.ErrLocked}, Asker{}).(*model)
+	m := newModel(testFiles(), []agent.Problem{{Agent: "codex", Path: "rollout-1.jsonl", Bad: 1}}, Saved{Lock: state.ErrLocked}, Asker{})
 	m.tick = noTick
 	m.Update(tea.WindowSizeMsg{Width: 125, Height: 24})
 	return m

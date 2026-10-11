@@ -58,7 +58,7 @@ const root = "/repo"
 // askScreen returns the screen on files in a 125×24 terminal that asks through f. It does not
 // tick, so the command of the key that asks is the question alone.
 func askScreen(files []review.File, saved Saved, f *fakeAsk) *model {
-	m := New(files, nil, saved, Asker{Ask: f.ask, Installed: f.isInstalled, Root: root}).(*model)
+	m := newModel(files, nil, saved, Asker{Ask: f.ask, Installed: f.isInstalled, Root: root})
 	m.tick = noTick
 	m.Update(tea.WindowSizeMsg{Width: 125, Height: 24})
 	return m
@@ -1202,7 +1202,7 @@ func TestAskQuit(t *testing.T) {
 		<-ctx.Done()
 		return agent.Answer{}, ctx.Err()
 	}
-	m := New(askFiles(), nil, Saved{Dir: dir}, Asker{Ask: ask}).(*model)
+	m := newModel(askFiles(), nil, Saved{Dir: dir}, Asker{Ask: ask})
 	m.tick = noTick
 	m.Update(tea.WindowSizeMsg{Width: 125, Height: 24})
 	cmd := typeAndKeep(m, "4ja<enter>")
@@ -1229,11 +1229,12 @@ func TestAskQuit(t *testing.T) {
 	// A question that does not stop is waited for only so long.
 	release := make(chan struct{})
 	t.Cleanup(func() { close(release) })
-	m = New(testFiles(), nil, Saved{}, Asker{Ask: func(context.Context, agent.Question) (agent.Answer, error) {
+	m = newModel(testFiles(), nil, Saved{}, Asker{Ask: func(context.Context, agent.Question) (agent.Answer, error) {
 		started <- struct{}{}
 		<-release
 		return answer, nil
-	}}).(*model)
+	}})
+
 	m.tick = noTick
 	m.Update(tea.WindowSizeMsg{Width: 125, Height: 24})
 	cmd = typeAndKeep(m, "4ja<enter>")

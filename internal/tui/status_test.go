@@ -129,7 +129,7 @@ func TestKeyRowFit(t *testing.T) {
 
 func TestPlainDiffstat(t *testing.T) {
 	// Without colors the diffstat squares tell added, deleted and neither by their shape.
-	m := New(testFiles(), nil, Saved{}, Asker{}).(*model)
+	m := newModel(testFiles(), nil, Saved{}, Asker{})
 	m.theme = newTheme(nil, true, true)
 	if header := ansi.Strip(m.drawHeader(m.files[0], 80, false)); !strings.Contains(header, "+2 -2 ■▨□□□") {
 		t.Errorf("header %q, want +2 -2 ■▨□□□", header)
@@ -186,7 +186,7 @@ func TestStickyHeader(t *testing.T) {
 	// Once the top row is inside a file, that file's header stays on the top line, and the
 	// cursor never goes under it: moving up to the top row scrolls so it shows under the
 	// header, and on to the header itself shows the header in its place.
-	m := New(testFiles(), nil, Saved{}, Asker{}).(*model)
+	m := newModel(testFiles(), nil, Saved{}, Asker{})
 	m.Update(tea.WindowSizeMsg{Width: 120, Height: 12}) // 10 lines of the diff
 	list, _ := m.layout()
 	diff := func() []string {
@@ -306,7 +306,7 @@ func TestEmptyScreen(t *testing.T) {
 		{"a ref and a fix in place", Saved{Base: Base{Ref: "HEAD~8", Commit: "1a2b3c4d5e6f"}, Log: applied},
 			"HEAD~8 (1a2b3c4) and the working tree are the same.", true},
 	} {
-		m := New(nil, nil, tc.saved, Asker{}).(*model)
+		m := newModel(nil, nil, tc.saved, Asker{})
 		m.Update(tea.WindowSizeMsg{Width: 120, Height: 24})
 		th := &m.theme
 		lines := strings.Split(screen(t, m), "\n")

@@ -22,7 +22,7 @@ import (
 //	5  +alpha beta
 func searchScreen() *model {
 	lines := origin.Blame("one\nthree\n", "one\nbeta Beta beta\nthree\nalpha beta\n", nil)
-	m := New([]review.File{{Path: "notes.zz", Status: 'M', Lines: lines}}, nil, Saved{}, Asker{}).(*model)
+	m := newModel([]review.File{{Path: "notes.zz", Status: 'M', Lines: lines}}, nil, Saved{}, Asker{})
 	m.Update(tea.WindowSizeMsg{Width: 160, Height: 24})
 	return m
 }

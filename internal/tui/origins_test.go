@@ -42,7 +42,7 @@ func TestSessionColors(t *testing.T) {
 	// Sessions take colors in the order they first appear in the diff, then those asked
 	// and those commented to. A reload keeps the colors given and gives the next to a new
 	// session, though it comes earlier in the diff. Past the sixth, colors cycle.
-	m := New(testFiles(), nil, Saved{}, Asker{}).(*model)
+	m := newModel(testFiles(), nil, Saved{}, Asker{})
 	claude, omp, codex := session{"claude", claudeSession}, session{"omp", ompSession}, session{"codex", codexSession}
 	asked := session{"claude", "0a5c0000-0000-0000-0000-00000000a5c0"}
 	if m.colors[claude] != 0 || m.colors[omp] != 1 || len(m.colors) != 2 {
@@ -91,7 +91,7 @@ func TestRunLabelDraw(t *testing.T) {
 	// then the summary of the request, cut to fit. With less than 8 cells for the summary
 	// the tag shows alone, and when the whole dot and tag do not fit nothing does. Row 3 is
 	// "-line 2" by claude #1, its code at column 11 and 6 cells wide.
-	m := New(testFiles(), nil, Saved{}, Asker{}).(*model)
+	m := newModel(testFiles(), nil, Saved{}, Asker{})
 	m.Update(tea.WindowSizeMsg{Width: 160, Height: 24}) // a diff wide enough for the summary
 	for _, tc := range []struct {
 		row, w int
@@ -163,7 +163,7 @@ func TestSplitLabels(t *testing.T) {
 		{Text: "old c", Old: 3, Edit: claude1},
 		{Text: "new c", New: 3, Edit: claude1},
 	}
-	m := New([]review.File{{Path: "s.go", Status: 'M', Lines: lines}}, nil, Saved{}, Asker{}).(*model)
+	m := newModel([]review.File{{Path: "s.go", Status: 'M', Lines: lines}}, nil, Saved{}, Asker{})
 	m.Update(tea.WindowSizeMsg{Width: 200, Height: 40})
 	if typeKeys(m, "s"); !m.splitShown {
 		t.Fatal("no split view at 200 cells")
@@ -185,7 +185,7 @@ func TestRail(t *testing.T) {
 	// A changed line has a rail between its line numbers and its sign, ▎ in the color of its
 	// origin or ┆ for none, and an unchanged line a blank there, in both views. The code,
 	// and the text of a hunk header, start after the rail and the sign.
-	m := New(append(testFiles(), changedFile("d.go", claudeFx)), nil, Saved{}, Asker{}).(*model)
+	m := newModel(append(testFiles(), changedFile("d.go", claudeFx)), nil, Saved{}, Asker{})
 	m.Update(tea.WindowSizeMsg{Width: 200, Height: 40})
 	f := m.files[0]
 	if at := strings.Index(ansi.Strip(m.drawRow(1, 120)), "@@"); at != m.codeColumn(f) {
@@ -243,7 +243,7 @@ func TestRail(t *testing.T) {
 func TestHeaderDots(t *testing.T) {
 	// A header has a dot for each session that changed its file in the order of their
 	// colors, whatever order its lines have, then ┆ for lines without an origin.
-	m := New([]review.File{changedFile("a.go", claude1), changedFile("b.go", subagent, claude1, nil)}, nil, Saved{}, Asker{}).(*model)
+	m := newModel([]review.File{changedFile("a.go", claude1), changedFile("b.go", subagent, claude1, nil)}, nil, Saved{}, Asker{})
 	on := func(fg color.Color) lipgloss.Style { return m.theme.paint(fg, nil) }
 	var got []color.Color
 	for _, s := range m.sessionDots(m.files[1], on) {
@@ -260,7 +260,7 @@ func TestHeaderDots(t *testing.T) {
 func TestStatusOrigin(t *testing.T) {
 	// The status line names the origin of a changed cursor line in its color: the session's,
 	// teal for a fix, quiet for none.
-	m := New(append(testFiles(), changedFile("d.go", claudeFx)), nil, Saved{}, Asker{}).(*model)
+	m := newModel(append(testFiles(), changedFile("d.go", claudeFx)), nil, Saved{}, Asker{})
 	on := func(fg color.Color) lipgloss.Style { return m.theme.paint(fg, nil) }
 	for _, tc := range []struct {
 		row       int
