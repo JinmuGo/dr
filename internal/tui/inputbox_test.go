@@ -10,6 +10,7 @@ import (
 
 	tea "charm.land/bubbletea/v2"
 	"github.com/JinmuGo/dr/internal/agent"
+	"github.com/JinmuGo/dr/internal/origin"
 	"github.com/JinmuGo/dr/internal/review"
 	"github.com/charmbracelet/colorprofile"
 	"github.com/charmbracelet/x/ansi"
@@ -338,7 +339,8 @@ func TestEntryKeys(t *testing.T) {
 		t.Errorf("cursor at row %d, help open %t, the box\n%s\nwant row 4 and four lines", m.cursor, m.help, strings.Join(box, "\n"))
 	}
 	typeKeys(m, "<enter>")
-	if got := f.asked(); len(got) != 1 || !strings.HasSuffix(got[0].Prompt, "\n>Changed 2\na\nb\nc\ndj?q"+questionEnd) {
+	want := review.Prompt(review.Author, "a.go", []origin.Line{{Text: "Changed 2", New: 2}}, "a\nb\nc\ndj?q")
+	if got := f.asked(); len(got) != 1 || got[0].Prompt != want {
 		t.Errorf("asked %+v, want the four lines", got)
 	}
 	if qs := Load(dir).Log.Questions; len(qs) != 1 || qs[0].Text != "a\nb\nc\ndj?q" {

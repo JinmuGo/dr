@@ -1,5 +1,6 @@
 // Package review gathers what dr shows about a worktree: the files changed since the base
-// commit, their hunks, the agent edit behind each changed line, and who a asks about lines.
+// commit, their hunks, the agent edit behind each changed line, who a asks about lines and
+// the prompt it sends them, with the kind of answer the tag of a reply tells.
 // dr blame and the diff screen both draw from it, so the words they share, such as the tag
 // of a request, live here too.
 package review
