@@ -4,7 +4,6 @@ import (
 	"context"
 	"errors"
 	"image/color"
-	"path/filepath"
 	"slices"
 	"strings"
 	"sync"
@@ -379,7 +378,7 @@ func TestAskNewSession(t *testing.T) {
 	if text := boxText(m); !strings.Contains(text, thread) {
 		t.Errorf("the box:\n%s\nwant the question, who was asked, the answer and its model", text)
 	}
-	records, bad, err := state.NewLog(filepath.Join(dir, logFile)).Read()
+	records, bad, err := state.NewLog(state.LogPath(dir)).Read()
 	if err != nil || bad != 0 {
 		t.Fatal(bad, err)
 	}
@@ -471,7 +470,7 @@ func TestAskAnswer(t *testing.T) {
 	if text := boxText(m); !strings.Contains(text, "Why delete it?\n● claude c1a0  claude-opus-5-5 · 7s\n지운 줄이에요.\n") || strings.Contains(text, whyAdded) {
 		t.Errorf("the box of row 3:\n%s\nwant only its own question", text)
 	}
-	records, bad, err := state.NewLog(filepath.Join(dir, logFile)).Read()
+	records, bad, err := state.NewLog(state.LogPath(dir)).Read()
 	if err != nil || bad != 0 {
 		t.Fatal(bad, err)
 	}
@@ -1069,7 +1068,7 @@ func TestEarlierQuestions(t *testing.T) {
 	// their lines quoted, in the look of a thread, all dim. A question dr quit before the
 	// answer came says so. A question whose time the log does not know has none.
 	dir := t.TempDir()
-	log := state.NewLog(filepath.Join(dir, logFile))
+	log := state.NewLog(state.LogPath(dir))
 	line := func(kind, text string) state.Line { return state.Line{Kind: kind, Text: text} }
 	for _, r := range []state.Record{
 		state.Question{
@@ -1180,7 +1179,7 @@ func TestSplitQuestionPlace(t *testing.T) {
 func TestStaleFork(t *testing.T) {
 	// A fork made before the session's newest edit does not know of it, so a new one is made.
 	dir := t.TempDir()
-	if err := state.NewLog(filepath.Join(dir, logFile)).Append(state.Fork{Agent: "claude", Session: claudeSession, Fork: "fork-0", Base: claude1.Time}); err != nil {
+	if err := state.NewLog(state.LogPath(dir)).Append(state.Fork{Agent: "claude", Session: claudeSession, Fork: "fork-0", Base: claude1.Time}); err != nil {
 		t.Fatal(err)
 	}
 	f := &fakeAsk{answer: answer}
@@ -1221,7 +1220,7 @@ func TestAskQuit(t *testing.T) {
 	if msg := later(); msg != nil || len(started) != 0 {
 		t.Errorf("a question after the stop brought %#v and was asked %t", msg, len(started) != 0)
 	}
-	records, _, err := state.NewLog(filepath.Join(dir, logFile)).Read()
+	records, _, err := state.NewLog(state.LogPath(dir)).Read()
 	if err != nil || len(records.Questions) != 1 || len(records.Answers) != 0 {
 		t.Errorf("log: %+v, %v; want the first question without an answer", records, err)
 	}

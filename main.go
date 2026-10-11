@@ -110,7 +110,7 @@ func browse(stdout io.Writer, home, ref string) (err error) {
 	if err != nil {
 		return err
 	}
-	dir, err := git.Path(repo.Root, "dr")
+	dir, err := git.Path(repo.Root, state.DirName)
 	if err != nil {
 		return err
 	}

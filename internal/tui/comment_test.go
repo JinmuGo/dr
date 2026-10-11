@@ -1,7 +1,6 @@
 package tui
 
 import (
-	"path/filepath"
 	"slices"
 	"strconv"
 	"strings"
@@ -26,7 +25,7 @@ func commentScreen(files []review.File, dir string) *model {
 // commentRecords returns the comment records in the log in dir.
 func commentRecords(t *testing.T, dir string) []state.Comment {
 	t.Helper()
-	records, bad, err := state.NewLog(filepath.Join(dir, logFile)).Read()
+	records, bad, err := state.NewLog(state.LogPath(dir)).Read()
 	if err != nil || bad > 0 {
 		t.Fatalf("reading the log: %d bad lines, %v", bad, err)
 	}
@@ -272,7 +271,7 @@ func TestCommentReopen(t *testing.T) {
 	if !slices.Equal(texts(m), []string{"one", "four"}) {
 		t.Fatalf("comments %q, want one and four", texts(m))
 	}
-	if err := state.NewLog(filepath.Join(dir, logFile)).Append(state.Comment{
+	if err := state.NewLog(state.LogPath(dir)).Append(state.Comment{
 		ID: "0000000000000001", Agent: "claude", Session: claudeSession, Path: "gone.go", Lines: []state.Line{{Kind: "+", Text: "x"}}, Text: "gone",
 	}); err != nil {
 		t.Fatal(err)

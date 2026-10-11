@@ -91,7 +91,7 @@ func typeAll(m *model, keys string) {
 // records returns what the log in dir holds.
 func records(t *testing.T, dir string) state.Records {
 	t.Helper()
-	r, bad, err := state.NewLog(filepath.Join(dir, logFile)).Read()
+	r, bad, err := state.NewLog(state.LogPath(dir)).Read()
 	if err != nil || bad > 0 {
 		t.Fatalf("reading the log: %d bad lines, %v", bad, err)
 	}
@@ -190,7 +190,7 @@ func codexRepo(t *testing.T) (repo, home string) {
 // same way and asks through f. It returns the state directory too.
 func repoScreen(t *testing.T, repo, home string, f *fakeAsk, now func() time.Time) (*model, string) {
 	t.Helper()
-	dir, err := git.Path(repo, "dr")
+	dir, err := git.Path(repo, state.DirName)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -597,7 +597,7 @@ func TestDropFix(t *testing.T) {
 		t.Errorf("dropped %q, want %q", dropped, []string{oneFix, threeFix})
 	}
 	// The last drop is the edit's, and the last comment record the edit.
-	lines := strings.Split(readFile(t, filepath.Join(dir, logFile)), "\n")
+	lines := strings.Split(readFile(t, state.LogPath(dir)), "\n")
 	drop, edit := -1, -1
 	for i, l := range lines {
 		switch {

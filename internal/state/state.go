@@ -1,7 +1,9 @@
-// Package state keeps what dr remembers of a worktree from one run to the next: the files
-// marked viewed, in viewed.json, and the questions asked about lines and their answers, in
-// log.jsonl. dr keeps them in the worktree's git directory, so nothing of it shows in the
-// worktree and removing the worktree removes it.
+// Package state keeps what dr remembers of a worktree from one run to the next. It keeps it
+// in the state directory, DirName in the worktree's git directory, so nothing of it shows in
+// the worktree and removing the worktree removes it. The directory holds viewed.json, the
+// files marked viewed; log.jsonl, the questions and answers, the comments, the fix requests
+// and the fixes dr applied and undid; lock, which one dr at a time holds to apply fixes; and
+// sessions/, where dr starts the sessions of agents that let it choose where.
 package state
 
 import (
@@ -12,6 +14,20 @@ import (
 	"os"
 	"path/filepath"
 )
+
+// DirName is the name of the state directory in the worktree's git directory, as
+// git.Path takes it.
+const DirName = "dr"
+
+// LogPath returns the path of the log in dir, the state directory.
+func LogPath(dir string) string {
+	return filepath.Join(dir, "log.jsonl")
+}
+
+// ViewedPath returns the path of the viewed files in dir, the state directory.
+func ViewedPath(dir string) string {
+	return filepath.Join(dir, "viewed.json")
+}
 
 // Viewed maps the path of each file marked viewed to the hash of the diff it showed then,
 // as review.File.Hash makes it. It keeps the files of other diffs too, such as those dr
