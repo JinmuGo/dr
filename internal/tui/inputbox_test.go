@@ -304,7 +304,7 @@ func TestEntryNarrow(t *testing.T) {
 		}
 	}
 	// A title is cut before a wide character that does not fit whole.
-	if got := cutSpans([]span{{text: "ab"}, {text: "한글"}}, 3); got[0].text != "ab" || got[1].text != "" {
+	if got := cutChunks([]chunk{{text: "ab"}, {text: "한글"}}, 3); got[0].text != "ab" || got[1].text != "" {
 		t.Errorf("cut to 3 cells: %+v, want ab alone", got)
 	}
 }

@@ -80,12 +80,12 @@ func (m *model) drawRow(i, w int) string {
 		l.add(text, t.paint(fg, bg))
 		return l.fill(t.paint(nil, bg))
 	}
-	bar := span{text: " "}
+	bar := chunk{text: " "}
 	switch {
 	case cursor:
-		bar = span{text: "▌", color: t.accent}
+		bar = chunk{text: "▌", color: t.accent}
 	case m.hasQuestions(i):
-		bar = span{text: "?", color: t.ask, bold: true}
+		bar = chunk{text: "?", color: t.ask, bold: true}
 	}
 	selected := m.isSelected(i)
 	current := i == m.currentRow() // the row holds the current search match, its first
@@ -138,7 +138,7 @@ func (m *model) drawRow(i, w int) string {
 		s.marks, s.current = m.sideMarks(s.pieces, current && leftMarks == nil)
 		rightFill = m.side(right, s, cursor, selected)
 	} else {
-		rightFill = m.emptySide(right, span{}, cursor, selected)
+		rightFill = m.emptySide(right, chunk{}, cursor, selected)
 	}
 	var middle color.Color
 	if cursor {
@@ -280,9 +280,9 @@ func (m *model) codeColumn(f file) int {
 
 // sideText is what side writes of a line.
 type sideText struct {
-	bar     span
+	bar     chunk
 	numbers string
-	rail    span
+	rail    chunk
 	change  byte    // '-', '+' or ' ' for a deleted, an added or an unchanged line
 	pieces  []piece // the code
 	// labeled tells that the line ends with the label of its origin, label: the edit that
@@ -378,7 +378,7 @@ func (m *model) addLabel(l *line, e *agent.Edit, on func(color.Color) lipgloss.S
 // emptySide writes bar on l for a side of the split view without a line, and returns the
 // style that fills it: a quiet band, as GitHub shades a side without a line, blue when its
 // row is selected.
-func (m *model) emptySide(l *line, bar span, cursor, selected bool) lipgloss.Style {
+func (m *model) emptySide(l *line, bar chunk, cursor, selected bool) lipgloss.Style {
 	t := &m.theme
 	bg := t.panel
 	switch {

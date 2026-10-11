@@ -380,14 +380,14 @@ func (m *model) commentCount(key string) int {
 	return n
 }
 
-// commentSpans returns the count of the comments of the file at key after
+// commentChunks returns the count of the comments of the file at key after
 // commentMark, nil when it has none.
-func (m *model) commentSpans(key string) []span {
+func (m *model) commentChunks(key string) []chunk {
 	n := m.commentCount(key)
 	if n == 0 {
 		return nil
 	}
-	return []span{{text: commentMark + strconv.Itoa(n), color: m.theme.pending}}
+	return []chunk{{text: commentMark + strconv.Itoa(n), color: m.theme.pending}}
 }
 
 // commentsAt returns the comments whose boxes show under row i, oldest first, and
