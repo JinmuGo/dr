@@ -30,9 +30,7 @@ func (m *model) drawHelp(lines []string) {
 		box = append(box[:len(lines)-1], box[len(box)-1])
 	}
 	x, y := (m.width-w)/2, (len(lines)-len(box))/2
-	for k, b := range box {
-		lines[y+k] = overlay(lines[y+k], b, x, w, m.width)
-	}
+	overlayBox(lines, box, x, y, w, m.width)
 }
 
 // helpBox draws the key help in a rounded box in the color of floating boxes on their fill,
@@ -58,7 +56,6 @@ func (m *model) helpBox(room int) ([]string, int) {
 	}
 	w = min(w, room)
 	base := t.paint(nil, t.surface)
-	border := t.paint(t.line2, t.surface)
 	row := func(y int) string {
 		l := newLine(w - 2)
 		l.add(strings.Repeat(" ", helpMargin), base)
@@ -74,18 +71,11 @@ func (m *model) helpBox(room int) ([]string, int) {
 			}
 			l.add(cell.fill(base), lipgloss.NewStyle())
 		}
-		return border.Render("│") + l.fill(base) + border.Render("│")
+		return t.floatSide(l.fill(base))
 	}
-	top := newLine(w - 1)
-	top.add("╭─", border)
-	top.add(" Keys ", t.paint(t.strong, t.surface).Bold(true))
-	const closes, end = " any key closes ", "───"
-	if top.free >= ansi.StringWidth(closes+end)+1 {
-		top.add(strings.Repeat("─", top.free-ansi.StringWidth(closes+end)), border)
-		top.add(closes, t.paint(t.subtle, t.surface))
-	}
-	top.add(strings.Repeat("─", top.free), border)
-	lines := []string{top.fill(border) + border.Render("╮"), row(-1)}
+	title := seg{text: " Keys ", st: t.paint(t.strong, t.surface).Bold(true)}
+	closes := seg{text: " any key closes ", st: t.paint(t.subtle, t.surface)}
+	lines := []string{t.floatTop(w, title, closes), row(-1)}
 	rows := 0
 	for _, body := range bodies {
 		rows = max(rows, len(body))
@@ -93,7 +83,7 @@ func (m *model) helpBox(room int) ([]string, int) {
 	for y := range rows {
 		lines = append(lines, row(y))
 	}
-	lines = append(lines, row(-1), border.Render("╰"+strings.Repeat("─", max(w-2, 0))+"╯"))
+	lines = append(lines, row(-1), t.floatBottom(w))
 	return lines, w
 }
 
