@@ -11,6 +11,7 @@ import (
 
 	tea "charm.land/bubbletea/v2"
 	"charm.land/lipgloss/v2"
+	"github.com/JinmuGo/dr/internal/agent"
 	"github.com/JinmuGo/dr/internal/review"
 	"github.com/charmbracelet/x/ansi"
 )
@@ -236,11 +237,13 @@ func (m *model) sticky() bool {
 }
 
 // drawRow draws row i of the diff, w cells wide, the way GitHub shows a pull request's
-// files: a band for the header of a file, a tinted row for the header of a hunk, and a line
-// with its line numbers and its sign, or in the split view a line on each side of a middle
-// line. The cursor row has a bar at its left edge and its own background, a shade of the
-// colors of the diff; a row with questions about it has a ? there instead. Rows of a
-// selection are tinted blue.
+// files: a band for the header of a file, a tinted row for the header of a hunk with its
+// text at the code column, and a line with its line numbers, its rail and its sign, or in
+// the split view a line on each side of a middle line. The cursor row has a bar at its left
+// edge and its own background, a shade of the colors of the diff; a row with questions about
+// it has a ? there instead. Rows of a selection are tinted blue. The first line of a run of
+// changes that runLabels marks ends with the label of its origin, on its side in the split
+// view.
 func (m *model) drawRow(i, w int) string {
 	t := &m.theme
 	r := m.rows[i]
@@ -252,15 +255,15 @@ func (m *model) drawRow(i, w int) string {
 	case fileRow:
 		return m.drawHeader(f, w, cursor)
 	case hunkRow, noteRow:
-		bg, text, fg, pad := t.hunkbg, r.text, t.hunkfg, code-3 // up to the sign
+		bg, text, fg := t.hunkbg, r.text, t.hunkfg
 		if r.kind == noteRow {
-			bg, text, fg, pad = nil, f.noDiff, t.muted, code-1 // up to the code
+			bg, text, fg = nil, f.noDiff, t.muted
 		}
 		if cursor {
 			bg = t.cursorline
 		}
 		l.add(cursorBar(cursor), t.paint(t.accent, bg).Reverse(cursor && t.plain))
-		l.add(strings.Repeat(" ", pad), t.paint(nil, bg))
+		l.add(strings.Repeat(" ", code-1), t.paint(nil, bg)) // up to the code
 		l.add(text, t.paint(fg, bg))
 		return l.fill(t.paint(nil, bg))
 	}
@@ -273,16 +276,23 @@ func (m *model) drawRow(i, w int) string {
 	}
 	selected := m.isSelected(i)
 	if !m.splitShown {
-		line := m.lines[r.main()]
-		numbers := fmt.Sprintf(" %*s %*s ", f.digits, lineNumber(line.Old), f.digits, lineNumber(line.New))
-		change := byte(' ')
+		k := r.main()
+		line := m.lines[k]
+		s := sideText{
+			bar:     bar,
+			numbers: fmt.Sprintf(" %*s %*s ", f.digits, lineNumber(line.Old), f.digits, lineNumber(line.New)),
+			rail:    m.rail(k),
+			change:  ' ',
+			pieces:  m.pieces(k, r.right < 0),
+		}
 		switch {
 		case r.left < 0:
-			change = '+'
+			s.change = '+'
 		case r.right < 0:
-			change = '-'
+			s.change = '-'
 		}
-		return l.fill(m.side(l, bar, numbers, change, m.pieces(r.main(), change == '-'), cursor, selected))
+		s.labeled, s.label = m.labeled[k], line.Edit
+		return l.fill(m.side(l, s, cursor, selected))
 	}
 	right := newLine((w - 2) / 2) // as wide as the left side less the bar, which the left has
 	left := newLine(w - 1 - right.free)
@@ -292,14 +302,20 @@ func (m *model) drawRow(i, w int) string {
 	}
 	var leftFill, rightFill lipgloss.Style
 	if r.left >= 0 {
-		numbers := fmt.Sprintf(" %*s ", f.digits, lineNumber(m.lines[r.left].Old))
-		leftFill = m.side(left, bar, numbers, leftChange, m.pieces(r.left, true), cursor, selected)
+		leftFill = m.side(left, sideText{
+			bar: bar, numbers: fmt.Sprintf(" %*s ", f.digits, lineNumber(m.lines[r.left].Old)),
+			rail: m.rail(r.left), change: leftChange, pieces: m.pieces(r.left, true),
+			labeled: m.labeled[r.left], label: m.lines[r.left].Edit,
+		}, cursor, selected)
 	} else {
 		leftFill = m.emptySide(left, bar, cursor, selected)
 	}
 	if r.right >= 0 {
-		numbers := fmt.Sprintf(" %*s ", f.digits, lineNumber(m.lines[r.right].New))
-		rightFill = m.side(right, span{}, numbers, rightChange, m.pieces(r.right, false), cursor, selected)
+		rightFill = m.side(right, sideText{
+			numbers: fmt.Sprintf(" %*s ", f.digits, lineNumber(m.lines[r.right].New)),
+			rail:    m.rail(r.right), change: rightChange, pieces: m.pieces(r.right, false),
+			labeled: m.labeled[r.right], label: m.lines[r.right].Edit,
+		}, cursor, selected)
 	} else {
 		rightFill = m.emptySide(right, span{}, cursor, selected)
 	}
@@ -318,12 +334,13 @@ const statSquare = "\uf04d"
 // drawHeader draws the header of file f, w cells wide, as GitHub heads a file: a fold mark,
 // ▸ when the file is viewed and folds to its header, then the path, the file name the
 // brightest text of the screen and its directory quieter, quieter still when folded, and
-// whether the file is new or deleted. A chip tells that the diff changed since the file was
-// marked viewed. At the right edge come how many comments the file has, the counts of added
-// and deleted lines with the diffstat, and the Viewed box. The comments and the counts show
-// only when they leave the path its room, the comments first, the chip only when it fits
-// too, and the box always shows. A ? at the left edge tells of earlier questions about the
-// file in its origin box.
+// whether the file is new or deleted, then a dot in the color of each session that changed
+// it and ┆ when it has changed lines without an origin. A chip tells that the diff changed
+// since the file was marked viewed. At the right edge come how many comments the file has,
+// the counts of added and deleted lines with the diffstat, and the Viewed box. The comments
+// and the counts show only when they leave the path its room, the comments first, the dots
+// and then the chip only when they fit too, and the box always shows. A ? at the left edge
+// tells of earlier questions about the file in its origin box.
 func (m *model) drawHeader(f file, w int, cursor bool) string {
 	t := &m.theme
 	on := func(fg color.Color) lipgloss.Style { return t.onBand(fg, t.surface2) }
@@ -363,6 +380,10 @@ func (m *model) drawHeader(f file, w int, cursor bool) string {
 		{segs: counts, rank: 2, keep: keep},
 		{segs: []seg{{text: check + viewedBox, st: box}}},
 	}, w-1, seg{text: "    ", st: on(nil)}), seg{text: " ", st: on(nil)}) // a margin at the right edge
+	if dots := m.sessionDots(f, on); dots != nil && keep+segsWidth(dots)+segsWidth(right) <= w {
+		left = append(left, dots...)
+		keep += segsWidth(dots)
+	}
 	if f.changed {
 		chip := []seg{{text: "  ", st: on(nil)}, {text: " Changed since last view ", st: t.chip(t.pending, t.pending)}}
 		if keep+segsWidth(chip)+segsWidth(right) <= w {
@@ -370,6 +391,24 @@ func (m *model) drawHeader(f file, w int, cursor bool) string {
 		}
 	}
 	return spread(left, right, w, on(nil))
+}
+
+// sessionDots returns the dots of a file header, in the style on gives each color: two
+// spaces, then a ● in the color of each session that changed f, in the order of their
+// colors, and ┆ when f has changed lines without an origin. It returns nil when f has no
+// changed lines.
+func (m *model) sessionDots(f file, on func(color.Color) lipgloss.Style) []seg {
+	if len(f.sessions) == 0 && !f.unknown {
+		return nil
+	}
+	dots := []seg{{text: "  ", st: on(nil)}}
+	for _, s := range f.sessions {
+		dots = append(dots, seg{text: "●", st: on(m.sessionColor(s))})
+	}
+	if f.unknown {
+		dots = append(dots, seg{text: "┆", st: on(m.theme.subtle)})
+	}
+	return dots
 }
 
 // counts returns the counts of f's added and deleted lines, bold in their colors or quiet
@@ -401,24 +440,46 @@ func (m *model) counts(f file, on func(color.Color) lipgloss.Style) []seg {
 }
 
 // codeColumn returns the column where the code of f starts in a row of the diff, on the left
-// side in the split view: after the cursor bar, the line numbers and the sign.
+// side in the split view: after the cursor bar, the line numbers, the rail and the sign.
 func (m *model) codeColumn(f file) int {
 	if m.splitShown {
-		return f.digits + 5
+		return f.digits + 6
 	}
-	return 2*f.digits + 6
+	return 2*f.digits + 7
 }
 
-// side writes a line on l: bar, then numbers on the background of its line numbers, then
-// its sign and pieces on the background of its kind of line. change is '-', '+' or ' ' for
-// a deleted, an added or an unchanged line. The cursor row has a shade of its line's
-// background, and a selected line the blue one of its kind, which without colors shows in
-// reverse video. It returns the style that fills the rest of the line.
-func (m *model) side(l *line, bar span, numbers string, change byte, pieces []piece, cursor, selected bool) lipgloss.Style {
+// sideText is what side writes of a line.
+type sideText struct {
+	bar     span
+	numbers string
+	rail    span
+	change  byte    // '-', '+' or ' ' for a deleted, an added or an unchanged line
+	pieces  []piece // the code
+	// labeled tells that the line ends with the label of its origin, label: the edit that
+	// wrote or deleted the line, nil for none.
+	labeled bool
+	label   *agent.Edit
+}
+
+// Labels of runs of changes start labelGap cells after the code, and show when at least
+// minLabel cells, and the whole dot and tag, fit before the margin at the right edge. The
+// request's summary shows after the tag when at least minSummary cells are left for it.
+const (
+	labelGap   = 4
+	minLabel   = 14
+	minSummary = 8
+)
+
+// side writes a line on l: its bar, then its numbers on the background of its line numbers,
+// then its rail, sign, code and label on the background of its kind of line. The cursor row
+// has a shade of its line's background, and a selected line the blue one of its kind, which
+// without colors shows in reverse video. It returns the style that fills the rest of the
+// line.
+func (m *model) side(l *line, s sideText, cursor, selected bool) lipgloss.Style {
 	t := &m.theme
 	var numberBg, lineBg, wordBg, signColor color.Color // an unchanged line's sign is blank
 	numberColor, cursorBg, selectBg := t.faint, t.cursorline, t.selbg
-	switch change {
+	switch s.change {
 	case '+':
 		numberBg, lineBg, wordBg, cursorBg, selectBg = t.addnum, t.addbg, t.addword, t.addcur, t.seladd
 		signColor, numberColor = t.add, t.subtle
@@ -436,17 +497,42 @@ func (m *model) side(l *line, bar span, numbers string, change byte, pieces []pi
 		numberColor = t.strong
 	}
 	reverse := selected && t.plain
-	l.add(bar.text, t.paint(bar.color, numberBg).Bold(bar.bold).Reverse(cursor && t.plain))
-	l.add(numbers, t.paint(numberColor, numberBg).Bold(cursor).Reverse(cursor && t.plain || reverse))
-	l.add(string(change)+" ", t.paint(signColor, lineBg).Reverse(reverse))
-	for _, p := range pieces {
+	on := func(fg, bg color.Color) lipgloss.Style { return t.paint(fg, bg).Reverse(reverse) }
+	l.add(s.bar.text, t.paint(s.bar.color, numberBg).Bold(s.bar.bold).Reverse(cursor && t.plain))
+	l.add(s.numbers, t.paint(numberColor, numberBg).Bold(cursor).Reverse(cursor && t.plain || reverse))
+	l.add(s.rail.text, on(s.rail.color, lineBg))
+	l.add(string(s.change)+" ", on(signColor, lineBg))
+	for _, p := range s.pieces {
 		bg := lineBg
 		if p.changed {
 			bg = wordBg
 		}
-		l.add(p.text, t.paint(t.code(p.kind), bg).Reverse(reverse))
+		l.add(p.text, on(t.code(p.kind), bg))
 	}
-	return t.paint(nil, lineBg).Reverse(reverse)
+	if s.labeled {
+		m.addLabel(l, s.label, func(fg color.Color) lipgloss.Style { return on(fg, lineBg) })
+	}
+	return on(nil, lineBg)
+}
+
+// addLabel writes on l, labelGap cells after what it holds, the label of the origin of a
+// line e wrote or deleted, nil for none: its dot and tag in its color, then what it asked
+// for in a line, cut with … to fit. The tag shows alone when less than minSummary cells are
+// left for that, and the label not at all when less than minLabel cells, or less than the
+// dot and the tag, are left for it before the margin at the right edge. on gives the style
+// of each color.
+func (m *model) addLabel(l *line, e *agent.Edit, on func(color.Color) lipgloss.Style) {
+	room := l.free - labelGap - 1
+	dot, tag, about, c := m.originOf(e)
+	head := dot + " " + tag
+	if room < max(minLabel, ansi.StringWidth(head)) {
+		return
+	}
+	l.add(strings.Repeat(" ", labelGap), on(nil))
+	l.add(head, on(c))
+	if rest := room - ansi.StringWidth(head) - 2; rest >= minSummary && about != "" {
+		l.add("  "+ansi.Truncate(about, rest, "…"), on(m.theme.subtle))
+	}
 }
 
 // emptySide writes bar on l for a side of the split view without a line, and returns the

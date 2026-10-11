@@ -33,17 +33,17 @@ func TestFixOrigin(t *testing.T) {
 			// The tag says fix in place of the request, and the box tells the comment, the
 			// note, the fork and the model.
 			name: "a fixed line", keys: "4j",
-			want: []string{"claude c1a0de00 fix", claudeSession, "use errors.Is\nand wrap it", "the caller checks it too", "fork-7", "claude-sonnet-5"},
+			want: []string{"claude c1a0 fix", claudeSession, "use errors.Is\nand wrap it", "the caller checks it too", "fork-7", "claude-sonnet-5"},
 			not:  []string{"#"},
 		},
 		{
 			name: "a line a fix deleted", keys: "3j",
-			want: []string{"claude c1a0de00 fix", "use errors.Is"},
+			want: []string{"claude c1a0 fix", "use errors.Is"},
 		},
 		{
 			// The comment stands for the request of the fix.
 			name: "the file header",
-			want: []string{"claude c1a0de00 #1", "rate limiter를 짜줘", "claude c1a0de00 fix", "use errors.Is"},
+			want: []string{"claude c1a0 #1", "rate limiter를 짜줘", "claude c1a0 fix", "use errors.Is"},
 			not:  []string{"and wrap it"},
 		},
 	} {
@@ -67,7 +67,7 @@ func TestFixOrigin(t *testing.T) {
 	}
 	t.Run("the status line", func(t *testing.T) {
 		m := end(t, openFiles(t, files, "4j"))
-		if status := statusLine(t, m); !strings.Contains(status, "claude c1a0de00 fix") || strings.Contains(status, "#") {
+		if status := statusLine(t, m); !strings.Contains(status, "claude c1a0 fix") || strings.Contains(status, "#") {
 			t.Errorf("status line %q, want the fix tag", status)
 		}
 	})
@@ -78,12 +78,12 @@ func TestFixAsk(t *testing.T) {
 	// a on a fixed line asks the session as its author and names the fix.
 	m := end(t, openFiles(t, files, "4j"))
 	target, why := m.target(m.whom)
-	if why != "" || target.Relation != review.Author || target.Edit != fix || target.tag != "claude c1a0de00 fix" {
+	if why != "" || target.Relation != review.Author || target.Edit != fix || target.tag != "claude c1a0 fix" {
 		t.Errorf("got %+v, %q; want the author asked about the fix", target, why)
 	}
 	// A fix is a request apart from the session's own.
 	m = end(t, openFiles(t, files, "4jVj"))
-	if target, why := m.target(m.whom); why != "" || target.tag != "claude c1a0de00" {
+	if target, why := m.target(m.whom); why != "" || target.tag != "claude c1a0" {
 		t.Errorf("a fixed line and one of the session's: got %+v, %q; want the session named without a request", target, why)
 	}
 	// The session's newest edit is its own, not the fix the fork sent, so a question to it

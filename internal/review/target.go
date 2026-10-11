@@ -99,7 +99,7 @@ func (a Asking) Target(lines, file []origin.Line) (Target, string) {
 	return t, ""
 }
 
-// Who names session of agent name the way dr shows it, "claude 1a2b3c4d", or a new
+// Who names session of agent name the way dr shows it, "claude c1a0", or a new
 // session, session "", as "omp in a new session". short holds the short session ids from
 // ShortIDs.
 func Who(name, session string, short map[string]string) string {

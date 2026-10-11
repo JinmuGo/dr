@@ -39,6 +39,10 @@ type theme struct {
 	hunkbg, hunkfg                 color.Color // the header of a hunk
 	selbg, selnum, seladd, seldel  color.Color // a selected unchanged line, its numbers, a selected added and deleted line
 
+	// sessions are the colors of the sessions, given in the order they first appear in the
+	// diff and cycled past the last. They are nil without colors.
+	sessions [6]color.Color
+
 	syntax *chroma.Style
 }
 
@@ -101,6 +105,12 @@ func newTheme(bg color.Color, dark, plain bool) theme {
 		seldel:  tint("#eadff3", "#28263f"),
 
 		syntax: styles.Get("github"),
+	}
+	if !plain {
+		t.sessions = [...]color.Color{
+			c("#b9632c", "#e7a274"), c("#14858d", "#5fc6d0"), c("#b6427a", "#ea8cb3"),
+			c("#74821a", "#c6d071"), c("#3c6bd0", "#92b9ff"), c("#7652c8", "#bea8f3"),
+		}
 	}
 	if dark {
 		t.syntax = styles.Get("github-dark")

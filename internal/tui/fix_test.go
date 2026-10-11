@@ -305,7 +305,7 @@ func TestSubmitBusy(t *testing.T) {
 	question := typeAndKeep(m, "gg4ja<enter>")
 	typeKeys(m, "<esc>")
 	cmd := typeAndKeep(m, ":submit<enter>")
-	if m.message != "Sent 1 fix request. Skipped claude c1a0de00, still answering" {
+	if m.message != "Sent 1 fix request. Skipped claude c1a0, still answering" {
 		t.Errorf("message %q", m.message)
 	}
 	run(m, cmd)
@@ -334,10 +334,10 @@ func TestSubmitFixes(t *testing.T) {
 	m := fixScreen(files, Load(dir), f, root, fixClock())
 	typeAll(m, "4jcone<enter>Gcthree<enter>gg:submit<enter>")
 	one, three := commentOf(m, "one"), commentOf(m, "three")
-	if want := "▍ To claude c1a0de00\n▍ one\n▍\n▍ claude c1a0de00  fix  claude-opus-5-5 · 7s\n▍ -Changed 2\n▍ +Changed two\n▍ renamed"; boxOf(m, one) != want {
+	if want := "▍ To claude c1a0\n▍ one\n▍\n▍ claude c1a0  fix  claude-opus-5-5 · 7s\n▍ -Changed 2\n▍ +Changed two\n▍ renamed"; boxOf(m, one) != want {
 		t.Errorf("box of one:\n%s\nwant\n%s", boxOf(m, one), want)
 	}
-	if want := "▍ To claude c1a0de00\n▍ three\n▍\n▍ claude c1a0de00  keeps the lines  claude-opus-5-5 · 7s\n▍ x is fine"; boxOf(m, three) != want {
+	if want := "▍ To claude c1a0\n▍ three\n▍\n▍ claude c1a0  keeps the lines  claude-opus-5-5 · 7s\n▍ x is fine"; boxOf(m, three) != want {
 		t.Errorf("box of three:\n%s\nwant\n%s", boxOf(m, three), want)
 	}
 	if len(m.pendingComments()) != 0 {
@@ -362,7 +362,7 @@ func TestSubmitFixes(t *testing.T) {
 		t.Errorf("keep record %+v", kept)
 	}
 
-	if m.message != "Fixes from claude c1a0de00 on a.go:2 and 1 more. Enter to read" || strings.Contains(keyLine(t, m), "y  apply") ||
+	if m.message != "Fixes from claude c1a0 on a.go:2 and 1 more. Enter to read" || strings.Contains(keyLine(t, m), "y  apply") ||
 		!strings.Contains(statusLine(t, m), "◆ 1 fix ready") { // the other answer keeps its lines
 		t.Errorf("status line %q, key row %q, want the fixes told of and counted", statusLine(t, m), keyLine(t, m))
 	}
@@ -402,10 +402,10 @@ func TestSubmitError(t *testing.T) {
 	m := fixScreen(files, Load(dir), f, writeTree(t, files), fixClock())
 	typeAll(m, "4jcone<enter>gg:submit<enter>")
 	one := commentOf(m, "one")
-	if m.message != "No fix from claude c1a0de00 on a.go:2. Enter to read" || len(m.pendingComments()) != 1 {
+	if m.message != "No fix from claude c1a0 on a.go:2. Enter to read" || len(m.pendingComments()) != 1 {
 		t.Errorf("message %q, %d pending groups; want no fix told of and one pending", m.message, len(m.pendingComments()))
 	}
-	if want := "▍ To claude c1a0de00  pending\n▍ one\n▍\n▍ claude c1a0de00  no fix\n▍ claude exited: rate limited"; boxOf(m, one) != want {
+	if want := "▍ To claude c1a0  pending\n▍ one\n▍\n▍ claude c1a0  no fix\n▍ claude exited: rate limited"; boxOf(m, one) != want {
 		t.Errorf("box:\n%s\nwant\n%s", boxOf(m, one), want)
 	}
 	f.err, f.answer = nil, agent.Answer{Fork: "fork-1", Text: "I would rather not change it."}

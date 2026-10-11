@@ -20,9 +20,9 @@ import (
 )
 
 const (
-	claudeSession = "c1a0de00-1111-4000-8000-000000000001"
-	ompParent     = "0a1f0001-2222-4000-8000-000000000001"
-	ompSession    = "0a1f0002-2222-4000-8000-000000000002"
+	claudeSession = "7a1c3e9b-1111-4000-8000-00000000c1a0"
+	ompParent     = "01a1287a-2222-4000-8000-00000000a1f1"
+	ompSession    = "01a1287a-2222-4000-8000-00000000a1f2"
 )
 
 var (
@@ -253,15 +253,15 @@ func TestRows(t *testing.T) {
 		kind kind
 		text string
 	}{
-		{0, fileRow, "▾ a.go +2 -2 " + strings.Repeat(statSquare, 5) + " ☐ Viewed"},
+		{0, fileRow, "▾ a.go ●●┆ +2 -2 " + strings.Repeat(statSquare, 5) + " ☐ Viewed"},
 		{1, hunkRow, "@@ -1,5 +1,5 @@"},
-		{3, lineRow, "2    - line 2"},
-		{4, lineRow, "2 + Changed 2"},
+		{3, lineRow, "2    ▎- line 2    ● claude c1a0 #1  rate limiter를 짜줘"}, // the first line of a run has its label
+		{4, lineRow, "2 ▎+ Changed 2"},
 		{8, hunkRow, "@@ -12,9 +12,9 @@"}, // two changes whose context lines touch
 		{19, fileRow, "▾ b.bin new ☐ Viewed"},
 		{20, noteRow, review.Binary},
 		{22, hunkRow, "@@ -0,0 +1,4 @@"},
-		{26, lineRow, "4 +     var x = 1"}, // a tab is four spaces
+		{26, lineRow, "4 ▎+     var x = 1"}, // a tab is four spaces
 	} {
 		r := m.rows[tc.row]
 		text := strings.Trim(ansi.Strip(m.drawRow(tc.row, 80)), " ▌")
@@ -514,14 +514,14 @@ func TestOriginText(t *testing.T) {
 		{
 			name: "agent line", keys: "4j",
 			want: []string{
-				"claude c1a0de00 #1", claudeSession, "Request", "rate limiter를 짜줘\n셸 명령은 실행하지 마",
+				"claude c1a0 #1", claudeSession, "Request", "rate limiter를 짜줘\n셸 명령은 실행하지 마",
 				"Note", "토큰 버킷으로 바꿀게요", "Reply", "다 짰어요",
 			},
 			not: []string{"This edit deleted the line"},
 		},
 		{
 			name: "deleted line", keys: "12j",
-			want: []string{"omp 0a1f0002 #1", ompSession, "subagent of 0a1f0001", "This edit deleted the line", "line 15를 지워줘", "지웠어요"},
+			want: []string{"omp a1f2 #1", ompSession, "subagent of a1f1", "This edit deleted the line", "line 15를 지워줘", "지웠어요"},
 			not:  []string{"Note"}, // the edit left no note
 		},
 		{
@@ -535,7 +535,7 @@ func TestOriginText(t *testing.T) {
 		{
 			name: "file header",
 			want: []string{
-				"Requests that changed this file", "claude c1a0de00 #1", "rate limiter를 짜줘", "omp 0a1f0002 #1", "line 15를 지워줘",
+				"Requests that changed this file", "claude c1a0 #1", "rate limiter를 짜줘", "omp a1f2 #1", "line 15를 지워줘",
 				"Unknown", review.NoOrigin,
 			},
 		},
@@ -591,11 +591,11 @@ func TestBoxPlace(t *testing.T) {
 	for _, tc := range []struct {
 		keys, row, top, hint, after string
 	}{
-		{"4j<enter>", "Changed 2", "╭─ claude c1a0de00 #1  a.go:2 ─", "─ a ask · Esc close ─", "line 3"},
+		{"4j<enter>", "Changed 2", "╭─ claude c1a0 #1  a.go:2 ─", "─ a ask · Esc close ─", "line 3"},
 		{"16j<enter>", "new after 18", "╭─ unknown  a.go:18 ─", "─ a ask · Esc close ─", ""}, // the box ends the screen
 		{"2j<enter>", "line 1", "╭─ a.go:1 ─", "─ Esc close ─", "line 2"},
 		{"<enter>", "▾ a.go", "╭─ a.go ─", "─ Esc close ─", "@@ -1,5 +1,5 @@"},
-		{"G<enter>", "var x = 1", "╭─ claude c1a0de00 #2  c/new.go:4 ─", "─ a ask · Esc close ─", ""}, // the screen moves up to show the box
+		{"G<enter>", "var x = 1", "╭─ claude c1a0 #2  c/new.go:4 ─", "─ a ask · Esc close ─", ""}, // the screen moves up to show the box
 	} {
 		m := New(testFiles(), nil, Saved{}, Asker{}).(*model)
 		m.Update(tea.WindowSizeMsg{Width: 120, Height: 24})
@@ -658,7 +658,7 @@ func TestBox(t *testing.T) {
 		cursor, top := m.cursor, m.top
 		lines := strings.Split(s, "\n")
 		status, keys := lines[m.diffHeight()], lines[m.diffHeight()+1]
-		if strings.Contains(s, "조건 2") || !strings.Contains(status, "claude c1a0de00 #3  조") || width == 120 && !strings.Contains(status, "조건 1") || !strings.Contains(keys, "⏎  origin") {
+		if strings.Contains(s, "조건 2") || !strings.Contains(status, "claude c1a0 #3  조") || width == 120 && !strings.Contains(status, "조건 1") || !strings.Contains(keys, "⏎  origin") {
 			t.Errorf("width %d: want the origin and the first line of its request in the status line only, and the key that opens the rest in the key row:\n%s", width, s)
 		}
 
@@ -666,14 +666,14 @@ func TestBox(t *testing.T) {
 			keys      string
 			want, not []string
 		}{
-			{"<enter>", []string{"╭─ claude c1a0de00 #3  long.go:1", "Esc close", "조건 1", "origin 18/49"}, []string{last, reply}},
-			{"k", []string{"Session", "origin 18/49"}, nil}, // the first line stays at the top
-			{"j", []string{"origin 19/49"}, []string{"Session"}},
+			{"<enter>", []string{"╭─ claude c1a0 #3  long.go:1", "Esc close", "조건 1", "origin 18/49"}, []string{last, reply}},
+			{"k", []string{"Session ", "origin 18/49"}, nil}, // the first line stays at the top; "Sessions" is the tree's legend
+			{"j", []string{"origin 19/49"}, []string{"Session "}},
 			{"d", []string{"origin 28/49"}, nil},
 			{"u", []string{"origin 19/49"}, nil},
 			{"G", []string{last, reply, "origin 49/49"}, nil},
 			{"<down>", []string{last, reply, "origin 49/49"}, nil}, // the last line stays at the bottom
-			{"gg", []string{"Session", "origin 18/49"}, []string{reply}},
+			{"gg", []string{"Session ", "origin 18/49"}, []string{reply}},
 			{"dddd", []string{last, reply, "origin 49/49"}, nil},
 		} {
 			s, _ := send(step.keys)
@@ -775,16 +775,16 @@ func TestDraw(t *testing.T) {
 		// diff, or of the right side in the split view. The split view needs the 200 cells.
 		for _, tc := range []struct{ keys, tag string }{
 			{"", ""},
-			{"4j", "claude c1a0de00 #1"},
-			{"25j", "claude c1a0de00 #2"},
+			{"4j", "claude c1a0 #1"},
+			{"25j", "claude c1a0 #2"},
 			{"?", ""},
-			{"4j<enter>", "claude c1a0de00 #1"},
-			{"25j<enter>", "claude c1a0de00 #2"},
-			{"G<enter>", "claude c1a0de00 #2"},
-			{"s3j", "claude c1a0de00 #1"},
-			{"s/line 15<enter><enter>", "omp 0a1f0002 #1"},
-			{"s24j", "claude c1a0de00 #2"},
-			{"sG<enter>", "claude c1a0de00 #2"},
+			{"4j<enter>", "claude c1a0 #1"},
+			{"25j<enter>", "claude c1a0 #2"},
+			{"G<enter>", "claude c1a0 #2"},
+			{"s3j", "claude c1a0 #1"},
+			{"s/line 15<enter><enter>", "omp a1f2 #1"},
+			{"s24j", "claude c1a0 #2"},
+			{"sG<enter>", "claude c1a0 #2"},
 		} {
 			m := New(testFiles(), problems, Saved{}, Asker{}).(*model)
 			m.Update(tea.WindowSizeMsg{Width: width, Height: 24})
@@ -836,19 +836,19 @@ func TestDraw(t *testing.T) {
 }
 
 func TestStatusRoom(t *testing.T) {
-	// At 72 cells the origin of the cursor row stays whole. How far the box is read comes
+	// At 70 cells the origin of the cursor row stays whole. How far the box is read comes
 	// next and then the file number; the row number and the note on two agents' logs do not
 	// fit, so they are left out whole. The box text is 13 lines, 5 of which fit on a 10-row
 	// screen.
 	problems := []agent.Problem{{Agent: "claude", Path: "a.jsonl", Bad: 1}, {Agent: "codex", Path: "rollout-1.jsonl", Bad: 1}}
 	m := New(testFiles(), problems, Saved{}, Asker{}).(*model)
-	m.Update(tea.WindowSizeMsg{Width: 72, Height: 10})
+	m.Update(tea.WindowSizeMsg{Width: 70, Height: 10})
 	for _, k := range keyPresses("4j<enter>") {
 		m.Update(k)
 	}
 	s := screen(t, m)
 	status := s[strings.LastIndex(s, "\n")+1:]
-	for _, want := range []string{"claude c1a0de00 #1", "origin 5/13", "file 1/3"} {
+	for _, want := range []string{"claude c1a0 #1", "origin 5/13", "file 1/3"} {
 		if !strings.Contains(status, want) {
 			t.Errorf("status line %q has no %q", status, want)
 		}
@@ -1044,10 +1044,10 @@ func TestSplitOrigin(t *testing.T) {
 	}{
 		{
 			keys: "s3j",
-			want: []string{"Deleted line", "omp 0a1f0002 #1", "line 15를 지워줘", "Added line", "claude c1a0de00 #1", "rate limiter를 짜줘\n셸 명령은 실행하지 마"},
+			want: []string{"Deleted line", "omp a1f2 #1", "line 15를 지워줘", "Added line", "claude c1a0 #1", "rate limiter를 짜줘\n셸 명령은 실행하지 마"},
 		},
-		{keys: "s5j", want: []string{"claude c1a0de00 #1", "다 짰어요"}, not: []string{"Deleted line", "Added line"}},
-		{keys: "4j", want: []string{"claude c1a0de00 #1"}, not: []string{"Deleted line", "omp 0a1f0002 #1"}}, // unified: the added line alone
+		{keys: "s5j", want: []string{"claude c1a0 #1", "다 짰어요"}, not: []string{"Deleted line", "Added line"}},
+		{keys: "4j", want: []string{"claude c1a0 #1"}, not: []string{"Deleted line", "omp a1f2 #1"}}, // unified: the added line alone
 	} {
 		m := end(t, openFiles(t, files, tc.keys))
 		var texts []string
@@ -1068,8 +1068,8 @@ func TestSplitOrigin(t *testing.T) {
 				t.Errorf("%q: origin %q has %q", tc.keys, texts, s)
 			}
 		}
-		if n := strings.Count(strings.Join(texts, "\n"), "claude c1a0de00 #1"); n != 1 {
-			t.Errorf("%q: origin %q tells claude c1a0de00 #1 %d times, want once", tc.keys, texts, n)
+		if n := strings.Count(strings.Join(texts, "\n"), "claude c1a0 #1"); n != 1 {
+			t.Errorf("%q: origin %q tells claude c1a0 #1 %d times, want once", tc.keys, texts, n)
 		}
 	}
 }

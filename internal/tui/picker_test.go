@@ -318,9 +318,9 @@ func TestPickerPick(t *testing.T) {
 	for _, step := range []struct {
 		keys, text, title string
 	}{
-		{"4jawhy ^son<down><enter>", "why ", "Ask claude c1a0de00 #1 · L2 · ^sonnet (Enter:send Alt-Enter:newline ^:model Esc:cancel)"},
-		{"^mine<enter>", "why ", "Ask claude c1a0de00 #1 · L2 · ^mine (Enter:send Alt-Enter:newline ^:model Esc:cancel)"},
-		{"^<enter>", "why ", "Ask claude c1a0de00 #1 · L2 (Enter:send Alt-Enter:newline ^:model Esc:cancel)"},
+		{"4jawhy ^son<down><enter>", "why ", "Ask claude c1a0 #1 · L2 · ^sonnet (Enter:send Alt-Enter:newline ^:model Esc:cancel)"},
+		{"^mine<enter>", "why ", "Ask claude c1a0 #1 · L2 · ^mine (Enter:send Alt-Enter:newline ^:model Esc:cancel)"},
+		{"^<enter>", "why ", "Ask claude c1a0 #1 · L2 (Enter:send Alt-Enter:newline ^:model Esc:cancel)"},
 	} {
 		typeKeys(m, step.keys)
 		if title := shownTitle(entryBox(t, m)); m.entry.picker != nil || m.entry.text != step.text || title != step.title {
@@ -385,17 +385,17 @@ func TestPickerComment(t *testing.T) {
 	if records := commentRecords(t, dir); len(records) != 1 || records[0].Text != "fix" || records[0].Model != "claude-sonnet-5-5" {
 		t.Fatalf("records %+v, want the comment with its model", records)
 	}
-	const header = "▍ To claude c1a0de00 · ^claude-sonnet-5-5  pending"
+	const header = "▍ To claude c1a0 · ^claude-sonnet-5-5  pending"
 	if box := boxOf(m, m.comments[0]); !strings.HasPrefix(box, header+"\n") {
 		t.Errorf("the comment's box:\n%s\nwant it headed %q", box, header)
 	}
-	if s := screen(t, m); !strings.Contains(s, "To claude c1a0de00 · ^claude-sonnet-5-5  pending") {
+	if s := screen(t, m); !strings.Contains(s, "To claude c1a0 · ^claude-sonnet-5-5  pending") {
 		t.Errorf("the screen\n%s\nhas no header with the model", s)
 	}
 	m = pickScreen(pickFiles(), dir, &fakeAsk{answer: answer}, agentModels())
 	typeKeys(m, "4jc")
 	if title := shownTitle(entryBox(t, m)); len(m.comments) != 1 || m.comments[0].Model != "claude-sonnet-5-5" ||
-		!strings.HasPrefix(title, "Edit comment for claude c1a0de00 · L2 · ^claude-sonnet-5-5") {
+		!strings.HasPrefix(title, "Edit comment for claude c1a0 · L2 · ^claude-sonnet-5-5") {
 		t.Fatalf("the next run: comments %+v, the box titled %q", m.comments, title)
 	}
 	typeKeys(m, "<enter>")
@@ -424,12 +424,12 @@ func TestPickerSubmit(t *testing.T) {
 	}{
 		{
 			name: "the first comment picked", keys: "4jcone ^sonnet<enter><enter>Gcthree<enter>",
-			held:   "Sent 1 fix request. Held back 1 comment for claude c1a0de00 with its own model; submit again when its fixes come",
+			held:   "Sent 1 fix request. Held back 1 comment for claude c1a0 with its own model; submit again when its fixes come",
 			models: [2]string{"sonnet", "claude-opus-5-5"}, efforts: [2]string{"", "high"}, picked: "one", edit: "gg4jc ^<enter><enter>",
 		},
 		{
 			name: "the second comment picked", keys: "4jcone<enter>Gcthree ^sonnet<enter><enter>",
-			held:   "Sent 1 fix request. Held back 1 comment for claude c1a0de00 with ^sonnet; submit again when its fixes come",
+			held:   "Sent 1 fix request. Held back 1 comment for claude c1a0 with ^sonnet; submit again when its fixes come",
 			models: [2]string{"claude-opus-5-5", "sonnet"}, efforts: [2]string{"high", ""}, picked: "three", edit: "Gc ^<enter><enter>",
 		},
 	} {

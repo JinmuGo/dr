@@ -139,7 +139,7 @@ func TestAskInput(t *testing.T) {
 	// box without asking. The status line keeps telling of the cursor row.
 	f := &fakeAsk{answer: answer}
 	m := askScreen(testFiles(), Saved{}, f)
-	const title = "Ask claude c1a0de00 #1 · L2 (Enter:send Alt-Enter:newline ^:model Esc:cancel)"
+	const title = "Ask claude c1a0 #1 · L2 (Enter:send Alt-Enter:newline ^:model Esc:cancel)"
 	for _, step := range []struct {
 		keys, text string
 	}{
@@ -160,7 +160,7 @@ func TestAskInput(t *testing.T) {
 	if _, before := beforeCursor(t, m); m.entry.text != "abc왜요" || !strings.HasSuffix(before, "┃ abc왜요") {
 		t.Errorf("text %q with %q before the cursor, want %q with the cursor after it", m.entry.text, before, "abc왜요")
 	}
-	if status := statusLine(t, m); !strings.HasPrefix(status, " ASK ") || !strings.Contains(status, "claude c1a0de00 #1") ||
+	if status := statusLine(t, m); !strings.HasPrefix(status, " ASK ") || !strings.Contains(status, "claude c1a0 #1") ||
 		!strings.Contains(status, "row 5/27") || strings.Contains(status, "Enter") {
 		t.Errorf("status line %q, want the ASK pill, the origin and the row of the cursor row without the hint", status)
 	}
@@ -171,7 +171,7 @@ func TestAskInput(t *testing.T) {
 	}
 	// A deleted line is asked about differently, and goes by its line in base.
 	typeKeys(m, "ka")
-	if box := entryBox(t, m); !strings.HasPrefix(shownTitle(box), "Ask claude c1a0de00 #1 · L2 ") || !slices.Equal(shownText(box), []string{" " + whyDeleted}) {
+	if box := entryBox(t, m); !strings.HasPrefix(shownTitle(box), "Ask claude c1a0 #1 · L2 ") || !slices.Equal(shownText(box), []string{" " + whyDeleted}) {
 		t.Errorf("a on a deleted line: the box\n%s", strings.Join(box, "\n"))
 	}
 }
@@ -192,7 +192,7 @@ func TestInputRoom(t *testing.T) {
 	}{
 		{
 			name: "the origin makes room", width: 100, keys: "32G/" + query,
-			start: " SEARCH   /" + query, end: " file 4/5", gone: []string{"claude 5ub00000", "row"},
+			start: " SEARCH   /" + query, end: " file 4/5", gone: []string{"claude 4444", "row"},
 		},
 		{
 			// Cut after 13 cells, the / and 6 of the 왜.
@@ -275,31 +275,31 @@ func TestAskOthers(t *testing.T) {
 	}{
 		{
 			name: "an OMP subagent", keys: "12j",
-			label: "omp 0a1f0002 #1", placeholder: whyDeleted,
+			label: "omp a1f2 #1", placeholder: whyDeleted,
 			ask:   agent.Question{Agent: "omp", Session: ompSession, Log: subagent.Log, Cwd: "/work"},
 			lines: "a.go, deleted line 15 of the base file. Lines marked - were deleted.\n-line 15\n", end: questionEnd,
-			who: "omp 0a1f0002", note: "claude-opus-5-5 · 7s",
+			who: "omp a1f2", note: "claude-opus-5-5 · 7s",
 		},
 		{
 			name: "the parent of a Claude subagent", keys: "32G",
-			label: "claude c1a0de00, which started the subagent", placeholder: whyAddedOther,
+			label: "claude c1a0, which started the subagent", placeholder: whyAddedOther,
 			ask:   agent.Question{Agent: "claude", Session: claudeSession, Cwd: "/work", Model: "claude-opus-5-5"},
 			lines: parentIntro + "\nd.go:3\n>subagent line\n", end: parentEnd,
-			who: "claude c1a0de00", note: "claude-opus-5-5 · 7s", relation: "started the subagent that wrote these lines",
+			who: "claude c1a0", note: "claude-opus-5-5 · 7s", relation: "started the subagent that wrote these lines",
 		},
 		{
 			name: "the session that edited the file last", keys: "16j",
-			label: "omp 0a1f0002, which edited this file", placeholder: whyAddedOther,
+			label: "omp a1f2, which edited this file", placeholder: whyAddedOther,
 			ask:   agent.Question{Agent: "omp", Session: ompSession, Log: subagent.Log, Cwd: "/work"},
 			lines: editorIntro + "\na.go:18\n>new after 18\n", end: editorEnd,
-			who: "omp 0a1f0002", note: "claude-opus-5-5 · 7s", relation: "edited this file, not these lines",
+			who: "omp a1f2", note: "claude-opus-5-5 · 7s", relation: "edited this file, not these lines",
 		},
 		{
 			name: "a deleted line the editor of the file did not write", keys: "34G",
-			label: "codex c0dex000, which edited this file", placeholder: whyDeletedOther,
+			label: "codex 3333, which edited this file", placeholder: whyDeletedOther,
 			ask:   agent.Question{Agent: "codex", Session: "c0dex000-3333", Cwd: "/work", Model: "gpt-6.1-sol", Effort: "medium"},
 			lines: editorIntro + "\nd.go, deleted line 3 of the base file. Lines marked - were deleted.\n-old line\n", end: editorEnd,
-			who: "codex c0dex000", note: "claude-opus-5-5, not gpt-6.1-sol · 7s", relation: "edited this file, not these lines",
+			who: "codex 3333", note: "claude-opus-5-5, not gpt-6.1-sol · 7s", relation: "edited this file, not these lines",
 		},
 		{
 			name: "a new session", keys: "40G", installed: []string{"omp"},
@@ -394,12 +394,12 @@ func TestAskBusy(t *testing.T) {
 	m := askScreen(askFiles(), Saved{}, f)
 	cmd := typeAndKeep(m, "4ja<enter>")
 	typeKeys(m, "<esc>ka")
-	const busy = "Still waiting for claude c1a0de00 to answer"
+	const busy = "Still waiting for claude c1a0 to answer"
 	if m.message != busy || m.asking != nil {
 		t.Errorf("a on the same session: message %q, input open %t; want %q", m.message, m.asking != nil, busy)
 	}
 	typeKeys(m, "31Ga") // row 30, the Codex line
-	if box := entryBox(t, m); m.asking == nil || !strings.HasPrefix(shownTitle(box), "Ask codex c0dex000 #1 · ") {
+	if box := entryBox(t, m); m.asking == nil || !strings.HasPrefix(shownTitle(box), "Ask codex 3333 #1 · ") {
 		t.Errorf("a on another session: the box\n%s\nwant one that asks codex", strings.Join(box, "\n"))
 	}
 	typeKeys(m, "<esc>")
@@ -420,7 +420,7 @@ func TestAskAnswer(t *testing.T) {
 	m := askScreen(testFiles(), Saved{Dir: dir}, f)
 	m.now = func() time.Time { return start }
 	cmd := typeAndKeep(m, "4ja<enter>")
-	waiting := "Questions · 1\n▍ You  just now\n▍ " + whyAdded + "\n▍\n▍ claude c1a0de00  asking… 0s\n─\nSession\nclaude c1a0de00 #1\n"
+	waiting := "Questions · 1\n▍ You  just now\n▍ " + whyAdded + "\n▍\n▍ claude c1a0  asking… 0s\n─\nSession\nclaude c1a0 #1\n"
 	if text := boxText(m); !m.reading || m.cursor != 4 || !strings.HasPrefix(text, waiting) {
 		t.Fatalf("after Enter: box open %t at row %d with\n%s\nwant it open at row 4, starting with\n%s", m.reading, m.cursor, text, waiting)
 	}
@@ -435,7 +435,7 @@ func TestAskAnswer(t *testing.T) {
 	if got := f.asked(); len(got) != 1 || got[0] != want {
 		t.Errorf("asked %+v, want %+v", got, want)
 	}
-	answered := "Questions · 1\n▍ You  just now\n▍ " + whyAdded + "\n▍\n▍ claude c1a0de00  ● decided  claude-opus-5-5 · 7s\n▍ 토큰 버킷이라 float64로 했어요.\n─\nSession\n"
+	answered := "Questions · 1\n▍ You  just now\n▍ " + whyAdded + "\n▍\n▍ claude c1a0  ● decided  claude-opus-5-5 · 7s\n▍ 토큰 버킷이라 float64로 했어요.\n─\nSession\n"
 	if text := boxText(m); !strings.HasPrefix(text, answered) {
 		t.Errorf("the box:\n%s\nwant it to start with\n%s", text, answered)
 	}
@@ -451,7 +451,7 @@ func TestAskAnswer(t *testing.T) {
 	if got := f.asked(); len(got) != 2 || got[1].Fork != "fork-1" || !strings.Contains(got[1].Prompt, "a.go, deleted line 2 of the base file.") {
 		t.Errorf("the second question: got %+v, want it in fork-1 about the deleted line 2", got)
 	}
-	if text := boxText(m); !strings.Contains(text, "▍ Why delete it?\n▍\n▍ claude c1a0de00  claude-opus-5-5 · 7s\n▍ 지운 줄이에요.\n") || strings.Contains(text, whyAdded) {
+	if text := boxText(m); !strings.Contains(text, "▍ Why delete it?\n▍\n▍ claude c1a0  claude-opus-5-5 · 7s\n▍ 지운 줄이에요.\n") || strings.Contains(text, whyAdded) {
 		t.Errorf("the box of row 3:\n%s\nwant only its own question", text)
 	}
 	records, bad, err := state.NewLog(filepath.Join(dir, logFile)).Read()
@@ -568,20 +568,20 @@ func TestAskNotice(t *testing.T) {
 		answer     string // in the box
 	}{
 		{
-			name: "box closed", keys: "<esc>G", notice: "Answer from claude c1a0de00 #1 on a.go:2. Enter to read",
-			answer: "▍ claude c1a0de00  ● decided  claude-opus-5-5 · 7s\n▍ 토큰 버킷이라 float64로 했어요.\n─",
+			name: "box closed", keys: "<esc>G", notice: "Answer from claude c1a0 #1 on a.go:2. Enter to read",
+			answer: "▍ claude c1a0  ● decided  claude-opus-5-5 · 7s\n▍ 토큰 버킷이라 float64로 했어요.\n─",
 		},
 		{
-			name: "box on another line", keys: "<esc>2j<enter>", notice: "Answer from claude c1a0de00 #1 on a.go:2. Enter to read",
-			answer: "▍ claude c1a0de00  ● decided  claude-opus-5-5 · 7s\n▍ 토큰 버킷이라 float64로 했어요.\n─",
+			name: "box on another line", keys: "<esc>2j<enter>", notice: "Answer from claude c1a0 #1 on a.go:2. Enter to read",
+			answer: "▍ claude c1a0  ● decided  claude-opus-5-5 · 7s\n▍ 토큰 버킷이라 float64로 했어요.\n─",
 		},
 		{
-			name: "file folded since", keys: "<esc>v", notice: "Answer from claude c1a0de00 #1 on a.go:2. Enter to read",
-			answer: "▍ claude c1a0de00  ● decided  claude-opus-5-5 · 7s\n▍ 토큰 버킷이라 float64로 했어요.\n─",
+			name: "file folded since", keys: "<esc>v", notice: "Answer from claude c1a0 #1 on a.go:2. Enter to read",
+			answer: "▍ claude c1a0  ● decided  claude-opus-5-5 · 7s\n▍ 토큰 버킷이라 float64로 했어요.\n─",
 		},
 		{
-			name: "no answer", keys: "<esc>", err: errors.New("no answer in 3 minutes"), notice: "No answer from claude c1a0de00 #1 on a.go:2. Enter to read",
-			answer: "▍ claude c1a0de00  no answer\n▍ no answer in 3 minutes\n─",
+			name: "no answer", keys: "<esc>", err: errors.New("no answer in 3 minutes"), notice: "No answer from claude c1a0 #1 on a.go:2. Enter to read",
+			answer: "▍ claude c1a0  no answer\n▍ no answer in 3 minutes\n─",
 		},
 	} {
 		m := askScreen(testFiles(), Saved{Dir: t.TempDir()}, &fakeAsk{answer: answer, err: tc.err})
@@ -622,20 +622,20 @@ func TestAskTick(t *testing.T) {
 	}
 	typeKeys(m, "4j<enter>jk<esc>")
 	cmd := typeAndKeep(m, "a<enter>")
-	if text := boxText(m); ticks != 1 || !strings.Contains(text, "\n▍ claude c1a0de00  asking… 0s\n") {
+	if text := boxText(m); ticks != 1 || !strings.Contains(text, "\n▍ claude c1a0  asking… 0s\n") {
 		t.Errorf("after the question went: %d ticks, the box\n%s\nwant 1 tick and the question waiting 0s", ticks, text)
 	}
 	now = now.Add(12 * time.Second)
 	typeKeys(m, "j") // keys while the tick is on its way ask for no more
 	m.Update(tickMsg{})
-	if text := boxText(m); ticks != 2 || !strings.Contains(text, "\n▍ You  just now\n") || !strings.Contains(text, "\n▍ claude c1a0de00  asking… 12s\n") {
+	if text := boxText(m); ticks != 2 || !strings.Contains(text, "\n▍ You  just now\n") || !strings.Contains(text, "\n▍ claude c1a0  asking… 12s\n") {
 		t.Errorf("after a tick 12s later: %d ticks, the box\n%s\nwant 2 ticks and the question waiting 12s", ticks, text)
 	}
 	send(m, cmd())
 	m.Update(tickMsg{}) // the tick on its way when the answer came
 	now = now.Add(4 * time.Minute)
 	typeKeys(m, "jk")
-	if text := boxText(m); ticks != 2 || !strings.Contains(text, "\n▍ You  4m\n") || !strings.Contains(text, "\n▍ claude c1a0de00  ● decided  claude-opus-5-5 · 7s\n") {
+	if text := boxText(m); ticks != 2 || !strings.Contains(text, "\n▍ You  4m\n") || !strings.Contains(text, "\n▍ claude c1a0  ● decided  claude-opus-5-5 · 7s\n") {
 		t.Errorf("after the answer: %d ticks, the box\n%s\nwant still 2 ticks, the question 4m ago and its answer", ticks, text)
 	}
 }
@@ -658,7 +658,7 @@ func TestAskFromBox(t *testing.T) {
 		t.Errorf("the top border %q does not tell of a", top())
 	}
 	typeKeys(m, "a")
-	if box := entryBox(t, m); m.reading || m.cursor != 4 || !strings.Contains(top(), "┏━ Ask claude c1a0de00 #1 · L1-2 ") ||
+	if box := entryBox(t, m); m.reading || m.cursor != 4 || !strings.Contains(top(), "┏━ Ask claude c1a0 #1 · L1-2 ") ||
 		!slices.Equal(shownText(box), []string{" " + whyLines}) {
 		t.Errorf("a in the box: origin box open %t at row %d, the line under it %q; want the input box for the selection there", m.reading, m.cursor, top())
 	}
@@ -667,8 +667,8 @@ func TestAskFromBox(t *testing.T) {
 	if got := f.asked(); len(got) != 2 || got[1].Fork != "fork-1" || !strings.HasSuffix(got[1].Prompt, lines+"Why both?"+questionEnd) {
 		t.Errorf("asked %+v, want the follow-up in fork-1 about the selection", got)
 	}
-	thread := "Questions · 2\n▍ You  just now\n▍ " + whyLines + "\n▍\n▍ claude c1a0de00  ● decided  claude-opus-5-5 · 7s\n▍ 토큰 버킷이라 float64로 했어요.\n\n" +
-		"▍ You  just now\n▍ Why both?\n▍\n▍ claude c1a0de00  ● chose  claude-opus-5-5 · 7s\n▍ 둘 다 버킷 상태라서요.\n─\n"
+	thread := "Questions · 2\n▍ You  just now\n▍ " + whyLines + "\n▍\n▍ claude c1a0  ● decided  claude-opus-5-5 · 7s\n▍ 토큰 버킷이라 float64로 했어요.\n\n" +
+		"▍ You  just now\n▍ Why both?\n▍\n▍ claude c1a0  ● chose  claude-opus-5-5 · 7s\n▍ 둘 다 버킷 상태라서요.\n─\n"
 	if text := boxText(m); !m.reading || m.typing() || m.cursor != 4 || !strings.HasPrefix(text, thread) {
 		t.Errorf("box open %t at row %d:\n%s\nwant it open at row 4 starting with\n%s", m.reading, m.cursor, text, thread)
 	}
@@ -678,8 +678,8 @@ func TestAskFromBox(t *testing.T) {
 	for _, tc := range []struct {
 		keys, top string
 	}{
-		{keys: "<esc>gg2j<enter>a", top: "┏━ Ask claude c1a0de00 #1 · L1-2 "},   // an unchanged line of the selection
-		{keys: "<esc><esc>gg12j<enter>a", top: "┏━ Ask omp 0a1f0002 #1 · L15 "}, // no questions
+		{keys: "<esc>gg2j<enter>a", top: "┏━ Ask claude c1a0 #1 · L1-2 "},   // an unchanged line of the selection
+		{keys: "<esc><esc>gg12j<enter>a", top: "┏━ Ask omp a1f2 #1 · L15 "}, // no questions
 	} {
 		typeKeys(m, tc.keys)
 		if m.reading || !m.typing() || !strings.Contains(top(), tc.top) {
@@ -822,7 +822,7 @@ func TestSelect(t *testing.T) {
 		status    string
 	}{
 		{keys: "2jV", selecting: true, cursor: 2, status: "VISUAL   1 line · L1"},
-		{keys: "2jVjj", selecting: true, cursor: 4, status: "VISUAL   3 lines · L1-2   claude c1a0de00"},
+		{keys: "2jVjj", selecting: true, cursor: 4, status: "VISUAL   3 lines · L1-2   claude c1a0"},
 		{keys: "5jVgg", selecting: true, cursor: 2, status: "VISUAL   4 lines"},
 		{keys: "2jVG", selecting: true, cursor: 18, status: "VISUAL   16 lines"}, // not the hunk header
 		{keys: "2jV100j", selecting: true, cursor: 18},
@@ -1032,15 +1032,15 @@ func TestEarlierQuestions(t *testing.T) {
 	}{
 		{
 			keys: "4j<enter>",
-			want: []string{"Questions · 1\n▍ You\n▍ Why Changed?\n▍\n▍ claude c1a0de00  claude-opus-5-5 · 6s\n▍ Because.\n─\nSession"},
+			want: []string{"Questions · 1\n▍ You\n▍ Why Changed?\n▍\n▍ claude c1a0  claude-opus-5-5 · 6s\n▍ Because.\n─\nSession"},
 			not:  []string{"Why gone?"},
 		},
 		{
 			keys: "<esc>gg<enter>",
-			want: []string{"Earlier questions · 1\n>     gone line\n▍ You\n▍ Why gone?\n▍\n▍ claude c1a0de00  no answer\n▍ no answer in 3 minutes"},
+			want: []string{"Earlier questions · 1\n>     gone line\n▍ You\n▍ Why gone?\n▍\n▍ claude c1a0  no answer\n▍ no answer in 3 minutes"},
 			not:  []string{"Why Changed?"},
 		},
-		{keys: "<esc>G<enter>", want: []string{"▍ Why x?\n▍\n▍ claude c1a0de00  no answer\n▍ dr closed before it came\n─"}},
+		{keys: "<esc>G<enter>", want: []string{"▍ Why x?\n▍\n▍ claude c1a0  no answer\n▍ dr closed before it came\n─"}},
 	} {
 		typeKeys(m, tc.keys)
 		text := boxText(m)

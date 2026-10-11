@@ -35,12 +35,16 @@ const (
 type model struct {
 	files     []file
 	lines     []origin.Line     // the lines of the hunks, in the order of the unified view
+	labeled   []bool            // which of lines end with the label of their run of changes, as runLabels marks them
 	unified   []row             // the rows of the unified view
 	split     []row             // the rows of the split view
 	oldPieces [][]piece         // the pieces of the base version of each line once its file is colored
 	newPieces [][]piece         // the pieces of the current version of each line likewise
 	tree      []treeRow         // the file tree
 	short     map[string]string // short session ids, from review.ShortIDs
+	colors    map[session]int   // the color of each session, as placeSessions gives them, kept while the screen is open
+	legend    []*sessionRow     // the sessions with changed lines in the diff, in the order of their colors
+	unknown   int               // how many changed lines of the diff have no origin
 	problems  string            // which agents' session logs dr could not fully read
 	listWidth int               // width the file tree needs
 	theme     theme
@@ -200,10 +204,11 @@ func New(files []review.File, problems []agent.Problem, saved Saved, asker Asker
 
 // setFiles builds everything the screen keeps of files, when it opens and when it rebuilds
 // the diff: the lines and rows of both views, which files are viewed, the newest edit of
-// each session, the file tree, short session ids, where the comments go with the fixes under
-// them, who a asks and where the questions go.
+// each session, the file tree, short session ids, the colors of the sessions and what the
+// legend shows of them, where the comments go with the fixes under them, who a asks and
+// where the questions go.
 func (m *model) setFiles(files []review.File) {
-	m.lines = nil
+	m.lines, m.labeled = nil, nil
 	m.build(files)
 	for i := range m.files {
 		f := &m.files[i]
@@ -227,6 +232,7 @@ func (m *model) setFiles(files []review.File) {
 		ids = append(ids, c.Session) // the sessions comments go to, which may have no line in this diff
 	}
 	m.short = review.ShortIDs(ids)
+	m.placeSessions()
 	m.placeComments()
 	m.listWidth = m.treeWidth()
 	m.whom = review.Asking{
@@ -363,15 +369,16 @@ func (m *model) mouse(msg tea.MouseMsg) tea.Cmd {
 
 // click handles a click at column x of line y. On a file of the file tree it goes to the
 // file's header, and on the Viewed box of a file header it marks the file viewed or not, as
-// v does there. Either ends a selection first. It returns the command that saves the viewed
-// files then.
+// v does there. Either ends a selection first. A click on the legend of the sessions does
+// nothing. It returns the command that saves the viewed files then.
 func (m *model) click(x, y int) tea.Cmd {
 	h := m.diffHeight()
 	if y >= h {
 		return nil
 	}
 	if list, _ := m.layout(); !m.folded && x < list {
-		if i := m.treeTop(h) + y - treeHead; y >= treeHead && i < len(m.tree) && m.tree[i].file >= 0 {
+		body := m.treeBody(h)
+		if i := m.treeTop(body) + y - treeHead; y >= treeHead && y < treeHead+body && i < len(m.tree) && m.tree[i].file >= 0 {
 			m.selecting = false
 			m.jumpTo(m.headRow(m.tree[i].file))
 		}

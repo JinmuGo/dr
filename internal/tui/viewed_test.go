@@ -105,10 +105,10 @@ func TestViewedFold(t *testing.T) {
 }
 
 func TestHeader(t *testing.T) {
-	// The path is at the left edge of a file header, with whether the file is new and a chip
-	// when its diff changed since it was viewed. At the right edge, a cell from it, come the
-	// counts with the diffstat and the Viewed box, which always shows. The rest shows only
-	// when it leaves the path its room.
+	// The path is at the left edge of a file header, with whether the file is new, the dots
+	// of the sessions that changed it and a chip when its diff changed since it was viewed.
+	// At the right edge, a cell from it, come the counts with the diffstat and the Viewed
+	// box, which always shows. The rest shows only when it leaves the path its room.
 	files := testFiles()
 	stat := strings.Repeat(statSquare, 5)
 	for _, tc := range []struct {
@@ -122,10 +122,11 @@ func TestHeader(t *testing.T) {
 		{name: "viewed", w: 80, viewed: state.Viewed{"a.go": files[0].Hash(contextLines)}, prefix: " ▸ a.go ", suffix: " +2 -2 " + stat + "    ☑ Viewed "},
 		{
 			name: "changed", w: 80, viewed: state.Viewed{"a.go": "1111"},
-			prefix: " ▾ a.go   Changed since last view ", suffix: " +2 -2 " + stat + "    ☐ Viewed ",
+			prefix: " ▾ a.go  ●●┆   Changed since last view ", suffix: " +2 -2 " + stat + "    ☐ Viewed ",
 		},
 		{name: "no line diff", file: 1, w: 80, prefix: " ▾ b.bin new ", suffix: " ☐ Viewed ", not: "+0"},
-		{name: "no room to say it changed", w: 40, viewed: state.Viewed{"a.go": "1111"}, prefix: " ▾ a.go ", suffix: " +2 -2 " + stat + "    ☐ Viewed ", not: "changed"},
+		{name: "no room to say it changed", w: 40, viewed: state.Viewed{"a.go": "1111"}, prefix: " ▾ a.go  ●●┆ ", suffix: " +2 -2 " + stat + "    ☐ Viewed ", not: "changed"},
+		{name: "no room for the dots", w: 35, prefix: " ▾ a.go ", suffix: " +2 -2 " + stat + "    ☐ Viewed ", not: "●"},
 		{name: "no room for the counts", w: 20, prefix: " ▾ a.go ", suffix: " ☐ Viewed ", not: "+2"},
 	} {
 		m := New(files, nil, Saved{Viewed: tc.viewed}, Asker{}).(*model)
@@ -223,7 +224,8 @@ func TestSaver(t *testing.T) {
 func TestTreeLines(t *testing.T) {
 	// The file tree shows a status icon and the name of each file, no line counts, and a
 	// check at the right edge of a viewed file. Its title counts the viewed files, and the
-	// line under it shows their share: a quarter of its 17 cells, 4.
+	// line under it shows their share: a quarter of its 17 cells, 4. TestLegend checks the
+	// legend under the files.
 	files := append(testFiles(), review.File{Path: "gone.go", Status: 'D', Lines: origin.Blame("x\n", "", nil)})
 	m := New(files, nil, Saved{Viewed: state.Viewed{"a.go": files[0].Hash(contextLines)}}, Asker{}).(*model)
 	progress := strings.Repeat("━", 4) + strings.Repeat("─", 13)
@@ -231,8 +233,8 @@ func TestTreeLines(t *testing.T) {
 	if m.listWidth != 19 {
 		t.Fatalf("tree %d cells wide, want 19", m.listWidth)
 	}
-	got := m.fileTree(m.listWidth, len(want))
-	for i, line := range got {
+	got := m.fileTree(m.listWidth, 2*len(want))
+	for i, line := range got[:len(want)] {
 		if text := strings.Join(strings.Fields(strings.Trim(ansi.Strip(line), "▌")), " "); text != want[i] || ansi.StringWidth(line) != m.listWidth {
 			t.Errorf("tree line %d: got %q, %d cells, want %q, %d cells", i, text, ansi.StringWidth(line), want[i], m.listWidth)
 		}

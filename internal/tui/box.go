@@ -142,14 +142,13 @@ func section(title, text string) []paragraph {
 	return []paragraph{{}, {text: title, tone: heading}, {text: review.Visible(text)}}
 }
 
-// fileText lists the requests that changed f, each with the first line of the request, or
-// of the comment for a fix dr applied, and the questions about f and the comments on it that
+// fileText lists the requests that changed f, each with the line that sums up the request,
+// or the comment for a fix dr applied, and the questions about f and the comments on it that
 // have no place in its diff now.
 func (m *model) fileText(f file) []paragraph {
 	paragraphs := []paragraph{{text: "Requests that changed this file", tone: heading}}
 	for _, e := range f.requests {
-		first, _, _ := strings.Cut(strings.TrimSpace(requestText(e)), "\n")
-		paragraphs = append(paragraphs, paragraph{text: review.Tag(e, m.short), tone: strong}, paragraph{text: review.Visible(first)})
+		paragraphs = append(paragraphs, paragraph{text: review.Tag(e, m.short), tone: strong}, paragraph{text: review.Summary(requestText(e))})
 	}
 	switch {
 	case f.unknown:
@@ -485,9 +484,10 @@ func (m *model) boxTop(w int) string {
 	r := m.rows[m.cursor]
 	var title []span
 	if r.isChange() {
-		tag := span{text: "unknown", color: t.pending, bold: true}
-		if e := m.lines[r.main()].Edit; e != nil {
-			tag = span{text: review.Tag(e, m.short), color: t.accent, bold: true}
+		e := m.lines[r.main()].Edit
+		tag := span{text: "unknown", color: m.originColor(e), bold: true}
+		if e != nil {
+			tag.text = review.Tag(e, m.short)
 		}
 		title = append(title, tag, span{text: "  "})
 	}

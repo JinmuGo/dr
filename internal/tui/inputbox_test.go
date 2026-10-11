@@ -79,14 +79,14 @@ func TestEntryTitles(t *testing.T) {
 		enhanced   bool
 		want       string
 	}{
-		{name: "a on a line", keys: "4ja", want: "Ask claude c1a0de00 #1 · L2" + ask},
-		{name: "a on lines", keys: "2jVjja", want: "Ask claude c1a0de00 #1 · L1-2" + ask},
-		{name: "a on a deleted line", keys: "34Ga", want: "Ask codex c0dex000, which edited this file · L3"},
-		{name: "a with Shift+Enter told apart", keys: "4ja", enhanced: true, want: "Ask claude c1a0de00 #1 · L2 (Enter:send Shift-Enter:newline ^:model Esc:cancel)"},
-		{name: "c on a line", keys: "4jc", want: "Comment for claude c1a0de00 · L2" + save},
-		{name: "c on lines", keys: "11jVjc", want: "Comment for omp 0a1f0002 · L14" + save},
-		{name: "c on a comment", keys: "4jcfix<enter>c", want: "Edit comment for claude c1a0de00 · L2" + save},
-		{name: "c with Shift+Enter told apart", keys: "4jc", enhanced: true, want: "Comment for claude c1a0de00 · L2 (Enter:save Shift-Enter:newline ^:model Esc:cancel)"},
+		{name: "a on a line", keys: "4ja", want: "Ask claude c1a0 #1 · L2" + ask},
+		{name: "a on lines", keys: "2jVjja", want: "Ask claude c1a0 #1 · L1-2" + ask},
+		{name: "a on a deleted line", keys: "34Ga", want: "Ask codex 3333, which edited this file · L3"},
+		{name: "a with Shift+Enter told apart", keys: "4ja", enhanced: true, want: "Ask claude c1a0 #1 · L2 (Enter:send Shift-Enter:newline ^:model Esc:cancel)"},
+		{name: "c on a line", keys: "4jc", want: "Comment for claude c1a0 · L2" + save},
+		{name: "c on lines", keys: "11jVjc", want: "Comment for omp a1f2 · L14" + save},
+		{name: "c on a comment", keys: "4jcfix<enter>c", want: "Edit comment for claude c1a0 · L2" + save},
+		{name: "c with Shift+Enter told apart", keys: "4jc", enhanced: true, want: "Comment for claude c1a0 · L2 (Enter:save Shift-Enter:newline ^:model Esc:cancel)"},
 	} {
 		m := commentScreen(askFiles(), t.TempDir())
 		if tc.enhanced {
@@ -123,7 +123,7 @@ func TestEntryLook(t *testing.T) {
 			"the top border":         border.Render("┏━"),
 			"a side border":          border.Render("┃ "),
 			"the bottom border":      border.Render("┛"),
-			"what it does":           th.paint(th.accent, th.surface).Bold(true).Render("Ask omp 0a1f0002 #1"),
+			"what it does":           th.paint(th.accent, th.surface).Bold(true).Render("Ask omp a1f2 #1"),
 			"the keys":               dim.Render(" (Enter:send Alt-Enter:newline ^:model Esc:cancel)"),
 			"the cursor":             cursor.Render(" "),
 			"the placeholder":        dim.Render(whyDeleted),
@@ -133,7 +133,7 @@ func TestEntryLook(t *testing.T) {
 				t.Errorf("%s: the screen has no %s %q", tc.name, name, want)
 			}
 		}
-		if s := screen(t, m); !strings.Contains(s, "┏━ Ask omp 0a1f0002 #1 · L15 ") || !strings.Contains(s, "┗━━━") || strings.Contains(s, "┏━ a.go:2") {
+		if s := screen(t, m); !strings.Contains(s, "┏━ Ask omp a1f2 #1 · L15 ") || !strings.Contains(s, "┗━━━") || strings.Contains(s, "┏━ a.go:2") {
 			t.Errorf("%s: the screen\n%s\nwant the input box in heavy lines and the comment's box in light ones", tc.name, s)
 		}
 		typeKeys(m, "why<left>")
@@ -218,7 +218,7 @@ func TestEntrySplit(t *testing.T) {
 	typeKeys(m, "s3jawhy") // -line 2 and +Changed 2
 	lines := strings.Split(screen(t, m), "\n")
 	y := cursorLine(m)
-	if !m.splitShown || !strings.Contains(lines[y], "Changed 2") || !strings.Contains(lines[y+1], "┏━ Ask claude c1a0de00 #1 · L2 ") ||
+	if !m.splitShown || !strings.Contains(lines[y], "Changed 2") || !strings.Contains(lines[y+1], "┏━ Ask claude c1a0 #1 · L2 ") ||
 		!strings.Contains(lines[y+2], "┃ why") || !strings.Contains(lines[y+3], "┗━") || !strings.Contains(lines[y+4], "line 3") {
 		t.Errorf("split view %t: want the row, the box with the text and then line 3:\n%s", m.splitShown, strings.Join(lines, "\n"))
 	}
@@ -232,7 +232,7 @@ func TestEntrySplit(t *testing.T) {
 	}
 	m = commentScreen(testFiles(), t.TempDir())
 	typeKeys(m, "s3jc")
-	if title := shownTitle(entryBox(t, m)); !m.splitShown || !strings.HasPrefix(title, "Comment for claude c1a0de00 · L2 ") {
+	if title := shownTitle(entryBox(t, m)); !m.splitShown || !strings.HasPrefix(title, "Comment for claude c1a0 · L2 ") {
 		t.Errorf("c in the split view: the box titled %q", title)
 	}
 }
@@ -246,8 +246,8 @@ func TestEntryNarrow(t *testing.T) {
 		top   string
 		rows  []string
 	}{
-		{125, "┏━ Ask claude c1a0de00 #1 · L2 (Enter:send Alt-Enter:newline ^:model Esc:cancel) ━", []string{"한글 ab"}},
-		{70, "┏━ Ask claude c1a0de00 #1 · L2 ━", []string{"한글 ab"}},
+		{125, "┏━ Ask claude c1a0 #1 · L2 (Enter:send Alt-Enter:newline ^:model Esc:cancel) ━", []string{"한글 ab"}},
+		{70, "┏━ Ask claude c1a0 #1 · L2 ━", []string{"한글 ab"}},
 		{30, "┏━ Ask claude c1… ━┓", []string{"한글 ab"}},
 		{9, "┏━━━━┓", []string{"한", "글", "", "a", "b"}}, // the space is a row of its own
 	} {

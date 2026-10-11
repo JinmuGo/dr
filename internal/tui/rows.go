@@ -2,6 +2,8 @@ package tui
 
 import (
 	"fmt"
+	"image/color"
+	"slices"
 	"strconv"
 	"strings"
 
@@ -61,6 +63,7 @@ type file struct {
 	digits         int           // width of its widest line number
 	requests       []*agent.Edit // requests behind its changed lines, in the order they were made
 	unknown        bool          // some changed line has no origin
+	sessions       []session     // the sessions behind its changed lines, in the order of their colors
 	diff           []origin.Line // the whole diff, unchanged lines outside the hunks included
 	hunks          []hunk        // its hunks
 	first, end     int           // its lines in model.lines
@@ -107,6 +110,7 @@ func (m *model) build(files []review.File) {
 		for _, h := range review.Hunks(f.Lines, contextLines) {
 			first := len(m.lines)
 			m.lines = append(m.lines, h.Lines...)
+			m.labeled = append(m.labeled, runLabels(h.Lines)...)
 			info.hunks = append(info.hunks, hunk{
 				header: fmt.Sprintf("@@ -%d,%d +%d,%d @@", h.OldStart, h.OldCount, h.NewStart, h.NewCount),
 				first:  first, end: len(m.lines),
@@ -115,6 +119,168 @@ func (m *model) build(files []review.File) {
 		info.end = len(m.lines)
 		m.files[i] = info
 	}
+}
+
+// originKey tells the origins of changed lines apart: a request of a session, a fix dr
+// applied, or none, the zero key.
+type originKey struct {
+	agent, session string
+	turn           int
+	fix            *agent.Fix
+}
+
+// keyOf returns the origin key of a line that e wrote or deleted, nil for none.
+func keyOf(e *agent.Edit) originKey {
+	if e == nil {
+		return originKey{}
+	}
+	return originKey{e.Agent, e.Session, e.Turn, e.Fix}
+}
+
+// runLabels returns which of lines, the lines of a hunk, end with a label of their origin.
+// Changed lines in a row with the same origin are a run, which an unchanged line ends; the
+// first line of the first run of each origin in the hunk has the label, and the later runs
+// of that origin only its rail.
+func runLabels(lines []origin.Line) []bool {
+	labeled := make([]bool, len(lines))
+	seen := make(map[originKey]bool)
+	var last originKey
+	inRun := false
+	for k, l := range lines {
+		if l.Old > 0 && l.New > 0 {
+			inRun = false
+			continue
+		}
+		key := keyOf(l.Edit)
+		if (!inRun || key != last) && !seen[key] {
+			labeled[k], seen[key] = true, true
+		}
+		last, inRun = key, true
+	}
+	return labeled
+}
+
+// sessionRow is a session with changed lines in the diff, as the legend of the file tree
+// shows it.
+type sessionRow struct {
+	session
+	parent string // the session that started it, when it is a subagent
+	turns  []int  // its requests behind changed lines, in order
+	fix    bool   // a fix dr applied for a comment to it changed lines
+	lines  int    // how many changed lines it wrote or deleted
+}
+
+// placeSessions gives each session its color, keeps the sessions of each file in the order
+// of their colors, and counts what the legend of the file tree shows. A session's color is
+// its place in the order the sessions first appear in the diff, the files and their lines
+// in order, then the sessions asked and those comments go to. A session keeps its color
+// while the screen is open: when the files are read again, a session new to the screen
+// takes the next color, wherever in the diff it is.
+func (m *model) placeSessions() {
+	if m.colors == nil {
+		m.colors = make(map[session]int)
+	}
+	add := func(s session) {
+		if _, ok := m.colors[s]; !ok && s.id != "" {
+			m.colors[s] = len(m.colors)
+		}
+	}
+	rows := make(map[session]*sessionRow)
+	m.legend, m.unknown = nil, 0
+	for i := range m.files {
+		f := &m.files[i]
+		for _, l := range m.lines[f.first:f.end] {
+			if l.Old > 0 && l.New > 0 {
+				continue
+			}
+			e := l.Edit
+			if e == nil {
+				m.unknown++
+				continue
+			}
+			s := session{e.Agent, e.Session}
+			add(s)
+			if !slices.Contains(f.sessions, s) {
+				f.sessions = append(f.sessions, s)
+			}
+			r := rows[s]
+			if r == nil {
+				r = &sessionRow{session: s, parent: e.Parent}
+				rows[s] = r
+				m.legend = append(m.legend, r)
+			}
+			r.lines++
+			switch {
+			case e.Fix != nil:
+				r.fix = true
+			case !slices.Contains(r.turns, e.Turn):
+				r.turns = append(r.turns, e.Turn)
+			}
+		}
+	}
+	for _, q := range m.questions {
+		add(session{q.Agent, q.Session})
+	}
+	for _, c := range slices.Concat(m.comments, m.away) {
+		add(session{c.Agent, c.Session})
+	}
+	byColor := func(a, b session) int { return m.colors[a] - m.colors[b] }
+	for i := range m.files {
+		slices.SortFunc(m.files[i].sessions, byColor)
+	}
+	slices.SortFunc(m.legend, func(a, b *sessionRow) int { return byColor(a.session, b.session) })
+	for _, r := range m.legend {
+		slices.Sort(r.turns)
+	}
+}
+
+// sessionColor returns the color of session s.
+func (m *model) sessionColor(s session) color.Color {
+	return m.theme.sessions[m.colors[s]%len(m.theme.sessions)]
+}
+
+// originColor returns the color of the origin of a line e wrote or deleted: teal for a fix
+// dr applied, quiet for no origin, and otherwise the color of e's session.
+func (m *model) originColor(e *agent.Edit) color.Color {
+	switch {
+	case e == nil:
+		return m.theme.subtle
+	case e.Fix != nil:
+		return m.theme.fix
+	}
+	return m.sessionColor(session{e.Agent, e.Session})
+}
+
+// noRecord is what a label says of changed lines without an origin.
+const noRecord = "not in any session record"
+
+// originOf returns how the screen names the origin of a line e wrote or deleted: its dot, ●
+// for a request of a session, ◆ for a fix dr applied and ┆ for no origin, its tag, what it
+// asked for in a line, and its color.
+func (m *model) originOf(e *agent.Edit) (dot, tag, about string, c color.Color) {
+	switch {
+	case e == nil:
+		return "┆", "unknown", noRecord, m.theme.subtle
+	case e.Fix != nil:
+		dot = "◆"
+	default:
+		dot = "●"
+	}
+	return dot, review.Tag(e, m.short), review.Summary(requestText(e)), m.originColor(e)
+}
+
+// rail returns the rail of line k of model.lines, the cell between its line numbers and its
+// sign: a bar in the color of its origin for a changed line, a dashed one for a changed line
+// without an origin, and blank for an unchanged line.
+func (m *model) rail(k int) span {
+	l := m.lines[k]
+	switch {
+	case l.Old > 0 && l.New > 0:
+		return span{text: " "}
+	case l.Edit == nil:
+		return span{text: "┆", color: m.theme.subtle}
+	}
+	return span{text: "▎", color: m.originColor(l.Edit)}
 }
 
 // place lays out the rows of both views, the unified and the split one: for each file a

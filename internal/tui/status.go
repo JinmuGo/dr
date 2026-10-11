@@ -6,7 +6,6 @@ import (
 	"path"
 	"slices"
 	"strconv"
-	"strings"
 	"time"
 
 	"charm.land/lipgloss/v2"
@@ -201,8 +200,8 @@ func (m *model) status() string {
 }
 
 // cursorSegs returns where the cursor is, as the status line shows it in the style on gives
-// each color: the directory and the name of its file, the line, and for a changed line who
-// wrote it and the first line of the request, or that it is unknown.
+// each color: the directory and the name of its file, the line, and for a changed line its
+// origin in the origin's color, with what it asked for in a line.
 func (m *model) cursorSegs(on func(color.Color) lipgloss.Style) []seg {
 	t := &m.theme
 	r := m.rows[m.cursor]
@@ -221,12 +220,10 @@ func (m *model) cursorSegs(on func(color.Color) lipgloss.Style) []seg {
 		return segs
 	}
 	gap := seg{text: "    ", st: on(nil)}
-	if l.Edit == nil {
-		return append(segs, gap, seg{text: "unknown", st: on(t.subtle)})
-	}
-	segs = append(segs, gap, seg{text: review.Tag(l.Edit, m.short), st: on(t.accent).Bold(true)})
-	if request, _, _ := strings.Cut(strings.TrimSpace(l.Edit.Prompt), "\n"); request != "" {
-		segs = append(segs, seg{text: "  " + review.Visible(request), st: on(t.subtle), cut: true})
+	dot, tag, about, c := m.originOf(l.Edit)
+	segs = append(segs, gap, seg{text: dot + " ", st: on(c)}, seg{text: tag, st: on(c).Bold(true)})
+	if about != "" {
+		segs = append(segs, seg{text: "  " + about, st: on(t.subtle), cut: true})
 	}
 	return segs
 }

@@ -396,7 +396,7 @@ func TestRebuildEmpty(t *testing.T) {
 		t.Fatalf("%d files on the screen\n%s\nwant none, and %q in the diff and the status line", len(m.files), s, noChanges)
 	}
 	send(m, cmd())
-	const told = "Answer from claude c1a0de00 #1 on a.go, which left the diff"
+	const told = "Answer from claude c1a0 #1 on a.go, which left the diff"
 	if q := m.questions[0]; q.answer == nil || !strings.Contains(statusLine(t, m), told) {
 		t.Errorf("answer %v, status line %q; want the answer and %q", q.answer, statusLine(t, m), told)
 	}
@@ -512,7 +512,7 @@ func TestCtrlCWhileHandedOver(t *testing.T) {
 	}
 }
 
-// laterFiles returns testFiles after claude c1a0de00 rewrote c/new.go in a later turn, #3,
+// laterFiles returns testFiles after claude c1a0 rewrote c/new.go in a later turn, #3,
 // an edit newer than any of the session's in testFiles.
 func laterFiles() []review.File {
 	later := *claude2

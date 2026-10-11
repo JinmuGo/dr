@@ -87,7 +87,7 @@ func TestStatusCrowded(t *testing.T) {
 	cmd := typeAndKeep(m, "gg4ja<enter>")
 	m.now = func() time.Time { return start.Add(5 * time.Second) }
 	defer send(m, cmd())
-	const message = "Answer from claude c1a0de00 #1 on a.go:2. Enter to read"
+	const message = "Answer from claude c1a0 #1 on a.go:2. Enter to read"
 	for _, width := range []int{60, 150} {
 		m.Update(tea.WindowSizeMsg{Width: width, Height: 24})
 		m.warn(message)
