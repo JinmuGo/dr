@@ -180,9 +180,9 @@ func TestCommandList(t *testing.T) {
 	}
 	for _, keys := range []string{"<enter>", ":<down><enter>"} {
 		typeKeys(m, keys)
-		if m.commanding || len(f.asked()) != 0 || len(m.pendingComments()) != 2 || m.notice != nil || m.message != "" {
+		if m.cmdline.open || len(f.asked()) != 0 || len(m.pendingComments()) != 2 || m.notice != nil || m.message != "" {
 			t.Errorf("%q with nothing typed: input open %t, %d asked, %d pending groups, notice %q, message %q; want nothing run",
-				keys, m.commanding, len(f.asked()), len(m.pendingComments()), noticeText(t, m), m.message)
+				keys, m.cmdline.open, len(f.asked()), len(m.pendingComments()), noticeText(t, m), m.message)
 		}
 	}
 	typeKeys(m, ":u")
@@ -195,12 +195,12 @@ func TestCommandList(t *testing.T) {
 		t.Errorf(":s: the typed part of submit is not lit")
 	}
 	typeKeys(m, "<tab>")
-	if m.input != "submit" || !strings.HasPrefix(statusLine(t, m), " COMMAND   :submit") {
-		t.Errorf("tab: input %q, want submit", m.input)
+	if m.cmdline.input != "submit" || !strings.HasPrefix(statusLine(t, m), " COMMAND   :submit") {
+		t.Errorf("tab: input %q, want submit", m.cmdline.input)
 	}
 	cmd := typeAndKeep(m, "<ctrl+u>su<enter>")
-	if m.commanding || cmd == nil || !strings.HasPrefix(noticeText(t, m), "✓ Sent 2 fix requests to ") {
-		t.Fatalf(":su Enter: input open %t, notice %q; want :submit run", m.commanding, noticeText(t, m))
+	if m.cmdline.open || cmd == nil || !strings.HasPrefix(noticeText(t, m), "✓ Sent 2 fix requests to ") {
+		t.Fatalf(":su Enter: input open %t, notice %q; want :submit run", m.cmdline.open, noticeText(t, m))
 	}
 	run(m, cmd)
 	typeAll(m, "gg4jy:")
@@ -220,8 +220,8 @@ func TestCommandList(t *testing.T) {
 		t.Errorf(":ship Enter: status line %q", status)
 	}
 	typeKeys(m, ":<esc>")
-	if m.commanding || commandLines(t, m) != nil {
-		t.Errorf("Esc: input open %t, want the list closed", m.commanding)
+	if m.cmdline.open || commandLines(t, m) != nil {
+		t.Errorf("Esc: input open %t, want the list closed", m.cmdline.open)
 	}
 }
 
@@ -302,7 +302,7 @@ func TestFixesLogFails(t *testing.T) {
 			commentOf(m, "one").fix == nil || m.message != "" {
 			t.Errorf("%q: notice %q, message %q; want the error notice with the fix that came", keys, got, m.message)
 		}
-		if m.commanding {
+		if m.cmdline.open {
 			if status := statusLine(t, m); !strings.HasPrefix(status, " COMMAND   :su") {
 				t.Errorf("%q: status line %q, want the : line kept", keys, status)
 			}
@@ -337,9 +337,9 @@ func TestNoticeOverInput(t *testing.T) {
 		},
 		{
 			name: ": line", keys: "<esc>G:und",
-			open: func(m *model) bool { return m.commanding && m.input == "und" },
+			open: func(m *model) bool { return m.cmdline.open && m.cmdline.input == "und" },
 			entered: func(m *model) string {
-				if m.commanding || m.message != "No fix to undo" || m.reading {
+				if m.cmdline.open || m.message != "No fix to undo" || m.reading {
 					return "want :undo run"
 				}
 				return ""
@@ -347,7 +347,7 @@ func TestNoticeOverInput(t *testing.T) {
 		},
 		{
 			name: "search", keys: "<esc>G/line 3",
-			open: func(m *model) bool { return m.search.open && m.input == "line 3" },
+			open: func(m *model) bool { return m.search.open && m.search.input == "line 3" },
 			entered: func(m *model) string {
 				if m.search.open || !strings.Contains(rowName(m, m.cursor), "line 3") || m.reading {
 					return "want the search run"
@@ -370,7 +370,7 @@ func TestNoticeOverInput(t *testing.T) {
 				if m.notice != nil || !tc.open(m) {
 					t.Errorf("%s, Esc: notice %q, input open %t; want the notice gone and the input kept", tc.name, noticeLines(t, m), tc.open(m))
 				}
-				if typeKeys(m, "<esc>"); m.drafting != nil || m.commanding || m.search.open {
+				if typeKeys(m, "<esc>"); m.drafting != nil || m.cmdline.open || m.search.open {
 					t.Errorf("%s, a second Esc: the input is still open", tc.name)
 				}
 			case "<enter>":

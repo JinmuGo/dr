@@ -118,7 +118,7 @@ func (m *model) key(msg tea.KeyPressMsg) tea.Cmd {
 	case m.help:
 		m.help = false // any key closes the help
 		return nil
-	case m.commanding:
+	case m.cmdline.open:
 		return m.typeCommand(k, msg.Text)
 	case len(m.rows) == 0:
 		return m.emptyKey(k)
@@ -184,7 +184,7 @@ func (m *model) normalKey(k string) tea.Cmd {
 	}
 	switch k {
 	case keySearch:
-		m.search.open, m.input = true, ""
+		m.search.open, m.search.input = true, ""
 	case keyOrigin:
 		m.reading, m.readTop = true, 0
 		if qs := m.questionsAt(m.cursor); len(qs) > 0 {
@@ -272,31 +272,31 @@ func (m *model) typeSearch(k, text string) {
 	switch k {
 	case keyEnter:
 		m.search.open = false
-		if m.input == "" {
+		if m.search.input == "" {
 			m.find(1, 1)
 			return
 		}
-		m.search.query = m.input
+		m.search.query = m.search.input
 		m.findHere()
 	case keyEsc:
 		m.search.open = false
 	default:
-		m.edit(k, text)
+		editInput(&m.search.input, k, text)
 	}
 }
 
-// edit edits the open search or : input with key k: Backspace deletes the last character,
-// ctrl+u deletes all, and other keys type text, the text of the key, which an input method
-// makes whole characters of.
-func (m *model) edit(k, text string) {
+// editInput edits input, the open search or : input, with key k: Backspace deletes the last
+// character, ctrl+u deletes all, and other keys type text, the text of the key, which an
+// input method makes whole characters of.
+func editInput(input *string, k, text string) {
 	switch k {
 	case keyBackspace:
-		_, size := utf8.DecodeLastRuneInString(m.input)
-		m.input = m.input[:len(m.input)-size]
+		_, size := utf8.DecodeLastRuneInString(*input)
+		*input = (*input)[:len(*input)-size]
 	case keyCtrlU:
-		m.input = ""
+		*input = ""
 	default:
-		m.input += text
+		*input += text
 	}
 }
 

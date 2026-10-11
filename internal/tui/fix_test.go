@@ -282,20 +282,20 @@ func TestSubmitNothing(t *testing.T) {
 	f := &fakeAsk{answer: answer}
 	m := fixScreen(files, Saved{}, f, writeTree(t, files), fixClock())
 	typeKeys(m, ":sub")
-	if status := statusLine(t, m); !m.commanding || !strings.HasPrefix(status, " COMMAND   :sub") {
+	if status := statusLine(t, m); !m.cmdline.open || !strings.HasPrefix(status, " COMMAND   :sub") {
 		t.Fatalf(": status line %q, want the input", status)
 	}
 	typeKeys(m, "mit<enter>")
-	if m.commanding || m.message != "No comments to submit" {
-		t.Errorf(":submit: input open %t, message %q", m.commanding, m.message)
+	if m.cmdline.open || m.message != "No comments to submit" {
+		t.Errorf(":submit: input open %t, message %q", m.cmdline.open, m.message)
 	}
 	typeKeys(m, ":ship<enter>")
 	if status := statusLine(t, m); m.message != "Not a dr command: ship" || m.tone != toneErr || !strings.HasPrefix(status, " NORMAL   ✗ Not a dr command: ship") {
 		t.Errorf(":ship: status line %q", status)
 	}
 	typeKeys(m, "4jcone<enter>:submit<esc>")
-	if m.commanding || len(f.asked()) != 0 || len(m.pendingComments()) != 1 {
-		t.Errorf("Esc: input open %t, %d asked, want nothing sent", m.commanding, len(f.asked()))
+	if m.cmdline.open || len(f.asked()) != 0 || len(m.pendingComments()) != 1 {
+		t.Errorf("Esc: input open %t, %d asked, want nothing sent", m.cmdline.open, len(f.asked()))
 	}
 }
 

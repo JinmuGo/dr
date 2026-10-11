@@ -9,6 +9,13 @@ import (
 	"github.com/charmbracelet/x/ansi"
 )
 
+// cmdline is the state of the : input.
+type cmdline struct {
+	open   bool   // the : input is open
+	input  string // what is typed in it
+	choice int    // the highlighted row of the command list
+}
+
 // command is a dr command typed after :, with what it does now as the command list tells it.
 type command struct {
 	name string
@@ -61,7 +68,7 @@ func (m *model) undoDoes() string {
 // commandRows returns the commands whose names start with what is typed in the : input, the
 // rows of the command list.
 func (m *model) commandRows() []command {
-	typed := strings.TrimSpace(m.input)
+	typed := strings.TrimSpace(m.cmdline.input)
 	var rows []command
 	for _, c := range commands {
 		if strings.HasPrefix(c.name, typed) {
@@ -81,34 +88,34 @@ func (m *model) typeCommand(k, text string) tea.Cmd {
 	rows := m.commandRows()
 	switch k {
 	case keyEnter:
-		name := strings.TrimSpace(m.input)
+		name := strings.TrimSpace(m.cmdline.input)
 		if name != "" && len(rows) > 0 {
-			name = rows[m.choice].name
+			name = rows[m.cmdline.choice].name
 		}
-		m.commanding, m.input = false, ""
+		m.cmdline.open, m.cmdline.input = false, ""
 		return m.runCommand(name)
 	case keyEsc:
-		m.commanding, m.input = false, ""
+		m.cmdline.open, m.cmdline.input = false, ""
 	case keyUp:
-		m.choice = max(m.choice-1, 0)
+		m.cmdline.choice = max(m.cmdline.choice-1, 0)
 	case keyDown:
-		m.choice = max(min(m.choice+1, len(rows)-1), 0)
+		m.cmdline.choice = max(min(m.cmdline.choice+1, len(rows)-1), 0)
 	case keyTab:
 		if len(rows) > 0 {
-			name := rows[m.choice].name
-			m.input = name
-			m.choice = slices.IndexFunc(m.commandRows(), func(c command) bool { return c.name == name })
+			name := rows[m.cmdline.choice].name
+			m.cmdline.input = name
+			m.cmdline.choice = slices.IndexFunc(m.commandRows(), func(c command) bool { return c.name == name })
 		}
 	default:
-		m.edit(k, text)
-		m.choice = 0
+		editInput(&m.cmdline.input, k, text)
+		m.cmdline.choice = 0
 	}
 	return nil
 }
 
 // openCommand opens the : input, empty, with the first row of the command list highlighted.
 func (m *model) openCommand() {
-	m.commanding, m.input, m.choice = true, "", 0
+	m.cmdline.open, m.cmdline.input, m.cmdline.choice = true, "", 0
 }
 
 // runCommand runs the dr command name and returns the command it starts. Nothing typed does
@@ -131,7 +138,7 @@ func (m *model) runCommand(name string) tea.Cmd {
 func (m *model) drawCommands(lines []string) {
 	rows := m.commandRows()
 	w := min(maxCommandsWidth, m.width-2)
-	if !m.commanding || len(rows) == 0 || w < 4 {
+	if !m.cmdline.open || len(rows) == 0 || w < 4 {
 		return
 	}
 	box := m.commandBox(rows, w)
@@ -151,14 +158,14 @@ func (m *model) commandBox(rows []command, w int) []string {
 	for _, c := range commands {
 		names = max(names, ansi.StringWidth(c.name))
 	}
-	typed := strings.TrimSpace(m.input)
+	typed := strings.TrimSpace(m.cmdline.input)
 	for i, c := range rows {
 		bg, on := t.surface, t.paint
-		if i == m.choice {
+		if i == m.cmdline.choice {
 			bg, on = t.surface2, t.onBand
 		}
 		l := newLine(w - 3) // inside the border, less a cell of margin at the right
-		if i == m.choice {
+		if i == m.cmdline.choice {
 			l.add("▌", on(t.accent, bg))
 		} else {
 			l.add(" ", on(nil, bg))

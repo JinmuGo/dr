@@ -12,6 +12,7 @@ import (
 // search is the state of the search.
 type search struct {
 	open  bool       // the search input is open
+	input string     // what is typed in it
 	query string     // the last search
 	hits  searchHits // where query is in the rows
 }
@@ -30,7 +31,7 @@ type searchHits struct {
 // is open, and the last query otherwise. Esc clears the last query.
 func (m *model) searchQuery() string {
 	if m.search.open {
-		return m.input
+		return m.search.input
 	}
 	return m.search.query
 }

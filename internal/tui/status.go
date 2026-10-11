@@ -101,7 +101,7 @@ func (m *model) mode() mode {
 		return modeHelp
 	case m.search.open:
 		return modeSearch
-	case m.commanding:
+	case m.cmdline.open:
 		return modeCommand
 	case m.asking != nil:
 		return modeAsk
@@ -389,8 +389,19 @@ func (m *model) inputPrompt() string {
 	switch {
 	case m.search.open:
 		return "/"
-	case m.commanding:
+	case m.cmdline.open:
 		return ":"
+	}
+	return ""
+}
+
+// typed returns what is typed in the open search or : input, "" when none is open.
+func (m *model) typed() string {
+	switch {
+	case m.search.open:
+		return m.search.input
+	case m.cmdline.open:
+		return m.cmdline.input
 	}
 	return ""
 }
@@ -404,5 +415,5 @@ func (m *model) inputText() string {
 	if prompt == "" {
 		return ""
 	}
-	return keepEnd(prompt+review.Visible(m.input), m.width-m.pillWidth()-1) // the cursor after it
+	return keepEnd(prompt+review.Visible(m.typed()), m.width-m.pillWidth()-1) // the cursor after it
 }
