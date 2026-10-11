@@ -430,9 +430,7 @@ func (m *model) followPicker(w, h int) {
 // finderPlace puts it.
 func (m *model) drawFinder(lines []string, w int) {
 	x, y, width, height := m.finderPlace(w, len(lines))
-	for k, l := range m.finderLines(width, height) {
-		lines[y+k] = overlay(lines[y+k], l, x, width, w)
-	}
+	overlayBox(lines, m.finderLines(width, height), x, y, width, w)
 }
 
 // finderSplit returns the column of the line between the rows and the preview of a finder w
@@ -485,7 +483,7 @@ func (m *model) finderLines(w, h int) []string {
 	}
 	mid := finderSplit(w)
 	left, right := mid-1, w-mid-2 // the cells inside the border on each side of the line
-	border := t.paint(t.line2, t.surface)
+	border := t.floatBorder()
 	matched := 0
 	for _, r := range rows {
 		if r.note == "" && !r.typed {
@@ -538,7 +536,7 @@ func (m *model) finderLines(w, h int) []string {
 				r.add(s.text, t.paint(s.color, t.surface).Bold(s.bold))
 			}
 		}
-		lines = append(lines, border.Render("│")+l+border.Render("│")+r.fill(base)+border.Render("│"))
+		lines = append(lines, t.floatSide(l+border.Render("│")+r.fill(base)))
 	}
 	if h > 1 {
 		bottom := newLine(w)
