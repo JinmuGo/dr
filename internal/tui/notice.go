@@ -3,7 +3,6 @@ package tui
 import (
 	"image/color"
 	"strings"
-	"unicode/utf8"
 
 	"charm.land/lipgloss/v2"
 	"github.com/charmbracelet/x/ansi"
@@ -97,52 +96,6 @@ func (m *model) noticeBox(n *notice, w int) []string {
 		lines = append(lines, border.Render("│")+base.Render(" ")+l.fill(base)+base.Render(" ")+border.Render("│"))
 	}
 	return append(lines, border.Render("╰"+strings.Repeat("─", max(w-2, 0))+"╯"))
-}
-
-// wrapChunks returns chunks broken into lines of at most w cells, after the spaces where it
-// can, each piece keeping the style of its chunk. A word longer than a line is cut where the
-// line ends, without splitting a wide character.
-func wrapChunks(chunks []chunk, w int) [][]chunk {
-	w = max(w, 1)
-	var lines [][]chunk
-	var line []chunk
-	used := 0
-	put := func(c chunk, text string) {
-		c.text = text
-		line = append(line, c)
-		used += ansi.StringWidth(text)
-	}
-	next := func() {
-		lines = append(lines, line)
-		line, used = nil, 0
-	}
-	for _, c := range chunks {
-		for _, word := range strings.SplitAfter(c.text, " ") {
-			if word == "" {
-				continue
-			}
-			if used > 0 && used+ansi.StringWidth(strings.TrimRight(word, " ")) > w {
-				next()
-			}
-			for ansi.StringWidth(word) > w-used && ansi.StringWidth(strings.TrimRight(word, " ")) > w-used {
-				part := ansi.Truncate(word, w-used, "")
-				if part == "" && used == 0 { // a character wider than the line
-					_, size := utf8.DecodeRuneInString(word)
-					part = word[:size]
-				}
-				put(c, part)
-				next()
-				word = word[len(part):]
-			}
-			if word != "" {
-				put(c, word)
-			}
-		}
-	}
-	if line != nil || lines == nil {
-		lines = append(lines, line)
-	}
-	return lines
 }
 
 // band is a line across the top of the diff that tells why the screen cannot be trusted
