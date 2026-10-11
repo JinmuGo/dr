@@ -384,13 +384,13 @@ func (m *model) paragraphLines(p paragraph, width int) []string {
 	t := &m.theme
 	switch {
 	case p.rule:
-		return []string{t.paint(t.subtle, t.band).Render(strings.Repeat("─", width))}
+		return []string{t.paint(t.subtle, t.surface).Render(strings.Repeat("─", width))}
 	case p.head:
 		return []string{m.headLine(p, width)}
 	}
 	var prefix string
 	if p.bar != noBar {
-		prefix = m.barStyle(p.bar).Render("▍") + t.paint(nil, t.band).Render(" ")
+		prefix = m.barStyle(p.bar).Render("▍") + t.paint(nil, t.surface).Render(" ")
 		width = max(width-2, 1)
 	}
 	style := m.toneStyle(p.tone)
@@ -407,7 +407,7 @@ func (m *model) paragraphLines(p paragraph, width int) []string {
 // them draw as spaces, so the header stays one row.
 func (m *model) headLine(p paragraph, width int) string {
 	t := &m.theme
-	base := t.paint(nil, t.band)
+	base := t.paint(nil, t.surface)
 	l := newLine(width)
 	l.add("▍", m.barStyle(p.bar))
 	l.add(" ", base)
@@ -462,7 +462,7 @@ func (m *model) box(w int) []string {
 	text := m.boxText(w)
 	text = text[m.readTop:min(m.readTop+m.boxRows(), len(text))]
 	pad := strings.Repeat(" ", x)
-	base, border := t.paint(nil, t.band), t.paint(t.subtle, t.band)
+	base, border := t.paint(nil, t.surface), t.paint(t.subtle, t.surface)
 	lines := make([]string, 0, len(text)+2)
 	lines = append(lines, pad+m.boxTop(w-x))
 	for _, s := range text {
@@ -481,11 +481,11 @@ func (m *model) box(w int) []string {
 // A row of the split view goes by its main line, as the status line does.
 func (m *model) boxTop(w int) string {
 	t := &m.theme
-	border := t.paint(t.subtle, t.band)
+	border := t.paint(t.subtle, t.surface)
 	r := m.rows[m.cursor]
 	var title []span
 	if r.isChange() {
-		tag := span{text: "unknown", color: t.warning, bold: true}
+		tag := span{text: "unknown", color: t.pending, bold: true}
 		if e := m.lines[r.main()].Edit; e != nil {
 			tag = span{text: review.Tag(e, m.short), color: t.accent, bold: true}
 		}
@@ -495,7 +495,7 @@ func (m *model) boxTop(w int) string {
 	l := newLine(w)
 	l.add("╭─ ", border)
 	for _, s := range title {
-		l.add(s.text, t.paint(s.color, t.band).Bold(s.bold))
+		l.add(s.text, t.paint(s.color, t.surface).Bold(s.bold))
 	}
 	l.add(" ", border)
 	esc := []span{{text: " "}, {text: "Esc", color: t.accent, bold: true}, {text: " close ", color: t.muted}}
@@ -514,7 +514,7 @@ func (m *model) boxTop(w int) string {
 	}
 	l.add(strings.Repeat("─", rule), border)
 	for _, s := range hint {
-		l.add(s.text, t.paint(s.color, t.band).Bold(s.bold))
+		l.add(s.text, t.paint(s.color, t.surface).Bold(s.bold))
 	}
 	l.add(strings.Repeat("─", l.free), border)
 	return l.fill(border)
@@ -541,33 +541,33 @@ func (m *model) toneStyle(k tone) lipgloss.Style {
 	t := &m.theme
 	switch k {
 	case heading:
-		return t.paint(t.muted, t.band).Bold(true)
+		return t.paint(t.muted, t.surface).Bold(true)
 	case strong:
-		return t.paint(t.text, t.band).Bold(true)
+		return t.paint(t.fg, t.surface).Bold(true)
 	case quiet:
-		return t.paint(t.muted, t.band)
+		return t.paint(t.muted, t.surface)
 	case warn:
-		return t.paint(t.warning, t.band).Bold(true)
+		return t.paint(t.pending, t.surface).Bold(true)
 	case trouble, guessed:
-		return t.paint(t.warning, t.band)
+		return t.paint(t.pending, t.surface)
 	case removal:
-		return t.paint(t.deleted, t.band)
+		return t.paint(t.del, t.surface)
 	case leftSide:
-		return t.paint(t.deleted, t.band).Bold(true)
+		return t.paint(t.del, t.surface).Bold(true)
 	case rightSide:
-		return t.paint(t.added, t.band).Bold(true)
+		return t.paint(t.add, t.surface).Bold(true)
 	case agreed:
-		return t.paint(t.added, t.band)
+		return t.paint(t.add, t.surface)
 	case chosen:
-		return t.paint(t.accent, t.band)
+		return t.paint(t.accent, t.surface)
 	case unsent:
-		return t.paint(t.warning, t.band).Bold(true)
+		return t.paint(t.pending, t.surface).Bold(true)
 	case fixOld:
-		return t.paint(t.text, t.deleteLine)
+		return t.paint(t.fg, t.delbg)
 	case fixNew:
-		return t.paint(t.text, t.addLine)
+		return t.paint(t.fg, t.addbg)
 	}
-	return t.paint(t.text, t.band)
+	return t.paint(t.fg, t.surface)
 }
 
 // barStyle returns the style of bar b of a thread: a question's in the accent color, an
@@ -577,13 +577,13 @@ func (m *model) barStyle(b bar) lipgloss.Style {
 	t := &m.theme
 	switch b {
 	case askBar:
-		return t.paint(t.accent, t.band)
+		return t.paint(t.accent, t.surface)
 	case answerBar:
-		return t.paint(t.added, t.band)
+		return t.paint(t.add, t.surface)
 	case changeBar:
-		return t.paint(t.warning, t.band)
+		return t.paint(t.pending, t.surface)
 	}
-	return t.paint(t.muted, t.band)
+	return t.paint(t.muted, t.surface)
 }
 
 // spansWidth returns the width of spans in cells.

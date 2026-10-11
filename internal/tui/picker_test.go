@@ -501,7 +501,7 @@ func TestPickerLook(t *testing.T) {
 		m.theme = tc.th
 		typeKeys(m, "4ja^")
 		th := &m.theme
-		highlight, text, dim := th.paint(th.accent, th.band).Bold(true), th.paint(th.text, th.band), th.paint(th.muted, th.band)
+		highlight, text, dim := th.paint(th.accent, th.surface).Bold(true), th.paint(th.fg, th.surface), th.paint(th.muted, th.surface)
 		raw := m.View().Content
 		for name, want := range map[string]string{
 			"the highlight's mark": highlight.Render("❯ "),
@@ -581,14 +581,15 @@ func TestPickerScroll(t *testing.T) {
 
 func TestPickerOnScreen(t *testing.T) {
 	// The screen scrolls so the row, the box and the list show together. On a short screen
-	// the list shows fewer rows, and the row and the box keep their place. The list is only
-	// drawn: the line after it is the next row, and the rows are counted without it.
+	// the list shows fewer rows, and the row, the box and the file header on top keep their
+	// place. The list is only drawn: the line after it is the next row, and the rows are
+	// counted without it.
 	for _, tc := range []struct {
 		height, rows int
 	}{
 		{24, 6},
-		{12, 6},
-		{8, 3},
+		{12, 5}, // with the key row
+		{8, 2},
 	} {
 		m := pickScreen(pickFiles(), t.TempDir(), &fakeAsk{answer: answer}, agentModels())
 		m.Update(tea.WindowSizeMsg{Width: 125, Height: tc.height})

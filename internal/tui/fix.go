@@ -360,7 +360,7 @@ func (m *model) fixed(msg fixedMsg) {
 	on := m.commentOn(m.cursor)
 	switch {
 	case logErr != nil:
-		m.warn("could not save the fixes: " + review.Visible(logErr.Error()))
+		m.fail("could not save the fixes: " + review.Visible(logErr.Error()))
 	case on != nil && slices.ContainsFunc(r.sent, func(s sentComment) bool { return s.c == on }):
 		// the cursor is on a line of a comment of the request, whose box shows what came
 	default:
@@ -454,7 +454,7 @@ func (m *model) apply() tea.Cmd {
 	}
 	change, err := fix.Apply(m.asker.Root, fix.Comment{Path: f.Path, First: f.First, Lines: f.Lines}, f.Hash, f.New, m.since(f))
 	if err != nil {
-		m.warn(review.Visible(err.Error()))
+		m.fail(review.Visible(err.Error()))
 		return nil
 	}
 	a := state.Applied{
@@ -513,7 +513,7 @@ func (m *model) dropFix(c *comment) bool {
 	m.records.Dropped = append(m.records.Dropped, d)
 	c.fix = nil
 	if err := write(m.log, d); err != nil {
-		m.warn("could not save the drop: " + review.Visible(err.Error()))
+		m.fail("could not save the drop: " + review.Visible(err.Error()))
 		return false
 	}
 	return true
@@ -536,7 +536,7 @@ func (m *model) undo() tea.Cmd {
 	}
 	a := inPlace[len(inPlace)-1]
 	if err := fix.Undo(m.asker.Root, change(a)); err != nil {
-		m.warn(review.Visible(err.Error()))
+		m.fail(review.Visible(err.Error()))
 		return nil
 	}
 	u := state.Undone{Time: m.now(), Applied: a.ID}

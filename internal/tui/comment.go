@@ -265,7 +265,7 @@ func (m *model) saveComment() {
 	m.selecting = false
 	m.listWidth = m.treeWidth() // for the count by the file's name
 	if err := write(m.log, c.Comment); err != nil {
-		m.warn("could not save the comment: " + review.Visible(err.Error()))
+		m.fail("could not save the comment: " + review.Visible(err.Error()))
 	}
 }
 
@@ -388,7 +388,7 @@ func (m *model) commentSpans(key string) []span {
 	if n == 0 {
 		return nil
 	}
-	return []span{{text: commentMark + strconv.Itoa(n), color: m.theme.warning}}
+	return []span{{text: commentMark + strconv.Itoa(n), color: m.theme.pending}}
 }
 
 // commentsAt returns the comments whose boxes show under row i, oldest first, and
@@ -436,13 +436,13 @@ func (m *model) commentLines(i, w int) []string {
 	x := min(m.codeColumn(m.files[m.rows[i].file]), w/3)
 	width := max(min(w-x-3, maxReadWidth), 1)
 	pad := strings.Repeat(" ", x)
-	base, border := t.paint(nil, t.band), t.paint(t.subtle, t.band)
+	base, border := t.paint(nil, t.surface), t.paint(t.subtle, t.surface)
 	var lines []string
 	for _, c := range cs {
 		top := newLine(w - x)
 		top.add("╭─ ", border)
 		from, to := m.commentRange(c)
-		top.add(m.commentWhere(c.file, from, to), t.paint(t.muted, t.band))
+		top.add(m.commentWhere(c.file, from, to), t.paint(t.muted, t.surface))
 		top.add(" ", border)
 		top.add(strings.Repeat("─", top.free), border)
 		lines = append(lines, pad+top.fill(border))

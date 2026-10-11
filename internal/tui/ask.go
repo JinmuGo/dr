@@ -358,12 +358,12 @@ func (m *model) answered(msg answeredMsg) {
 	}
 	switch {
 	case msg.logErr != nil:
-		m.warn("could not save the question: " + review.Visible(msg.logErr.Error()))
+		m.fail("could not save the question: " + review.Visible(msg.logErr.Error()))
 	case shown:
 	case q.file < 0: // its file left the diff, so the answer has nowhere to show
 		m.tell("Answer from " + q.tag + " on " + review.Visible(q.Path) + ", which left the diff")
 	case msg.answer.Error != "":
-		m.warn("No answer from " + q.tag + " on " + m.whereAsked(q) + ". Enter to read")
+		m.fail("No answer from " + q.tag + " on " + m.whereAsked(q) + ". Enter to read")
 		m.unread = q
 	default:
 		m.tell("Answer from " + q.tag + " on " + m.whereAsked(q) + ". Enter to read")

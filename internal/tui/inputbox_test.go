@@ -117,17 +117,17 @@ func TestEntryLook(t *testing.T) {
 		m.theme = tc.th
 		typeKeys(m, "4jcuse errors.Is<enter>gg12ja")
 		th := &m.theme
-		border, cursor, dim := th.paint(th.accent, th.band).Bold(true), th.paint(th.accent, th.band).Reverse(true), th.paint(th.muted, th.band)
+		border, cursor, dim := th.paint(th.accent, th.surface).Bold(true), th.paint(th.accent, th.surface).Reverse(true), th.paint(th.muted, th.surface)
 		raw := m.View().Content
 		for name, want := range map[string]string{
 			"the top border":         border.Render("┏━"),
 			"a side border":          border.Render("┃ "),
 			"the bottom border":      border.Render("┛"),
-			"what it does":           th.paint(th.accent, th.band).Bold(true).Render("Ask omp 0a1f0002 #1"),
+			"what it does":           th.paint(th.accent, th.surface).Bold(true).Render("Ask omp 0a1f0002 #1"),
 			"the keys":               dim.Render(" (Enter:send Alt-Enter:newline ^:model Esc:cancel)"),
 			"the cursor":             cursor.Render(" "),
 			"the placeholder":        dim.Render(whyDeleted),
-			"the comment box's line": th.paint(th.subtle, th.band).Render("╭─ "),
+			"the comment box's line": th.paint(th.subtle, th.surface).Render("╭─ "),
 		} {
 			if !strings.Contains(raw, want) {
 				t.Errorf("%s: the screen has no %s %q", tc.name, name, want)
@@ -137,7 +137,7 @@ func TestEntryLook(t *testing.T) {
 			t.Errorf("%s: the screen\n%s\nwant the input box in heavy lines and the comment's box in light ones", tc.name, s)
 		}
 		typeKeys(m, "why<left>")
-		if raw := m.View().Content; !strings.Contains(raw, cursor.Render("y")) || !strings.Contains(raw, th.paint(th.text, th.band).Render("wh")) {
+		if raw := m.View().Content; !strings.Contains(raw, cursor.Render("y")) || !strings.Contains(raw, th.paint(th.fg, th.surface).Render("wh")) {
 			t.Errorf("%s: the screen does not show the cursor on the y of %q", tc.name, m.entry.text)
 		}
 		if !th.plain {
@@ -173,7 +173,7 @@ func TestEntryWrap(t *testing.T) {
 	if line, before := beforeCursor(t, m); !strings.Contains(line, "┃ 한한한") || !strings.HasSuffix(before, "┃ ") {
 		t.Errorf("cursor after %q on %q, want it at the start of the second row", before, line)
 	}
-	if raw := m.View().Content; !strings.Contains(raw, m.theme.paint(m.theme.accent, m.theme.band).Reverse(true).Render("한")) {
+	if raw := m.View().Content; !strings.Contains(raw, m.theme.paint(m.theme.accent, m.theme.surface).Reverse(true).Render("한")) {
 		t.Error("the cursor's cell is not the first 한 of the second row, reversed")
 	}
 	typeKeys(m, "<up>")
@@ -205,9 +205,9 @@ func TestEntryRows(t *testing.T) {
 			t.Errorf("after %q: the box\n%s\nwith %q before the cursor; want the rows %q", step.keys, strings.Join(box, "\n"), before, step.rows)
 		}
 	}
-	m.Update(tea.WindowSizeMsg{Width: 125, Height: 10}) // 9 lines of the diff: the row, the borders and 6 rows
-	if box := entryBox(t, m); len(box) != 8 || !slices.Contains(shownText(box), "d") {
-		t.Errorf("on a short screen: the box\n%s\nwant 6 rows with the cursor's", strings.Join(box, "\n"))
+	m.Update(tea.WindowSizeMsg{Width: 125, Height: 10}) // 9 lines of the diff: the header on top, the row, the borders and 5 rows
+	if box := entryBox(t, m); len(box) != 7 || !slices.Contains(shownText(box), "d") {
+		t.Errorf("on a short screen: the box\n%s\nwant 5 rows with the cursor's", strings.Join(box, "\n"))
 	}
 }
 

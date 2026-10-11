@@ -325,9 +325,9 @@ func (m *model) pick() {
 
 // pickRoom returns how many of n rows the model list shows in a diff w cells wide: at most
 // maxPickRows, and on a short screen only as many as fit under the input box and its row,
-// which keep their place.
+// which keep their place, and the file header that stays on top.
 func (m *model) pickRoom(n, w int) int {
-	return max(min(n, maxPickRows, m.diffHeight()-1-m.entryHeight(w)), 0)
+	return max(min(n, maxPickRows, m.diffHeight()-2-m.entryHeight(w)), 0)
 }
 
 // pickerHeight returns how many lines of the screen the open model list takes in a diff w
@@ -380,7 +380,7 @@ func (m *model) pickerLines(w int) []string {
 			idWidth = max(idWidth, ansi.StringWidth(review.Visible(r.id)))
 		}
 	}
-	base, dim, text := t.paint(nil, t.band), t.paint(t.muted, t.band), t.paint(t.text, t.band)
+	base, dim, text := t.paint(nil, t.surface), t.paint(t.muted, t.surface), t.paint(t.fg, t.surface)
 	lines := make([]string, 0, n)
 	for k := top; k < top+n; k++ {
 		r := rows[k]
@@ -393,7 +393,7 @@ func (m *model) pickerLines(w int) []string {
 		}
 		mark, bullet, id, name := "  ", dim, text, dim
 		if k == at {
-			mark, bullet = "❯ ", t.paint(t.accent, t.band).Bold(true)
+			mark, bullet = "❯ ", t.paint(t.accent, t.surface).Bold(true)
 			id, name = bullet, bullet
 		}
 		l.add(mark, id)

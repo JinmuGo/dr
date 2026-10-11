@@ -84,9 +84,10 @@ func (m *model) entryWidth(w int) int {
 }
 
 // entryRows returns how many rows of its text the input box shows at most: maxEntryRows, or
-// fewer on a screen too short for them with the box's row and its two borders.
+// fewer on a screen too short for them with the box's row, its two borders and the file
+// header that stays on top.
 func (m *model) entryRows() int {
-	return max(min(maxEntryRows, m.diffHeight()-3), 1)
+	return max(min(maxEntryRows, m.diffHeight()-4), 1)
 }
 
 // entryHeight returns how many lines of the screen the open input box takes in a diff w
@@ -107,9 +108,9 @@ func (m *model) entryLines(w int) []string {
 	x := m.entryLeft(w)
 	width := w - x
 	pad := strings.Repeat(" ", x)
-	border := t.paint(t.accent, t.band).Bold(true)
-	base, text := t.paint(nil, t.band), t.paint(t.text, t.band)
-	cursor := t.paint(t.accent, t.band).Reverse(true)
+	border := t.paint(t.accent, t.surface).Bold(true)
+	base, text := t.paint(nil, t.surface), t.paint(t.fg, t.surface)
+	cursor := t.paint(t.accent, t.surface).Reverse(true)
 	shown, at, _ := m.entry.layout(m.entryWidth(w), m.entryRows())
 	lines := make([]string, 0, len(shown)+2)
 	lines = append(lines, pad+m.entryTop(width))
@@ -122,7 +123,7 @@ func (m *model) entryLines(w int) []string {
 			l.add(display(s[r.start:r.end]), text)
 		case s == "":
 			l.add(" ", cursor)
-			l.add(m.entryPlaceholder(), t.paint(t.muted, t.band))
+			l.add(m.entryPlaceholder(), t.paint(t.muted, t.surface))
 		case c < r.end:
 			next := m.entry.next(c)
 			l.add(display(s[r.start:c]), text)
@@ -146,11 +147,11 @@ func (m *model) entryLines(w int) []string {
 // character.
 func (m *model) entryTop(w int) string {
 	t := &m.theme
-	border := t.paint(t.accent, t.band).Bold(true)
+	border := t.paint(t.accent, t.surface).Bold(true)
 	action, lines := m.entryTitle()
-	title := []span{{text: action, color: t.accent, bold: true}, {text: " · ", color: t.muted}, {text: lines, color: t.text}}
+	title := []span{{text: action, color: t.accent, bold: true}, {text: " · ", color: t.muted}, {text: lines, color: t.fg}}
 	if pick := m.entry.pick; pick != "" {
-		title = append(title, span{text: " · ", color: t.muted}, span{text: "^" + review.Visible(pick), color: t.text})
+		title = append(title, span{text: " · ", color: t.muted}, span{text: "^" + review.Visible(pick), color: t.fg})
 	}
 	hint := span{text: m.entryHint(), color: t.muted}
 	room := w - 6 // "┏━ ", a space after the title, a ━ at least and "┓"
@@ -165,7 +166,7 @@ func (m *model) entryTop(w int) string {
 	if room > 0 {
 		l.add(" ", border)
 		for _, s := range title {
-			l.add(s.text, t.paint(s.color, t.band).Bold(s.bold))
+			l.add(s.text, t.paint(s.color, t.surface).Bold(s.bold))
 		}
 		l.add(" ", border)
 	}
@@ -265,6 +266,9 @@ func (m *model) underLines(i, w int) []string {
 // diffLines draws it while the origin box is closed.
 func (m *model) lineOf(i int) int {
 	line := 0
+	if m.sticky() {
+		line++ // the file header that stays on top
+	}
 	for k := m.top; k < i; k++ {
 		line += 1 + m.underHeight(k)
 		if m.rows[k+1].kind == fileRow {

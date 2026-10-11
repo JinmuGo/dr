@@ -57,17 +57,17 @@ type model struct {
 	folded        bool // the file tree was dragged narrow and shows as a handle
 	dragging      bool // the line between the file tree and the diff is being dragged
 
-	count     int     // number typed before a key, 0 when none
-	pending   string  // "g" waiting for the key that completes it
-	help      bool    // the key help is open
-	reading   bool    // the origin box is open under the cursor row
-	readTop   int     // first line of the origin box's text on the screen
-	searching bool    // the search input is open
-	asking    *target // the input box of a is open, and what it asks about
-	input     string  // what is typed in the search or the : input
-	query     string  // the last search
-	message   string  // shown in the status line until the next key
-	news      bool    // the message is news, an answer that came, and not a warning
+	count     int         // number typed before a key, 0 when none
+	pending   string      // "g" waiting for the key that completes it
+	help      bool        // the key help is open
+	reading   bool        // the origin box is open under the cursor row
+	readTop   int         // first line of the origin box's text on the screen
+	searching bool        // the search input is open
+	asking    *target     // the input box of a is open, and what it asks about
+	input     string      // what is typed in the search or the : input
+	query     string      // the last search
+	message   string      // shown in the status line until the next key
+	tone      messageTone // how the message reads: a warning, news such as an answer that came, or an error
 
 	drafting   *commentInput // the input box of c is open, and what it comments on
 	entry      textBox       // what is typed in the input box of a or c
@@ -264,8 +264,9 @@ func (m *model) Init() tea.Cmd {
 // files read again after it, a tick, or what the terminal tells of its colors and its
 // keyboard. A paste goes into the open input box, and nowhere else. While a question or a
 // fix request waits for its answer, a tick comes once a second, so the boxes redraw how long
-// it has waited; no tick comes at other times. Then Update shows the view that fits, scrolls
-// so the cursor stays on the screen and colors the files that came on it.
+// it has waited and the spinner on the status line turns; no tick comes at other times. Then
+// Update shows the view that fits, scrolls so the cursor stays on the screen and colors the
+// files that came on it.
 func (m *model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	var cmd tea.Cmd
 	switch msg := msg.(type) {
@@ -370,7 +371,7 @@ func (m *model) click(x, y int) tea.Cmd {
 		return nil
 	}
 	if list, _ := m.layout(); !m.folded && x < list {
-		if i := m.treeTop(h) + y - 1; y > 0 && i < len(m.tree) && m.tree[i].file >= 0 {
+		if i := m.treeTop(h) + y - treeHead; y >= treeHead && i < len(m.tree) && m.tree[i].file >= 0 {
 			m.selecting = false
 			m.jumpTo(m.headRow(m.tree[i].file))
 		}
@@ -445,9 +446,14 @@ func (m *model) relayout() {
 	}
 }
 
-// diffHeight returns how many lines of the diff fit above the status line.
+// diffHeight returns how many lines of the diff fit above the status line and, on a screen
+// of minKeyRowHeight rows or more, the key row. It is also the line of the status line.
 func (m *model) diffHeight() int {
-	return max(m.height-1, 1)
+	h := m.height - 1
+	if m.height >= minKeyRowHeight {
+		h--
+	}
+	return max(h, 1)
 }
 
 // scroll moves the screen as little as it takes to show the cursor row, and the open origin
@@ -477,9 +483,9 @@ func (m *model) scroll() {
 // comes under it: the smallest row whose lines up to there fit. Each row takes a line and
 // what comes under it, the boxes of its comments and the input box, and the header of each
 // file after the first takes one more for the blank line above it, as GitHub leaves a gap
-// between files, unless it is the top row. When last holds the open input box, only the box
-// and its model list count under it: the comments' boxes after them may run past the bottom
-// of the screen.
+// between files, unless it is the top row. A top row inside a file takes one more for the
+// header that stays on top. When last holds the open input box, only the box and its model
+// list count under it: the comments' boxes after them may run past the bottom of the screen.
 func (m *model) fitTop(last, h int) int {
 	under := m.underHeight(last)
 	if last == m.entryRow() {
@@ -492,7 +498,11 @@ func (m *model) fitTop(last, h int) int {
 		if m.rows[top].kind == fileRow {
 			more++ // the blank line above the top row, which shows once it is not the top
 		}
-		if lines+more > h {
+		head := 0
+		if m.rows[top-1].kind != fileRow {
+			head = 1 // the header that stays on top above it
+		}
+		if lines+more+head > h {
 			break
 		}
 		top, lines = top-1, lines+more
@@ -502,8 +512,15 @@ func (m *model) fitTop(last, h int) int {
 
 // rowAt returns the row drawn on line y of the diff, or -1 for a blank line or a line of a
 // comment's box or of the input box, as diffLines draws them while the origin box is closed.
+// The header that stays on top is that of its file.
 func (m *model) rowAt(y int) int {
 	line := 0
+	if m.sticky() {
+		if y == 0 {
+			return m.headRow(m.rows[m.top].file)
+		}
+		line++
+	}
 	for i := m.top; i < len(m.rows) && line <= y; i++ {
 		if i > m.top && m.rows[i].kind == fileRow {
 			if line == y {

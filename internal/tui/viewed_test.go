@@ -47,7 +47,14 @@ func typeKeys(m *model, keys string) {
 func statusLine(t *testing.T, m *model) string {
 	t.Helper()
 	lines := strings.Split(screen(t, m), "\n")
-	return lines[len(lines)-1]
+	return lines[m.diffHeight()]
+}
+
+// keyLine returns the key row of the screen, under the status line.
+func keyLine(t *testing.T, m *model) string {
+	t.Helper()
+	lines := strings.Split(screen(t, m), "\n")
+	return lines[m.diffHeight()+1]
 }
 
 func TestViewedFold(t *testing.T) {
@@ -98,10 +105,12 @@ func TestViewedFold(t *testing.T) {
 }
 
 func TestHeader(t *testing.T) {
-	// The path is at the left edge of a file header. At the right edge, a cell from it, come
-	// that the diff changed since the file was viewed, the counts with the diffstat, and the
-	// Viewed box, which always shows. The rest shows only when it leaves the path its room.
+	// The path is at the left edge of a file header, with whether the file is new and a chip
+	// when its diff changed since it was viewed. At the right edge, a cell from it, come the
+	// counts with the diffstat and the Viewed box, which always shows. The rest shows only
+	// when it leaves the path its room.
 	files := testFiles()
+	stat := strings.Repeat(statSquare, 5)
 	for _, tc := range []struct {
 		name        string
 		file, w     int
@@ -109,15 +118,15 @@ func TestHeader(t *testing.T) {
 		prefix      string
 		suffix, not string
 	}{
-		{name: "not viewed", w: 80, prefix: "  ▾ a.go ", suffix: " +2 -2 ■■■■□  ☐ Viewed "},
-		{name: "viewed", w: 80, viewed: state.Viewed{"a.go": files[0].Hash(contextLines)}, prefix: "  ▸ a.go ", suffix: " +2 -2 ■■■■□  ☑ Viewed "},
+		{name: "not viewed", w: 80, prefix: " ▾ a.go ", suffix: " +2 -2 " + stat + "    ☐ Viewed "},
+		{name: "viewed", w: 80, viewed: state.Viewed{"a.go": files[0].Hash(contextLines)}, prefix: " ▸ a.go ", suffix: " +2 -2 " + stat + "    ☑ Viewed "},
 		{
 			name: "changed", w: 80, viewed: state.Viewed{"a.go": "1111"},
-			prefix: "  ▾ a.go ", suffix: " Changed since last view  +2 -2 ■■■■□  ☐ Viewed ",
+			prefix: " ▾ a.go   Changed since last view ", suffix: " +2 -2 " + stat + "    ☐ Viewed ",
 		},
-		{name: "no line diff", file: 1, w: 80, prefix: "  ▾ b.bin ", suffix: " ☐ Viewed ", not: "+0"},
-		{name: "no room to say it changed", w: 40, viewed: state.Viewed{"a.go": "1111"}, prefix: "  ▾ a.go ", suffix: " +2 -2 ■■■■□  ☐ Viewed ", not: "Changed"},
-		{name: "no room for the counts", w: 20, prefix: "  ▾ a.go ", suffix: " ☐ Viewed ", not: "+2"},
+		{name: "no line diff", file: 1, w: 80, prefix: " ▾ b.bin new ", suffix: " ☐ Viewed ", not: "+0"},
+		{name: "no room to say it changed", w: 40, viewed: state.Viewed{"a.go": "1111"}, prefix: " ▾ a.go ", suffix: " +2 -2 " + stat + "    ☐ Viewed ", not: "changed"},
+		{name: "no room for the counts", w: 20, prefix: " ▾ a.go ", suffix: " ☐ Viewed ", not: "+2"},
 	} {
 		m := New(files, nil, Saved{Viewed: tc.viewed}, Asker{}).(*model)
 		line := ansi.Strip(m.drawHeader(m.files[tc.file], tc.w, false))
@@ -213,10 +222,15 @@ func TestSaver(t *testing.T) {
 
 func TestTreeLines(t *testing.T) {
 	// The file tree shows a status icon and the name of each file, no line counts, and a
-	// check at the right edge of a viewed file. Its title counts the viewed files.
+	// check at the right edge of a viewed file. Its title counts the viewed files, and the
+	// line under it shows their share: a quarter of its 17 cells, 4.
 	files := append(testFiles(), review.File{Path: "gone.go", Status: 'D', Lines: origin.Blame("x\n", "", nil)})
 	m := New(files, nil, Saved{Viewed: state.Viewed{"a.go": files[0].Hash(contextLines)}}, Asker{}).(*model)
-	want := []string{"1 / 4 files viewed", "± a.go ✓", "+ b.bin", "▾ c", "+ new.go", "− gone.go"}
+	progress := strings.Repeat("━", 4) + strings.Repeat("─", 13)
+	want := []string{"Files 1/4 viewed", progress, "", "± a.go ✓", "+ b.bin", "▾ c", "+ new.go", "− gone.go"}
+	if m.listWidth != 19 {
+		t.Fatalf("tree %d cells wide, want 19", m.listWidth)
+	}
 	got := m.fileTree(m.listWidth, len(want))
 	for i, line := range got {
 		if text := strings.Join(strings.Fields(strings.Trim(ansi.Strip(line), "▌")), " "); text != want[i] || ansi.StringWidth(line) != m.listWidth {
@@ -226,9 +240,10 @@ func TestTreeLines(t *testing.T) {
 }
 
 func TestClick(t *testing.T) {
-	// On the 125-cell screen the file tree is 20 cells wide: its title on line 0, then a.go,
-	// b.bin, c and new.go. The Viewed box of a header is at columns 116 to 123. The header
-	// of b.bin, row 19, is on line 20, under the blank line above it.
+	// On the 125-cell screen the file tree is 19 cells wide: its title on line 0, the
+	// progress line and a blank line, then a.go, b.bin, c and new.go. The Viewed box of a
+	// header is at columns 116 to 123. The header of b.bin, row 19, is on line 20, under the
+	// blank line above it. After G the top row is inside a.go, whose header stays on line 0.
 	click := func(x, y int) tea.Msg { return tea.MouseClickMsg{X: x, Y: y, Button: tea.MouseLeft} }
 	for _, tc := range []struct {
 		name         string
@@ -237,17 +252,20 @@ func TestClick(t *testing.T) {
 		cursor, rows int
 		viewed       []bool
 	}{
-		{name: "a file of the tree", x: 5, y: 2, cursor: 19, rows: 27},
-		{name: "a file in a directory", x: 5, y: 4, cursor: 21, rows: 27},
-		{name: "a directory", x: 5, y: 3, cursor: 0, rows: 27},
+		{name: "a file of the tree", x: 5, y: treeHead + 1, cursor: 19, rows: 27},
+		{name: "a file in a directory", x: 5, y: treeHead + 3, cursor: 21, rows: 27},
+		{name: "a directory", x: 5, y: treeHead + 2, cursor: 0, rows: 27},
 		{name: "the title", x: 5, y: 0, cursor: 0, rows: 27},
+		{name: "the progress line", x: 5, y: 1, cursor: 0, rows: 27},
 		{name: "the Viewed box", x: 116, y: 0, cursor: 0, rows: 9, viewed: []bool{true, false, false}},
 		{name: "its right end", x: 123, y: 0, cursor: 0, rows: 9, viewed: []bool{true, false, false}},
 		{name: "beside it", x: 115, y: 0, cursor: 0, rows: 27},
 		{name: "the Viewed box of another file", keys: "3j", x: 120, y: 20, cursor: 19, rows: 26, viewed: []bool{false, true, false}},
+		{name: "the Viewed box of the header on top", keys: "G", x: 120, y: 0, cursor: 0, rows: 9, viewed: []bool{true, false, false}},
 		{name: "the blank line above it", x: 120, y: 19, cursor: 0, rows: 27},
 		{name: "a hunk header", x: 120, y: 1, cursor: 0, rows: 27},
-		{name: "the status line", x: 120, y: 23, cursor: 0, rows: 27},
+		{name: "the status line", x: 120, y: 22, cursor: 0, rows: 27},
+		{name: "the key row", x: 120, y: 23, cursor: 0, rows: 27},
 		{name: "the help open", keys: "?", x: 120, y: 0, cursor: 0, rows: 27},
 		{name: "unfolded again", keys: "v", x: 120, y: 0, cursor: 0, rows: 27},
 	} {

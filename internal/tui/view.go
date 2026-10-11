@@ -3,6 +3,7 @@ package tui
 import (
 	"fmt"
 	"image/color"
+	"math/bits"
 	"path"
 	"slices"
 	"strconv"
@@ -56,10 +57,10 @@ var helpKeys = [][2]string{
 }
 
 // View draws the screen: the file tree and the diff side by side, with the origin box open
-// under the cursor row when Enter opened it, and the status line under them. The terminal's
-// cursor shows where the text typed in the open input box of a or c goes in, or else after
-// the search or the : input on the status line. It takes the mouse, for dragging the file
-// tree's edge and for the wheel.
+// under the cursor row when Enter opened it, the status line under them and the key row
+// last. The terminal's cursor shows where the text typed in the open input box of a or c
+// goes in, or else after the search or the : input on the status line. It takes the mouse,
+// for dragging the file tree's edge and for the wheel.
 func (m *model) View() tea.View {
 	v := tea.NewView(m.draw())
 	v.AltScreen = true
@@ -70,7 +71,7 @@ func (m *model) View() tea.View {
 			v.Cursor = tea.NewCursor(x, y)
 		}
 	case typed != "":
-		v.Cursor = tea.NewCursor(1+ansi.StringWidth(typed), m.height-1)
+		v.Cursor = tea.NewCursor(m.pillWidth()+ansi.StringWidth(typed), m.diffHeight())
 	}
 	return v
 }
@@ -87,16 +88,16 @@ func (m *model) inputPrompt() string {
 	return ""
 }
 
-// inputText returns what the status line shows of the open search or : input: its prompt
-// and what is typed. When they do not fit on the line with the cursor after them, their
-// start is cut, so what is typed and the cursor stay on the screen. It returns "" when no
-// input is open.
+// inputText returns what the status line shows of the open search or : input after the
+// mode pill: its prompt and what is typed. When they do not fit on the line with the cursor
+// after them, their start is cut, so what is typed and the cursor stay on the screen. It
+// returns "" when no input is open.
 func (m *model) inputText() string {
 	prompt := m.inputPrompt()
 	if prompt == "" {
 		return ""
 	}
-	return keepEnd(prompt+review.Visible(m.input), m.width-2) // a space before it and the cursor after it
+	return keepEnd(prompt+review.Visible(m.input), m.width-m.pillWidth()-1) // the cursor after it
 }
 
 // keepEnd returns s cut at the start to w cells, with … for what is cut. A wide character is
@@ -134,7 +135,7 @@ func (m *model) draw() string {
 	if m.help {
 		m.drawHelp(diff, diffWidth)
 	}
-	separator := m.theme.paint(m.theme.border, nil).Render("│")
+	separator := m.theme.paint(m.theme.line, nil).Render("│")
 	var b strings.Builder
 	for y := range h {
 		switch {
@@ -147,13 +148,21 @@ func (m *model) draw() string {
 		}
 		b.WriteString(diff[y] + "\n")
 	}
-	b.WriteString(m.status())
+	b.WriteString(m.bottom())
 	return b.String()
 }
 
+// bottom returns the status line, and the key row under it when the screen has room for it.
+func (m *model) bottom() string {
+	if m.height < minKeyRowHeight {
+		return m.status()
+	}
+	return m.status() + "\n" + m.keyRow()
+}
+
 // drawEmpty returns the screen when no changed file is left: noChanges in the middle of the
-// diff, which takes the whole width, the key help over it when it is open, and the status
-// line.
+// diff, which takes the whole width, the key help over it when it is open, the status line
+// and the key row.
 func (m *model) drawEmpty() string {
 	t := &m.theme
 	h := m.diffHeight()
@@ -168,7 +177,7 @@ func (m *model) drawEmpty() string {
 	if m.help {
 		m.drawHelp(lines, m.width)
 	}
-	return strings.Join(lines, "\n") + "\n" + m.status()
+	return strings.Join(lines, "\n") + "\n" + m.bottom()
 }
 
 // layout returns the widths of the file tree and the diff. The file tree is as wide as it
@@ -191,13 +200,17 @@ func (m *model) layout() (list, diff int) {
 
 // diffLines draws the rows on the screen, w cells wide and h lines high. A blank line comes
 // above the header of each file but the top row, as GitHub leaves a gap between files; it
-// is only drawn, and moving through the rows does not see it. The boxes of the comments on
+// is only drawn, and moving through the rows does not see it. While the top row is inside a
+// file, the header of that file stays on the top line above it. The boxes of the comments on
 // lines come under the row of their last line of the current file, and the open input box
 // of a or c under the row it is about, after them; they are only drawn too. The open origin
 // box comes right under the cursor row and its comments, and pushes the rows after it down.
 func (m *model) diffLines(w, h int) []string {
 	blank := strings.Repeat(" ", w)
 	lines := make([]string, 0, h+1)
+	if m.sticky() {
+		lines = append(lines, m.drawHeader(m.files[m.rows[m.top].file], w, false))
+	}
 	for i := m.top; len(lines) < h; i++ {
 		if i >= len(m.rows) {
 			lines = append(lines, blank)
@@ -215,12 +228,19 @@ func (m *model) diffLines(w, h int) []string {
 	return lines[:h]
 }
 
+// sticky reports whether the header of the file of the top row stays on the top line of the
+// diff: whether the top row is inside a file, not its header, and the diff has a line for
+// the header besides the cursor's.
+func (m *model) sticky() bool {
+	return m.diffHeight() >= 2 && m.top < len(m.rows) && m.rows[m.top].kind != fileRow
+}
+
 // drawRow draws row i of the diff, w cells wide, the way GitHub shows a pull request's
 // files: a band for the header of a file, a tinted row for the header of a hunk, and a line
 // with its line numbers and its sign, or in the split view a line on each side of a middle
-// line. The cursor row has a bar at its left edge and a lighter background, so it keeps the
+// line. The cursor row has a bar at its left edge and its own background, a shade of the
 // colors of the diff; a row with questions about it has a ? there instead. Rows of a
-// selection are tinted yellow.
+// selection are tinted blue.
 func (m *model) drawRow(i, w int) string {
 	t := &m.theme
 	r := m.rows[i]
@@ -231,23 +251,17 @@ func (m *model) drawRow(i, w int) string {
 	switch r.kind {
 	case fileRow:
 		return m.drawHeader(f, w, cursor)
-	case hunkRow:
-		numberBg, lineBg := t.hunkNumber, t.hunkLine
-		if cursor {
-			numberBg, lineBg = t.under(numberBg), t.under(lineBg)
+	case hunkRow, noteRow:
+		bg, text, fg, pad := t.hunkbg, r.text, t.hunkfg, code-3 // up to the sign
+		if r.kind == noteRow {
+			bg, text, fg, pad = nil, f.noDiff, t.muted, code-1 // up to the code
 		}
-		l.add(cursorBar(cursor), t.paint(t.accent, numberBg).Reverse(cursor && t.plain))
-		l.add(strings.Repeat(" ", code-3), t.paint(nil, numberBg).Reverse(cursor && t.plain)) // up to the sign
-		l.add(r.text, t.paint(t.muted, lineBg))
-		return l.fill(t.paint(nil, lineBg))
-	case noteRow:
-		var bg color.Color
 		if cursor {
-			bg = t.cursor
+			bg = t.cursorline
 		}
 		l.add(cursorBar(cursor), t.paint(t.accent, bg).Reverse(cursor && t.plain))
-		l.add(strings.Repeat(" ", code-1), t.paint(nil, bg))
-		l.add(f.noDiff, t.paint(t.muted, bg))
+		l.add(strings.Repeat(" ", pad), t.paint(nil, bg))
+		l.add(text, t.paint(fg, bg))
 		return l.fill(t.paint(nil, bg))
 	}
 	bar := span{text: " "}
@@ -255,7 +269,7 @@ func (m *model) drawRow(i, w int) string {
 	case cursor:
 		bar = span{text: "▌", color: t.accent}
 	case m.hasQuestions(i):
-		bar = span{text: "?", color: t.muted}
+		bar = span{text: "?", color: t.ask, bold: true}
 	}
 	selected := m.isSelected(i)
 	if !m.splitShown {
@@ -291,73 +305,99 @@ func (m *model) drawRow(i, w int) string {
 	}
 	var middle color.Color
 	if cursor {
-		middle = t.cursor
+		middle = t.cursorline
 	}
-	return left.fill(leftFill) + t.paint(t.border, middle).Render("│") + right.fill(rightFill)
+	return left.fill(leftFill) + t.paint(t.line, middle).Render("│") + right.fill(rightFill)
 }
+
+// statSquare is a square of the diffstat: Nerd Font's fa-stop, narrower than its cell, so
+// that squares side by side keep a gap as on GitHub. A terminal without Nerd Font symbols
+// shows boxes there.
+const statSquare = "\uf04d"
 
 // drawHeader draws the header of file f, w cells wide, as GitHub heads a file: a fold mark,
 // ▸ when the file is viewed and folds to its header, then the path, the file name the
-// brightest text of the screen and its directory quieter. At the right edge come that the
-// diff changed since the file was marked viewed, the counts of added and deleted lines with
-// the diffstat, how many comments the file has, and the Viewed box. The first three
-// show only when they leave the path its room, the comments before the counts, and the box
-// always shows. A ? at the left edge tells of earlier questions about the file in its
-// origin box.
+// brightest text of the screen and its directory quieter, quieter still when folded, and
+// whether the file is new or deleted. A chip tells that the diff changed since the file was
+// marked viewed. At the right edge come how many comments the file has, the counts of added
+// and deleted lines with the diffstat, and the Viewed box. The comments and the counts show
+// only when they leave the path its room, the comments first, the chip only when it fits
+// too, and the box always shows. A ? at the left edge tells of earlier questions about the
+// file in its origin box.
 func (m *model) drawHeader(f file, w int, cursor bool) string {
 	t := &m.theme
-	band := func(fg color.Color) lipgloss.Style { return t.onBand(fg, t.header, cursor) }
-	mark := " ▾ "
-	if f.viewed {
-		mark = " ▸ "
-	}
-	var changed, counts []span
-	if f.changed {
-		changed = []span{{text: "Changed since last view", color: t.warning}}
-	}
-	if f.noDiff == "" {
-		added, deleted, rest := diffstat(f.added, f.deleted)
-		counts = []span{
-			{text: fmt.Sprintf("+%d", f.added), color: t.added},
-			{text: " "},
-			{text: fmt.Sprintf("-%d", f.deleted), color: t.deleted},
-			{text: " "},
-			{text: strings.Repeat("■", added), color: t.added},
-			{text: strings.Repeat("■", deleted), color: t.deleted},
-			{text: strings.Repeat("□", rest), color: t.subtle},
-		}
-	}
-	check := span{text: "☐", color: t.muted}
-	if f.viewed {
-		check = span{text: "☑", color: t.accent}
-	}
-	left := 1 + ansi.StringWidth(mark) + ansi.StringWidth(f.path) // with the cursor bar
-	right := fitParts([]statusPart{
-		{spans: changed, rank: 1, keep: left},
-		{spans: counts, rank: 3, keep: left},
-		{spans: m.commentSpans(f.key), rank: 2, keep: left},
-		{spans: []span{check, {text: viewedBox, color: t.text}}},
-	}, w-2) // a space before the right part and a margin after it, as on a band
-	rightWidth := 2 + spansWidth(right)
-	l := newLine(w - rightWidth)
-	bar := span{text: " "}
+	on := func(fg color.Color) lipgloss.Style { return t.onBand(fg, t.surface2) }
+	bar := seg{text: " ", st: on(nil)}
 	switch {
 	case cursor:
-		bar = span{text: "▌", color: t.accent}
+		bar = seg{text: "▌", st: on(t.accent)}
 	case len(f.earlier) > 0:
-		bar = span{text: "?", color: t.muted}
+		bar = seg{text: "?", st: on(t.ask).Bold(true)}
 	}
-	l.add(bar.text, band(bar.color))
-	l.add(mark, band(t.muted))
+	mark, dirColor, nameColor := "▾ ", t.muted, t.strong
+	if f.viewed {
+		mark, dirColor, nameColor = "▸ ", t.subtle, t.muted
+	}
 	dir, name := path.Split(f.path)
-	l.add(dir, band(t.muted).Bold(true))
-	l.add(name, band(t.title).Bold(true))
-	r := newLine(min(rightWidth, w))
-	r.add(" ", band(nil))
-	for _, s := range right {
-		r.add(s.text, band(s.color).Bold(s.bold))
+	left := []seg{bar, {text: mark, st: on(t.subtle)}, {text: dir, st: on(dirColor), cut: true}, {text: name, st: on(nameColor).Bold(true)}}
+	switch f.status {
+	case 'A':
+		left = append(left, seg{text: " new", st: on(t.add)})
+	case 'D':
+		left = append(left, seg{text: " deleted", st: on(t.del)})
 	}
-	return l.fill(band(nil)) + r.fill(band(nil))
+	var comments, counts []seg
+	if n := m.commentCount(f.key); n > 0 {
+		comments = []seg{{text: commentMark + " " + strconv.Itoa(n), st: on(t.pending)}}
+	}
+	if f.noDiff == "" {
+		counts = m.counts(f, on)
+	}
+	check, box := "☐", on(t.fg)
+	if f.viewed {
+		check, box = "☑", on(t.muted)
+	}
+	keep := segsWidth(left) + 2 // and the gap before the right
+	right := append(fitGroups([]group{
+		{segs: comments, rank: 1, keep: keep},
+		{segs: counts, rank: 2, keep: keep},
+		{segs: []seg{{text: check + viewedBox, st: box}}},
+	}, w-1, seg{text: "    ", st: on(nil)}), seg{text: " ", st: on(nil)}) // a margin at the right edge
+	if f.changed {
+		chip := []seg{{text: "  ", st: on(nil)}, {text: " Changed since last view ", st: t.chip(t.pending, t.pending)}}
+		if keep+segsWidth(chip)+segsWidth(right) <= w {
+			left = append(left, chip...)
+		}
+	}
+	return spread(left, right, w, on(nil))
+}
+
+// counts returns the counts of f's added and deleted lines, bold in their colors or quiet
+// when 0, then its diffstat, each in the style on gives its color. Without colors the
+// squares of the diffstat differ in shape instead: ■ added, ▨ deleted, □ neither.
+func (m *model) counts(f file, on func(color.Color) lipgloss.Style) []seg {
+	t := &m.theme
+	plus, minus := on(t.subtle), on(t.subtle)
+	if f.added > 0 {
+		plus = on(t.add).Bold(true)
+	}
+	if f.deleted > 0 {
+		minus = on(t.del).Bold(true)
+	}
+	added, deleted, empty := statSquare, statSquare, statSquare
+	if t.plain {
+		added, deleted, empty = "■", "▨", "□"
+	}
+	a, d, rest := diffstat(f.added, f.deleted)
+	return []seg{
+		{text: "+" + strconv.Itoa(f.added), st: plus},
+		{text: " ", st: on(nil)},
+		{text: "-" + strconv.Itoa(f.deleted), st: minus},
+		{text: " ", st: on(nil)},
+		{text: strings.Repeat(added, a), st: on(t.add)},
+		{text: strings.Repeat(deleted, d), st: on(t.del)},
+		{text: strings.Repeat(empty, rest), st: on(t.line2)},
+	}
 }
 
 // codeColumn returns the column where the code of f starts in a row of the diff, on the left
@@ -371,29 +411,32 @@ func (m *model) codeColumn(f file) int {
 
 // side writes a line on l: bar, then numbers on the background of its line numbers, then
 // its sign and pieces on the background of its kind of line. change is '-', '+' or ' ' for
-// a deleted, an added or an unchanged line. A selected line is tinted, and without colors
-// shows in reverse video. It returns the style that fills the rest of the line.
+// a deleted, an added or an unchanged line. The cursor row has a shade of its line's
+// background, and a selected line the blue one of its kind, which without colors shows in
+// reverse video. It returns the style that fills the rest of the line.
 func (m *model) side(l *line, bar span, numbers string, change byte, pieces []piece, cursor, selected bool) lipgloss.Style {
 	t := &m.theme
 	var numberBg, lineBg, wordBg, signColor color.Color // an unchanged line's sign is blank
-	numberColor := t.subtle
+	numberColor, cursorBg, selectBg := t.faint, t.cursorline, t.selbg
 	switch change {
 	case '+':
-		numberBg, lineBg, wordBg = t.addNumber, t.addLine, t.addWord
-		signColor, numberColor = t.added, t.text
+		numberBg, lineBg, wordBg, cursorBg, selectBg = t.addnum, t.addbg, t.addword, t.addcur, t.seladd
+		signColor, numberColor = t.add, t.subtle
 	case '-':
-		numberBg, lineBg, wordBg = t.deleteNumber, t.deleteLine, t.deleteWord
-		signColor, numberColor = t.deleted, t.text
+		numberBg, lineBg, wordBg, cursorBg, selectBg = t.delnum, t.delbg, t.delword, t.delcur, t.seldel
+		signColor, numberColor = t.del, t.subtle
 	}
-	if selected {
-		numberBg, lineBg, wordBg = t.selected(numberBg, t.selectNumber), t.selected(lineBg, t.selectLine), t.selected(wordBg, t.selectLine)
-		numberColor = t.text
+	switch {
+	case selected:
+		numberBg, lineBg, numberColor = t.selnum, selectBg, t.fg
+	case cursor:
+		numberBg, lineBg = cursorBg, cursorBg
 	}
 	if cursor {
-		numberBg, lineBg, wordBg, numberColor = t.under(numberBg), t.under(lineBg), t.under(wordBg), t.text
+		numberColor = t.strong
 	}
 	reverse := selected && t.plain
-	l.add(bar.text, t.paint(bar.color, numberBg).Reverse(cursor && t.plain))
+	l.add(bar.text, t.paint(bar.color, numberBg).Bold(bar.bold).Reverse(cursor && t.plain))
 	l.add(numbers, t.paint(numberColor, numberBg).Bold(cursor).Reverse(cursor && t.plain || reverse))
 	l.add(string(change)+" ", t.paint(signColor, lineBg).Reverse(reverse))
 	for _, p := range pieces {
@@ -407,16 +450,16 @@ func (m *model) side(l *line, bar span, numbers string, change byte, pieces []pi
 }
 
 // emptySide writes bar on l for a side of the split view without a line, and returns the
-// style that fills it: a quiet band, as GitHub shades a side without a line, tinted when its
+// style that fills it: a quiet band, as GitHub shades a side without a line, blue when its
 // row is selected.
 func (m *model) emptySide(l *line, bar span, cursor, selected bool) lipgloss.Style {
 	t := &m.theme
-	bg := t.band
-	if selected {
-		bg = t.selected(bg, t.selectLine)
-	}
-	if cursor {
-		bg = t.under(bg)
+	bg := t.panel
+	switch {
+	case selected:
+		bg = t.selbg
+	case cursor:
+		bg = t.cursorline
 	}
 	l.add(bar.text, t.paint(bar.color, bg).Reverse(cursor && t.plain))
 	return t.paint(nil, bg).Reverse(selected && t.plain)
@@ -431,21 +474,23 @@ func cursorBar(cursor bool) string {
 }
 
 // diffstat returns how many of GitHub's five diffstat squares stand for added lines, for
-// deleted lines and for neither. A file with fewer than five changed lines has a square for
-// each, and a side with changes has at least one.
+// deleted lines and for neither. The size of the change sets how many are colored,
+// ceil(log2(changed+1)) up to five, each side takes the floor of its share of them, and a
+// side with changes at least one: +27 -11 is 3, 1 and 1.
 func diffstat(added, deleted int) (a, d, rest int) {
 	total := added + deleted
-	if total < 5 {
-		return added, deleted, 5 - total
+	if total == 0 {
+		return 0, 0, 5
 	}
-	a = (added*5 + total/2) / total
-	switch {
-	case a == 0 && added > 0:
+	n := min(5, bits.Len(uint(total))) // ceil(log2(total+1))
+	a, d = n*added/total, n*deleted/total
+	if added > 0 && a == 0 {
 		a = 1
-	case a == 5 && deleted > 0:
-		a = 4
 	}
-	return a, 5 - a, 0
+	if deleted > 0 && d == 0 {
+		d = 1
+	}
+	return a, d, 5 - a - d
 }
 
 // lineNumber returns n as text, "" for 0.
@@ -463,166 +508,93 @@ type span struct {
 	bold  bool
 }
 
-// band draws a band w cells wide with left at its left edge, cut to fit, and right at its
-// right edge.
-func (m *model) band(left, right []span, w int) string {
-	t := &m.theme
-	style := func(s span) lipgloss.Style { return t.onBand(s.color, t.band, false).Bold(s.bold) }
-	base := style(span{})
-	rightWidth := 0
-	if right != nil {
-		rightWidth = 2 + spansWidth(right) // with a space before it and a margin after it
-	}
-	l := newLine(w - rightWidth)
-	l.add(" ", base)
-	for _, s := range left {
-		l.add(s.text, style(s))
-	}
-	out := l.fill(base)
-	if right == nil {
-		return out
-	}
-	r := newLine(min(rightWidth, w))
-	r.add(" ", base)
-	for _, s := range right {
-		r.add(s.text, style(s))
-	}
-	return out + r.fill(base)
+// seg is a piece of a row of the screen: text in a style, which row may cut to fit when cut
+// is set.
+type seg struct {
+	text string
+	st   lipgloss.Style
+	cut  bool
 }
 
-// status draws the status line under the diff. The left shows the open search or : input,
-// or a message, or the size of the selection, or else the file under the cursor, or
-// noChanges when no changed file is left, cut to the room the right leaves it. The right
-// shows the note on the session logs dr could not fully read, how far the open origin box
-// is read when its text does not fit, y and x on a line of a comment with a fix under it,
-// that the diff is too narrow for the split view s asked for, the origin of a changed row
-// under the cursor row, the row number, and a hint of keys, which the open input box of a or c
-// leaves out as its title tells its keys. An open input goes first: the right leaves out
-// what it must to make room for it and the cursor after it, the hint first and the row
-// number last.
-func (m *model) status() string {
-	t := &m.theme
-	left := []span{{text: noChanges, color: t.text}}
-	hint := []span{{text: "?", color: t.accent, bold: true}, {text: " help", color: t.muted}}
-	var problems, position, narrow, tag, row, fixKeys []span
-	if len(m.rows) > 0 {
-		r := m.rows[m.cursor]
-		left = []span{
-			{text: fmt.Sprintf("file %d/%d  ", r.file+1, len(m.files)), color: t.muted},
-			{text: m.files[r.file].path, color: t.text},
-		}
-		hint = append([]span{{text: "Enter", color: t.accent, bold: true}, {text: " origin  ", color: t.muted}}, hint...)
-		switch {
-		case m.typing():
-			hint = nil
-		case m.reading:
-			hint = nil
-			if n, rows := len(m.originLines()), m.boxRows(); n > rows {
-				position = []span{{text: fmt.Sprintf("origin %d/%d", min(m.readTop+rows, n), n), color: t.muted}}
-				hint = []span{{text: "j k", color: t.accent, bold: true}, {text: " scroll", color: t.muted}}
-			}
-		}
-		if m.splitOn && !m.splitShown {
-			narrow = []span{{text: "too narrow for split", color: t.warning}}
-		}
-		if c := m.commentOn(m.cursor); c != nil && c.fix != nil {
-			fixKeys = []span{{text: "y", color: t.accent, bold: true}, {text: " apply · ", color: t.muted}, {text: "x", color: t.accent, bold: true}, {text: " drop", color: t.muted}}
-		}
-		if r.isChange() {
-			tag = []span{{text: "unknown", color: t.warning}}
-			if e := m.lines[r.main()].Edit; e != nil {
-				tag = []span{{text: review.Tag(e, m.short), color: t.accent}}
-			}
-		}
-		row = []span{{text: fmt.Sprintf("row %d/%d", m.cursor+1, len(m.rows)), color: t.muted}}
+// segsWidth returns how many cells segs take.
+func segsWidth(segs []seg) int {
+	n := 0
+	for _, s := range segs {
+		n += ansi.StringWidth(s.text)
 	}
-	typed := m.inputText()
-	switch {
-	case typed != "":
-		left = []span{{text: typed, color: t.text}}
-	case m.message != "" && m.news:
-		left = []span{{text: m.message, color: t.accent}}
-	case m.message != "":
-		left = []span{{text: m.message, color: t.warning}}
-	case m.selecting:
-		left = []span{{text: "VISUAL", color: t.accent, bold: true}, {text: " " + countOf(len(m.selectedRows()), "line"), color: t.text}}
-	}
-	if m.problems != "" {
-		problems = []span{{text: m.problems, color: t.warning}}
-	}
-	fit := func() []span {
-		return fitParts([]statusPart{
-			{spans: problems, rank: 3},
-			{spans: position, rank: 1},
-			{spans: fixKeys, rank: 1},
-			{spans: narrow, rank: 2},
-			{spans: tag},
-			{spans: row},
-			{spans: hint, rank: 4, keep: 40}, // 40 cells left for the file path
-		}, m.width-2) // the band puts a space before the right part and a margin after it
-	}
-	right := fit()
-	if typed != "" {
-		need := 2 + spansWidth(left) // with the space before it and the cursor after it
-		for _, drop := range []*[]span{&hint, &problems, &narrow, &fixKeys, &position, &tag, &row} {
-			if right == nil || need <= m.width-2-spansWidth(right) {
-				break
-			}
-			*drop = nil
-			right = fit()
-		}
-	}
-	return m.band(left, right, m.width)
+	return n
 }
 
-// warn shows text in the status line, in the warning color, until the next key.
-func (m *model) warn(text string) {
-	m.message, m.news = text, false
-}
-
-// tell shows news in the status line, in the accent color, until the next key.
-func (m *model) tell(text string) {
-	m.message, m.news = text, true
-}
-
-// statusPart is a part of the right of the status line or of a file header. Parts of rank 0
-// always show; the others take the room that is left, lower ranks first, each leaving keep
-// cells of the line to the left part.
-type statusPart struct {
-	spans      []span
+// group is a group of segs at the right of a row. Groups of rank 0 always show; the others
+// take the room that is left, lower ranks first, each leaving keep cells of the row to its
+// left part.
+type group struct {
+	segs       []seg
 	rank, keep int
 }
 
-// fitParts returns the spans of the parts that fit in w cells, two cells apart and in the
-// order of parts. A part that does not fit is left out whole.
-func fitParts(parts []statusPart, w int) []span {
-	order := make([]int, len(parts))
+// fitGroups returns the segs of the groups that fit in w cells, with gap between them and
+// in the order of groups. A group that does not fit is left out whole.
+func fitGroups(groups []group, w int, gap seg) []seg {
+	order := make([]int, len(groups))
 	for i := range order {
 		order[i] = i
 	}
-	slices.SortStableFunc(order, func(a, b int) int { return parts[a].rank - parts[b].rank })
-	shown := make([]bool, len(parts))
-	used := -2 // the first part has no gap before it
+	slices.SortStableFunc(order, func(a, b int) int { return groups[a].rank - groups[b].rank })
+	shown := make([]bool, len(groups))
+	gapWidth := ansi.StringWidth(gap.text)
+	used := -gapWidth // the first group has no gap before it
 	for _, i := range order {
-		p := parts[i]
-		if p.spans == nil {
+		g := groups[i]
+		if g.segs == nil {
 			continue
 		}
-		if width := used + 2 + spansWidth(p.spans); p.rank == 0 || width <= w-p.keep {
+		if width := used + gapWidth + segsWidth(g.segs); g.rank == 0 || width <= w-g.keep {
 			shown[i], used = true, width
 		}
 	}
-	var out []span
-	for i, p := range parts {
+	var out []seg
+	for i, g := range groups {
 		if !shown[i] {
 			continue
 		}
 		if out != nil {
-			out = append(out, span{text: "  "})
+			out = append(out, gap)
 		}
-		out = append(out, p.spans...)
+		out = append(out, g.segs...)
 	}
 	return out
+}
+
+// spread draws a line w cells wide on fill, with left at its left edge and right at its
+// right edge, at least two cells apart. When they do not fit, the segs of left that may be
+// cut are cut, the last first, with … for what is cut; what still does not fit is cut at the
+// end of left.
+func spread(left, right []seg, w int, fill lipgloss.Style) string {
+	rightWidth := min(segsWidth(right), w)
+	room := w - rightWidth
+	if right != nil {
+		room = max(room-2, 0)
+	}
+	left = slices.Clone(left)
+	over := segsWidth(left) - room
+	for i := len(left) - 1; i >= 0 && over > 0; i-- {
+		if !left[i].cut {
+			continue
+		}
+		n := ansi.StringWidth(left[i].text)
+		left[i].text = ansi.Truncate(left[i].text, max(n-over, 0), "…")
+		over -= n - ansi.StringWidth(left[i].text)
+	}
+	l := newLine(room)
+	for _, s := range left {
+		l.add(s.text, s.st)
+	}
+	r := newLine(rightWidth)
+	for _, s := range right {
+		r.add(s.text, s.st)
+	}
+	return l.fill(fill) + fill.Render(strings.Repeat(" ", w-rightWidth-room)) + r.fill(fill)
 }
 
 // drawHelp draws the key help over lines, the diff w cells wide, in a box in its middle. A
@@ -661,26 +633,26 @@ func (m *model) helpBox(w int) []string {
 	if textWidth < 10 {
 		return nil
 	}
-	base := t.paint(nil, t.band)
-	border := t.paint(t.border, t.band)
+	base := t.paint(nil, t.surface)
+	border := t.paint(t.line2, t.surface)
 	row := func(parts ...span) string {
 		l := newLine(inner + 2)
 		l.add(" ", base)
 		for _, p := range parts {
-			l.add(p.text, t.paint(p.color, t.band).Bold(p.bold))
+			l.add(p.text, t.paint(p.color, t.surface).Bold(p.bold))
 		}
 		return border.Render("│") + l.fill(base) + border.Render("│")
 	}
 	const title = "Help"
 	lines := []string{
-		border.Render("╭─ ") + t.paint(t.text, t.band).Bold(true).Render(title) +
+		border.Render("╭─ ") + t.paint(t.strong, t.surface).Bold(true).Render(title) +
 			border.Render(" "+strings.Repeat("─", inner-1-ansi.StringWidth(title))+"╮"), // as wide as the rows
 		row(),
 	}
 	for _, k := range helpKeys {
 		key := k[0] + strings.Repeat(" ", keyWidth-ansi.StringWidth(k[0])+2)
 		for _, text := range strings.Split(lipgloss.NewStyle().Width(textWidth).Render(k[1]), "\n") {
-			lines = append(lines, row(span{text: key, color: t.accent, bold: true}, span{text: text, color: t.text}))
+			lines = append(lines, row(span{text: key, color: t.accent, bold: true}, span{text: text, color: t.fg}))
 			key = strings.Repeat(" ", keyWidth+2)
 		}
 	}

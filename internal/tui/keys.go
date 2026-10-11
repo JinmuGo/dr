@@ -25,7 +25,7 @@ const ctrlCGuard = time.Second
 func (m *model) key(msg tea.KeyPressMsg) tea.Cmd {
 	k := msg.String()
 	unread, unreadFix := m.unread, m.unreadFix
-	m.message, m.news, m.unread, m.unreadFix = "", false, nil, nil
+	m.message, m.tone, m.unread, m.unreadFix = "", toneWarn, nil, nil
 	switch {
 	case k == "ctrl+c" && !m.typing():
 		if m.handedOver || m.now().Sub(m.handedBack) < ctrlCGuard {

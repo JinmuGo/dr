@@ -68,6 +68,6 @@ func (m *model) saveViewed() tea.Cmd {
 // saved shows in the status line why a save of the viewed files failed.
 func (m *model) saved(msg savedMsg) {
 	if msg.err != nil {
-		m.warn("could not save viewed state: " + review.Visible(msg.err.Error()))
+		m.fail("could not save viewed state: " + review.Visible(msg.err.Error()))
 	}
 }

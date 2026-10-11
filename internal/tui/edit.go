@@ -94,7 +94,7 @@ func (m *model) openSession() tea.Cmd {
 	}
 	cmd, err := m.open(t.Ask)
 	if err != nil {
-		m.warn(review.Visible(err.Error()))
+		m.fail(review.Visible(err.Error()))
 		return nil
 	}
 	m.reading, m.selecting = false, false
@@ -170,7 +170,7 @@ func (m *model) edited(msg editedMsg) tea.Cmd {
 	}
 	if m.reload == nil {
 		if failure != "" {
-			m.warn(failure)
+			m.fail(failure)
 		}
 		return nil
 	}
@@ -241,11 +241,14 @@ func (m *model) reloaded(msg reloadedMsg) {
 // and : do anything there.
 func (m *model) rebuild(files []review.File, problems []agent.Problem) {
 	at, offset := m.spot(), m.cursor-m.top
+	if m.sticky() {
+		offset++ // the header that stays on top takes a line
+	}
 	if m.typing() || m.commanding {
 		m.asking, m.drafting, m.entry, m.commanding, m.input = nil, nil, textBox{}, false, ""
 	}
 	m.reading, m.selecting, m.enteredAt = false, false, -1 // the split view has other rows now
-	m.message, m.news, m.unread, m.unreadFix = "", false, nil, nil
+	m.message, m.tone, m.unread, m.unreadFix = "", toneWarn, nil, nil
 	m.problems = problemNote(problems)
 	m.setFiles(files)
 	if len(m.rows) == 0 {
@@ -255,6 +258,9 @@ func (m *model) rebuild(files []review.File, problems []agent.Problem) {
 	}
 	m.cursor = m.restore(at)
 	m.top = m.cursor - offset // scroll keeps it in the diff
+	if m.top >= 0 && m.top < m.cursor && m.sticky() {
+		m.top++
+	}
 }
 
 // spot returns where the cursor is, as restore finds it again; nowhere when no changed file

@@ -160,8 +160,9 @@ func TestAskInput(t *testing.T) {
 	if _, before := beforeCursor(t, m); m.entry.text != "abc왜요" || !strings.HasSuffix(before, "┃ abc왜요") {
 		t.Errorf("text %q with %q before the cursor, want %q with the cursor after it", m.entry.text, before, "abc왜요")
 	}
-	if status := statusLine(t, m); !strings.Contains(status, "claude c1a0de00 #1  row 5/27") || strings.Contains(status, "Enter") {
-		t.Errorf("status line %q, want the origin and the row of the cursor row without the hint", status)
+	if status := statusLine(t, m); !strings.HasPrefix(status, " ASK ") || !strings.Contains(status, "claude c1a0de00 #1") ||
+		!strings.Contains(status, "row 5/27") || strings.Contains(status, "Enter") {
+		t.Errorf("status line %q, want the ASK pill, the origin and the row of the cursor row without the hint", status)
 	}
 	typeKeys(m, "<esc>")
 	if m.asking != nil || m.reading || m.cursor != 4 || len(f.asked()) != 0 || entryBox(t, m) != nil || m.View().Cursor != nil {
@@ -176,11 +177,11 @@ func TestAskInput(t *testing.T) {
 }
 
 func TestInputRoom(t *testing.T) {
-	// An open search or : input goes first on the status line. The right leaves out the
-	// hint, then the origin, then the row number, to make room for it and the cursor after
-	// it. When the whole line is too narrow, the start of the input is cut, so what is typed
-	// and the cursor stay on the screen, and no wide character is split; screen checks every
-	// line is as wide as the screen.
+	// An open search or : input goes first on the status line, after the mode pill. The
+	// right leaves out what it must, the questions last, to make room for it and the cursor
+	// after it. When the whole line is too narrow, the start of the input is cut, so what is
+	// typed and the cursor stay on the screen, and no wide character is split; screen checks
+	// every line is as wide as the screen.
 	query, long := strings.Repeat("가", 35), strings.Repeat("왜", 30)
 	for _, tc := range []struct {
 		name       string
@@ -190,21 +191,21 @@ func TestInputRoom(t *testing.T) {
 		gone       []string
 	}{
 		{
-			name: "the hint and the origin make room", width: 100, keys: "32G/" + query,
-			start: " /" + query, end: " row 32/41", gone: []string{"claude 5ub00000", "Enter"},
+			name: "the origin makes room", width: 100, keys: "32G/" + query,
+			start: " SEARCH   /" + query, end: " file 4/5", gone: []string{"claude 5ub00000", "row"},
 		},
 		{
-			// Cut after 4 cells, which go through the second 왜, so it goes too.
+			// Cut after 13 cells, the / and 6 of the 왜.
 			name: "only the end of what is typed", width: 60, keys: "32G/" + long,
-			start: " …" + strings.Repeat("왜", 28), end: strings.Repeat("왜", 28), gone: []string{"row"},
+			start: " SEARCH   …" + strings.Repeat("왜", 24), end: strings.Repeat("왜", 24), gone: []string{"row"},
 		},
 		{
 			name: "a search", width: 60, keys: "/" + strings.Repeat("가나", 15),
-			start: " …" + strings.Repeat("가나", 14), end: strings.Repeat("가나", 14),
+			start: " SEARCH   …" + strings.Repeat("가나", 12), end: strings.Repeat("가나", 12),
 		},
 		{
 			name: "a command", width: 60, keys: ":" + strings.Repeat("가나", 15),
-			start: " …" + strings.Repeat("가나", 14), end: strings.Repeat("가나", 14),
+			start: " COMMAND   …", end: strings.Repeat("가나", 11),
 		},
 	} {
 		m := askScreen(askFiles(), Saved{}, &fakeAsk{answer: answer})
@@ -219,7 +220,9 @@ func TestInputRoom(t *testing.T) {
 				t.Errorf("%s: status line %q has %q", tc.name, status, g)
 			}
 		}
-		if c, want := m.View().Cursor, ansi.StringWidth(tc.start); c == nil || c.X != want || c.Y != 23 {
+		typed := m.input[len(m.input)-len("가"):] // the last character typed
+		want := ansi.StringWidth(status[:strings.LastIndex(status, typed)+len(typed)])
+		if c := m.View().Cursor; c == nil || c.X != want || c.Y != m.diffHeight() {
 			t.Errorf("%s: cursor %+v, want it at column %d of the status line", tc.name, c, want)
 		}
 	}
@@ -242,8 +245,8 @@ func TestAskRefusals(t *testing.T) {
 		f := &fakeAsk{answer: answer, installed: tc.installed}
 		m := askScreen(askFiles(), Saved{}, f)
 		typeKeys(m, tc.keys)
-		if m.message != tc.want || m.news || m.asking != nil {
-			t.Errorf("%q: message %q, news %t, input open %t; want the warning %q and no input", tc.keys, m.message, m.news, m.asking != nil, tc.want)
+		if m.message != tc.want || m.tone == toneOK || m.asking != nil {
+			t.Errorf("%q: message %q, tone %d, input open %t; want the warning %q and no input", tc.keys, m.message, m.tone, m.asking != nil, tc.want)
 		}
 		if status := statusLine(t, m); !strings.Contains(status, tc.want) {
 			t.Errorf("%q: status line %q has no %q", tc.keys, status, tc.want)
@@ -585,8 +588,8 @@ func TestAskNotice(t *testing.T) {
 		cmd := typeAndKeep(m, "4ja<enter>")
 		typeKeys(m, tc.keys)
 		send(m, cmd())
-		if status := statusLine(t, m); !strings.Contains(status, tc.notice) || m.news != (tc.err == nil) {
-			t.Errorf("%s: status line %q with news %t, want %q", tc.name, status, m.news, tc.notice)
+		if status := statusLine(t, m); !strings.Contains(status, tc.notice) || (m.tone == toneOK) != (tc.err == nil) {
+			t.Errorf("%s: status line %q with tone %d, want %q", tc.name, status, m.tone, tc.notice)
 		}
 		typeKeys(m, "<enter>")
 		want := "Questions · 1\n▍ You  just now\n▍ " + whyAdded + "\n▍\n" + tc.answer
@@ -818,16 +821,16 @@ func TestSelect(t *testing.T) {
 		cursor    int
 		status    string
 	}{
-		{keys: "2jV", selecting: true, cursor: 2, status: "VISUAL 1 line"},
-		{keys: "2jVjj", selecting: true, cursor: 4, status: "VISUAL 3 lines"},
-		{keys: "5jVgg", selecting: true, cursor: 2, status: "VISUAL 4 lines"},
-		{keys: "2jVG", selecting: true, cursor: 18, status: "VISUAL 16 lines"}, // not the hunk header
+		{keys: "2jV", selecting: true, cursor: 2, status: "VISUAL   1 line · L1"},
+		{keys: "2jVjj", selecting: true, cursor: 4, status: "VISUAL   3 lines · L1-2   claude c1a0de00"},
+		{keys: "5jVgg", selecting: true, cursor: 2, status: "VISUAL   4 lines"},
+		{keys: "2jVG", selecting: true, cursor: 18, status: "VISUAL   16 lines"}, // not the hunk header
 		{keys: "2jV100j", selecting: true, cursor: 18},
 		{keys: "2jV3G", selecting: true, cursor: 2},
 		{keys: "2jVdd", selecting: true, cursor: 18},
 		{keys: "2jV}}}}", selecting: true, cursor: 18}, // the next change is in another file
 		{keys: "2jV/new.go<enter>", cursor: 21},        // / ends it
-		{keys: "9jVk", selecting: true, cursor: 8, status: "VISUAL 1 line"},
+		{keys: "9jVk", selecting: true, cursor: 8, status: "VISUAL   1 line"},
 		{keys: "V", selecting: true, cursor: 2},  // from a file header to its first line
 		{keys: "jV", selecting: true, cursor: 2}, // from a hunk header to its first line
 		{keys: "21jVk", selecting: true, cursor: 23},
@@ -837,7 +840,7 @@ func TestSelect(t *testing.T) {
 		{keys: "2jVjl", cursor: 19},
 		{keys: "2jVjv", cursor: 0},
 		{keys: "2jVj<enter>", cursor: 3},
-		{keys: "s2jVjj", selecting: true, cursor: 4, status: "VISUAL 3 lines"},
+		{keys: "s2jVjj", selecting: true, cursor: 4, status: "VISUAL   3 lines"},
 		{keys: "s2jVG", selecting: true, cursor: 17}, // the split view's last line of a.go
 		{keys: "2jVjs", cursor: 3},
 	} {
@@ -859,7 +862,7 @@ func TestSelect(t *testing.T) {
 	if !m.selecting || m.cursor != 18 {
 		t.Errorf("wheel: selecting %t at row %d, want row 18", m.selecting, m.cursor)
 	}
-	send(m, tea.MouseClickMsg{X: 5, Y: 2, Button: tea.MouseLeft})
+	send(m, tea.MouseClickMsg{X: 5, Y: treeHead + 1, Button: tea.MouseLeft})
 	if m.selecting || m.cursor != 19 {
 		t.Errorf("tree click: selecting %t at row %d, want it ended at row 19", m.selecting, m.cursor)
 	}
@@ -882,8 +885,8 @@ func TestSelectTint(t *testing.T) {
 	}
 	for _, dark := range []bool{true, false} {
 		th := newTheme(nil, dark, false)
-		unchanged, added, deleted := th.selected(nil, th.selectLine), th.selected(th.addLine, th.selectLine), th.selected(th.deleteLine, th.selectLine)
-		if !sameColor(unchanged, th.selectLine) || sameColor(added, deleted) || sameColor(added, unchanged) || sameColor(deleted, unchanged) || sameColor(added, th.addLine) {
+		unchanged, added, deleted := th.selbg, th.seladd, th.seldel
+		if sameColor(added, deleted) || sameColor(added, unchanged) || sameColor(deleted, unchanged) || sameColor(added, th.addbg) || sameColor(deleted, th.delbg) {
 			t.Errorf("dark %t: selected lines %v, %v and %v are not told apart", dark, unchanged, added, deleted)
 		}
 	}

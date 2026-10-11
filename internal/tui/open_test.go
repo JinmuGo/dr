@@ -114,8 +114,8 @@ func TestOpenSessionRefusals(t *testing.T) {
 		ed := &fakeEditor{}
 		m := openScreen(askFiles(), Saved{}, tc.installed, ed, &fakeOpen{err: tc.openErr})
 		typeKeys(m, tc.keys)
-		if m.message != tc.want || m.news || len(ed.cmds) != 0 {
-			t.Errorf("%q: message %q, news %t, ran %q; want the warning %q and nothing run", tc.keys, m.message, m.news, ran(ed), tc.want)
+		if m.message != tc.want || m.tone == toneOK || len(ed.cmds) != 0 {
+			t.Errorf("%q: message %q, tone %d, ran %q; want the warning %q and nothing run", tc.keys, m.message, m.tone, ran(ed), tc.want)
 		}
 		if selecting := strings.Contains(tc.keys, "V"); m.selecting != selecting {
 			t.Errorf("%q: selecting %t, want %t", tc.keys, m.selecting, selecting)
@@ -129,7 +129,7 @@ func TestOpenSessionExitError(t *testing.T) {
 	ed := &fakeEditor{err: errors.New("exit status 1")}
 	m := openScreen(testFiles(), Saved{Reload: reloading(editedFiles())}, nil, ed, &fakeOpen{})
 	typeKeys(m, "4jga")
-	if want := "claude exited: exit status 1"; m.message != want || m.news || findRow(m, "+Line 5 edited") < 0 || rowName(m, m.cursor) != "+Changed 2" {
+	if want := "claude exited: exit status 1"; m.message != want || m.tone == toneOK || findRow(m, "+Line 5 edited") < 0 || rowName(m, m.cursor) != "+Changed 2" {
 		t.Errorf("message %q, rebuilt %t, the cursor on %q; want the warning %q, rebuilt, the cursor kept",
 			m.message, findRow(m, "+Line 5 edited") >= 0, rowName(m, m.cursor), want)
 	}

@@ -278,7 +278,7 @@ func TestSubmitNothing(t *testing.T) {
 	f := &fakeAsk{answer: answer}
 	m := fixScreen(files, Saved{}, f, writeTree(t, files), fixClock())
 	typeKeys(m, ":sub")
-	if status := statusLine(t, m); !m.commanding || !strings.HasPrefix(status, " :sub") {
+	if status := statusLine(t, m); !m.commanding || !strings.HasPrefix(status, " COMMAND   :sub") {
 		t.Fatalf(": status line %q, want the input", status)
 	}
 	typeKeys(m, "mit<enter>")
@@ -362,12 +362,13 @@ func TestSubmitFixes(t *testing.T) {
 		t.Errorf("keep record %+v", kept)
 	}
 
-	if m.message != "Fixes from claude c1a0de00 on a.go:2 and 1 more. Enter to read" || strings.Contains(statusLine(t, m), "y apply") {
-		t.Errorf("status line %q, want the fixes told of", statusLine(t, m))
+	if m.message != "Fixes from claude c1a0de00 on a.go:2 and 1 more. Enter to read" || strings.Contains(keyLine(t, m), "y  apply") ||
+		!strings.Contains(statusLine(t, m), "◆ 1 fix ready") { // the other answer keeps its lines
+		t.Errorf("status line %q, key row %q, want the fixes told of and counted", statusLine(t, m), keyLine(t, m))
 	}
 	typeKeys(m, "<enter>")
-	if status := statusLine(t, m); m.cursor != 4 || !strings.Contains(status, "y apply · x drop") || !strings.Contains(status, "row 5/27") {
-		t.Errorf("Enter: cursor at row %d, status line %q; want row 4 with y and x", m.cursor, status)
+	if status, keys := statusLine(t, m), keyLine(t, m); m.cursor != 4 || !strings.HasPrefix(keys, "  y  apply    x  drop    a  ask") || !strings.Contains(status, "row 5/27") {
+		t.Errorf("Enter: cursor at row %d, status line %q, key row %q; want row 4 with y and x first", m.cursor, status, keys)
 	}
 	typeKeys(m, "j")
 	if m.cursor != 5 || !strings.Contains(statusLine(t, m), "row 6/27") {

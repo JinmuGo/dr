@@ -247,10 +247,10 @@ func TestCommentCounts(t *testing.T) {
 		for _, tc := range []struct {
 			file  int
 			count string
-		}{{0, "✎2"}, {1, ""}, {2, "✎1"}} {
+		}{{0, "✎ 2"}, {1, ""}, {2, "✎ 1"}} {
 			got := ansi.Strip(m.drawHeader(m.files[tc.file], 104, false))
-			if tc.count != "" && !strings.Contains(got, tc.count+"  ☐ Viewed") || tc.count == "" && strings.Contains(got, "✎") {
-				t.Errorf("header of %s: %q, want %q before the Viewed box", m.files[tc.file].path, got, tc.count)
+			if tc.count != "" && !strings.Contains(got, tc.count+"    +") || tc.count == "" && strings.Contains(got, "✎") {
+				t.Errorf("header of %s: %q, want %q before the counts", m.files[tc.file].path, got, tc.count)
 			}
 		}
 	}

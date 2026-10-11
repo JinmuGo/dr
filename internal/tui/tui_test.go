@@ -179,9 +179,13 @@ func press(t *testing.T, keys string) *model {
 }
 
 // cursorLine returns the line of the screen that shows the cursor row: a line for each row
-// from the top, and one more for the blank line above each file header but the top row.
+// from the top, one more for the blank line above each file header but the top row, and one
+// for the header that stays on top while the top row is inside a file.
 func cursorLine(m *model) int {
 	y := m.cursor - m.top
+	if m.sticky() {
+		y++
+	}
 	for i := m.top + 1; i <= m.cursor; i++ {
 		if m.rows[i].kind == fileRow {
 			y++
@@ -249,12 +253,12 @@ func TestRows(t *testing.T) {
 		kind kind
 		text string
 	}{
-		{0, fileRow, "▾ a.go +2 -2 ■■■■□ ☐ Viewed"}, // GitHub's diffstat: a square for each of fewer than five changes
+		{0, fileRow, "▾ a.go +2 -2 " + strings.Repeat(statSquare, 5) + " ☐ Viewed"},
 		{1, hunkRow, "@@ -1,5 +1,5 @@"},
 		{3, lineRow, "2    - line 2"},
 		{4, lineRow, "2 + Changed 2"},
 		{8, hunkRow, "@@ -12,9 +12,9 @@"}, // two changes whose context lines touch
-		{19, fileRow, "▾ b.bin ☐ Viewed"},
+		{19, fileRow, "▾ b.bin new ☐ Viewed"},
 		{20, noteRow, review.Binary},
 		{22, hunkRow, "@@ -0,0 +1,4 @@"},
 		{26, lineRow, "4 +     var x = 1"}, // a tab is four spaces
@@ -462,24 +466,25 @@ func TestSearch(t *testing.T) {
 }
 
 func TestScroll(t *testing.T) {
-	// 7 lines fit above the status line, so the middle of the screen is 3 lines below its
-	// top. The headers of b.bin and c/new.go, rows 19 and 21, take one line more for the
-	// blank line above them unless they are the top row.
+	// 7 lines fit above the status line on a screen too short for the key row, so the
+	// middle of the screen is 3 lines below its top. The headers of b.bin and c/new.go, rows
+	// 19 and 21, take one line more for the blank line above them unless they are the top
+	// row, and a top row inside a file one more for its header, which stays on top.
 	for _, tc := range []struct {
 		keys        string
 		cursor, top int
 	}{
-		{"10j", 10, 4}, // a move scrolls as little as it takes
+		{"10j", 10, 5}, // a move scrolls as little as it takes
 		{"}", 3, 0},    // a jump on the screen does not scroll
-		{"}}", 12, 9},
-		{"l", 19, 17},
-		{"12G", 11, 8},
-		{"/new after<enter>", 16, 13},
-		{"/line 2<enter>N", 18, 15}, // around the start
+		{"}}", 12, 10},
+		{"l", 19, 18},
+		{"12G", 11, 9},
+		{"/new after<enter>", 16, 14},
+		{"/line 2<enter>N", 18, 16}, // around the start
 		{"G", 26, 21},               // the last row cannot be in the middle, and row 20 would push it off
 		{"Ggg", 0, 0},
 		{"Gh", 21, 21},
-		{"G2h", 19, 17},
+		{"G2h", 19, 18},
 	} {
 		m := New(testFiles(), nil, Saved{}, Asker{}).(*model)
 		m.Update(tea.WindowSizeMsg{Width: 120, Height: 8})
@@ -587,7 +592,7 @@ func TestBoxPlace(t *testing.T) {
 		keys, row, top, hint, after string
 	}{
 		{"4j<enter>", "Changed 2", "╭─ claude c1a0de00 #1  a.go:2 ─", "─ a ask · Esc close ─", "line 3"},
-		{"16j<enter>", "new after 18", "╭─ unknown  a.go:18 ─", "─ a ask · Esc close ─", "line 19"},
+		{"16j<enter>", "new after 18", "╭─ unknown  a.go:18 ─", "─ a ask · Esc close ─", ""}, // the box ends the screen
 		{"2j<enter>", "line 1", "╭─ a.go:1 ─", "─ Esc close ─", "line 2"},
 		{"<enter>", "▾ a.go", "╭─ a.go ─", "─ Esc close ─", "@@ -1,5 +1,5 @@"},
 		{"G<enter>", "var x = 1", "╭─ claude c1a0de00 #2  c/new.go:4 ─", "─ a ask · Esc close ─", ""}, // the screen moves up to show the box
@@ -635,8 +640,9 @@ func TestBox(t *testing.T) {
 
 	// The file tree is on the screen at width 120 and hidden at 70. The box text has 49 lines
 	// either way: Session, the tag, the session, a blank line, Request, the 41 lines of the
-	// request, a blank line, Reply and the reply. 19 of them fit: the 23 rows above the
-	// status line less the cursor row, one more row and the two borders. d and u move 9.
+	// request, a blank line, Reply and the reply. 18 of them fit: the 22 rows above the
+	// status line and the key row less the cursor row, one more row and the two borders. d
+	// and u move 9.
 	for _, width := range []int{120, 70} {
 		m := New(files, nil, Saved{}, Asker{}).(*model)
 		m.Update(tea.WindowSizeMsg{Width: width, Height: 24})
@@ -650,24 +656,24 @@ func TestBox(t *testing.T) {
 
 		s, _ := send("G")
 		cursor, top := m.cursor, m.top
-		status := s[strings.LastIndex(s, "\n")+1:]
-		if strings.Contains(s, "조건 1") || !strings.Contains(status, "claude c1a0de00 #3") ||
-			width == 120 && !strings.Contains(status, "Enter origin") {
-			t.Errorf("width %d: want the origin in the status line only, with the key that opens it:\n%s", width, s)
+		lines := strings.Split(s, "\n")
+		status, keys := lines[m.diffHeight()], lines[m.diffHeight()+1]
+		if strings.Contains(s, "조건 2") || !strings.Contains(status, "claude c1a0de00 #3  조") || width == 120 && !strings.Contains(status, "조건 1") || !strings.Contains(keys, "⏎  origin") {
+			t.Errorf("width %d: want the origin and the first line of its request in the status line only, and the key that opens the rest in the key row:\n%s", width, s)
 		}
 
 		for _, step := range []struct {
 			keys      string
 			want, not []string
 		}{
-			{"<enter>", []string{"╭─ claude c1a0de00 #3  long.go:1", "Esc close", "조건 1", "origin 19/49"}, []string{last, reply}},
-			{"k", []string{"Session", "origin 19/49"}, nil}, // the first line stays at the top
-			{"j", []string{"origin 20/49"}, []string{"Session"}},
-			{"d", []string{"origin 29/49"}, nil},
-			{"u", []string{"origin 20/49"}, nil},
+			{"<enter>", []string{"╭─ claude c1a0de00 #3  long.go:1", "Esc close", "조건 1", "origin 18/49"}, []string{last, reply}},
+			{"k", []string{"Session", "origin 18/49"}, nil}, // the first line stays at the top
+			{"j", []string{"origin 19/49"}, []string{"Session"}},
+			{"d", []string{"origin 28/49"}, nil},
+			{"u", []string{"origin 19/49"}, nil},
 			{"G", []string{last, reply, "origin 49/49"}, nil},
 			{"<down>", []string{last, reply, "origin 49/49"}, nil}, // the last line stays at the bottom
-			{"gg", []string{"Session", "origin 19/49"}, []string{reply}},
+			{"gg", []string{"Session", "origin 18/49"}, []string{reply}},
 			{"dddd", []string{last, reply, "origin 49/49"}, nil},
 		} {
 			s, _ := send(step.keys)
@@ -720,12 +726,12 @@ func TestTheme(t *testing.T) {
 		}
 		// Bands stand out from the background, lighter on a dark one and darker on a light
 		// one, and so do the tinted rows of the diff.
-		for name, c := range map[string]color.Color{"band": th.band, "header": th.header, "cursor": th.cursor} {
+		for name, c := range map[string]color.Color{"panel": th.panel, "header": th.surface2, "cursor": th.cursorline} {
 			if lighter := brightness(c) > brightness(tc.bg); lighter != tc.dark {
 				t.Errorf("background %v: %s %v is lighter %t, want %t", tc.bg, name, c, lighter, tc.dark)
 			}
 		}
-		for name, c := range map[string]color.Color{"added": th.addLine, "deleted": th.deleteLine, "hunk": th.hunkLine} {
+		for name, c := range map[string]color.Color{"added": th.addbg, "deleted": th.delbg, "hunk": th.hunkbg} {
 			if brightness(c) == brightness(tc.bg) {
 				t.Errorf("background %v: %s line %v does not stand out", tc.bg, name, c)
 			}
@@ -806,14 +812,18 @@ func TestDraw(t *testing.T) {
 			if bar := ansi.Strip(ansi.Cut(lines[cursorLine(m)], list, list+1)); bar != "▌" && !m.help {
 				t.Errorf("width %d, keys %q: the cursor row starts the diff with %q, want a bar", width, tc.keys, bar)
 			}
-			// The status line names the origin of a changed row under the cursor. The note on
-			// the session logs gives way to the note that the diff is too narrow for split.
-			status := ansi.Strip(lines[len(lines)-1])
-			want := []string{fmt.Sprintf("row %d/%d", m.cursor+1, len(m.rows))}
+			// The status line names the origin of a changed row under the cursor. On a narrow
+			// screen the note on the session logs and then the row number give way to it and to
+			// the note that the diff is too narrow for split.
+			status := ansi.Strip(lines[m.diffHeight()])
+			var want []string
 			if tc.tag != "" {
 				want = append(want, tc.tag)
 			}
-			if !m.splitOn {
+			if width >= 100 {
+				want = append(want, fmt.Sprintf("row %d/%d", m.cursor+1, len(m.rows)))
+			}
+			if !m.splitOn && width >= 100 {
 				want = append(want, "some codex records unreadable")
 			}
 			for _, s := range want {
@@ -826,23 +836,24 @@ func TestDraw(t *testing.T) {
 }
 
 func TestStatusRoom(t *testing.T) {
-	// At 60 cells the origin of the cursor row and the row number stay whole. How far the box
-	// is read comes next, and the note on two agents' logs and the hint do not fit, so they
-	// are left out whole. The box text is 13 lines, 5 of which fit on a 10-row screen.
+	// At 72 cells the origin of the cursor row stays whole. How far the box is read comes
+	// next and then the file number; the row number and the note on two agents' logs do not
+	// fit, so they are left out whole. The box text is 13 lines, 5 of which fit on a 10-row
+	// screen.
 	problems := []agent.Problem{{Agent: "claude", Path: "a.jsonl", Bad: 1}, {Agent: "codex", Path: "rollout-1.jsonl", Bad: 1}}
 	m := New(testFiles(), problems, Saved{}, Asker{}).(*model)
-	m.Update(tea.WindowSizeMsg{Width: 60, Height: 10})
+	m.Update(tea.WindowSizeMsg{Width: 72, Height: 10})
 	for _, k := range keyPresses("4j<enter>") {
 		m.Update(k)
 	}
 	s := screen(t, m)
 	status := s[strings.LastIndex(s, "\n")+1:]
-	for _, want := range []string{"claude c1a0de00 #1", "row 5/27", "origin 5/13"} {
+	for _, want := range []string{"claude c1a0de00 #1", "origin 5/13", "file 1/3"} {
 		if !strings.Contains(status, want) {
 			t.Errorf("status line %q has no %q", status, want)
 		}
 	}
-	for _, part := range []string{"records", "scroll"} {
+	for _, part := range []string{"records", "row", "scroll"} {
 		if strings.Contains(status, part) {
 			t.Errorf("status line %q has a part of what does not fit, %q", status, part)
 		}
@@ -1074,25 +1085,25 @@ func drag(from int, to ...int) []tea.Msg {
 }
 
 func TestDragTree(t *testing.T) {
-	// The file tree of testFiles is 20 cells wide on the 125-cell screen, so the line beside
-	// it is column 20. The diff keeps 60 cells, which leaves the tree 64 at most.
+	// The file tree of testFiles is 19 cells wide on the 125-cell screen, so the line beside
+	// it is column 19. The diff keeps 60 cells, which leaves the tree 64 at most.
 	for _, tc := range []struct {
 		name   string
 		drags  [][]tea.Msg
 		list   int
 		folded bool
 	}{
-		{"wider", [][]tea.Msg{drag(20, 25, 30)}, 30, false},
-		{"grabbed beside the line", [][]tea.Msg{drag(19, 30)}, 30, false},
-		{"grabbed on the other side", [][]tea.Msg{drag(21, 24)}, 24, false},
-		{"missed", [][]tea.Msg{drag(23, 30)}, 20, false},
-		{"no narrower than the least", [][]tea.Msg{drag(20, 30), drag(30, 12)}, 20, false},
-		{"no wider than the diff allows", [][]tea.Msg{drag(20, 100)}, 64, false},
-		{"folded", [][]tea.Msg{drag(20, 5)}, 0, true},
-		{"opened by the handle", [][]tea.Msg{drag(20, 5), drag(0, 25)}, 25, false},
-		{"handle grabbed beside it", [][]tea.Msg{drag(20, 5), drag(1, 30)}, 30, false},
-		{"not dragged far enough to open", [][]tea.Msg{drag(20, 5), drag(0, 6)}, 0, true},
-		{"the line follows the tree", [][]tea.Msg{drag(20, 30), drag(30, 40)}, 40, false},
+		{"wider", [][]tea.Msg{drag(19, 25, 30)}, 30, false},
+		{"grabbed beside the line", [][]tea.Msg{drag(18, 30)}, 30, false},
+		{"grabbed on the other side", [][]tea.Msg{drag(20, 24)}, 24, false},
+		{"missed", [][]tea.Msg{drag(22, 30)}, 19, false},
+		{"no narrower than the least", [][]tea.Msg{drag(19, 30), drag(30, 12)}, 20, false},
+		{"no wider than the diff allows", [][]tea.Msg{drag(19, 100)}, 64, false},
+		{"folded", [][]tea.Msg{drag(19, 5)}, 0, true},
+		{"opened by the handle", [][]tea.Msg{drag(19, 5), drag(0, 25)}, 25, false},
+		{"handle grabbed beside it", [][]tea.Msg{drag(19, 5), drag(1, 30)}, 30, false},
+		{"not dragged far enough to open", [][]tea.Msg{drag(19, 5), drag(0, 6)}, 0, true},
+		{"the line follows the tree", [][]tea.Msg{drag(19, 30), drag(30, 40)}, 40, false},
 	} {
 		var msgs []tea.Msg
 		for _, d := range tc.drags {
