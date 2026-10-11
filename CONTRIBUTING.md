@@ -1,6 +1,6 @@
 # Contributing
 
-Read [docs/design.md](docs/design.md) first. It says what dr does, what it will not do, and why.
+Start with [docs/usage.md](docs/usage.md) to see what dr does. This page covers the code layout, the checks and the rules.
 
 ## Layout
 
@@ -53,7 +53,7 @@ git diff testdata/blame
 - Commit subjects follow `type(scope): summary` (for example `feat(tui): add split view`), in the imperative and under 72 characters.
 - Follow the [Google Go Style Guide](https://google.github.io/styleguide/go/) and [Effective Go](https://go.dev/doc/effective_go).
 - Wrap errors with `fmt.Errorf("...: %w", err)`. No error library.
-- No new dependency without a reason written in docs/design.md.
+- Every new dependency needs a reason, written in the pull request.
 - TUI tests check behavior: cursor, keys, the contents of the origin box. Do not snapshot the whole screen.
 - For screen changes, look at the real screen in a dark terminal, a light terminal and with `NO_COLOR=1`.
 
