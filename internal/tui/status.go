@@ -99,7 +99,7 @@ func (m *model) mode() mode {
 	switch {
 	case m.help:
 		return modeHelp
-	case m.searching:
+	case m.search.open:
 		return modeSearch
 	case m.commanding:
 		return modeCommand
@@ -387,7 +387,7 @@ func (m *model) keyRow() string {
 // open.
 func (m *model) inputPrompt() string {
 	switch {
-	case m.searching:
+	case m.search.open:
 		return "/"
 	case m.commanding:
 		return ":"

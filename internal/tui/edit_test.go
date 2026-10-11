@@ -253,8 +253,8 @@ func TestRebuildKeeps(t *testing.T) {
 	send(m, drag(30, 5)...)
 	typeKeys(m, "21jvggvs/line 1<enter>gg")
 	send(m, editedMsg{})
-	if !m.splitShown || m.query != "line 1" || m.treeSize != 30 || !m.folded {
-		t.Errorf("split %t, query %q, tree %d cells wide, folded %t; want split, \"line 1\", 30, folded", m.splitShown, m.query, m.treeSize, m.folded)
+	if !m.splitShown || m.search.query != "line 1" || m.treeSize != 30 || !m.folded {
+		t.Errorf("split %t, query %q, tree %d cells wide, folded %t; want split, \"line 1\", 30, folded", m.splitShown, m.search.query, m.treeSize, m.folded)
 	}
 	if a, c := m.files[0], m.files[2]; a.viewed || !a.changed || !c.viewed || c.changed || findRow(m, "+Line 5 edited") < 0 {
 		t.Errorf("a.go viewed %t, changed %t; c/new.go viewed %t, changed %t; want a.go unfolded and changed, c/new.go viewed", a.viewed, a.changed, c.viewed, c.changed)

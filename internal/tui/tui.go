@@ -53,20 +53,18 @@ type model struct {
 	folded        bool // the file tree was dragged narrow and shows as a handle
 	dragging      bool // the line between the file tree and the diff is being dragged
 
-	count     int         // number typed before a key, 0 when none
-	pending   string      // "g" waiting for the key that completes it
-	help      bool        // the key help is open
-	reading   bool        // the origin box is open under the cursor row
-	readTop   int         // first line of the origin box's text on the screen
-	searching bool        // the search input is open
-	asking    *target     // the input box of a is open, and what it asks about
-	input     string      // what is typed in the search or the : input
-	query     string      // the last search
-	hits      searchHits  // where the search query is in the rows
-	choice    int         // the highlighted row of the command list
-	message   string      // shown in the status line until the next key
-	tone      messageTone // how the message reads: a warning or an error
-	notice    *notice     // floats at the top right of the diff until the next key
+	count   int         // number typed before a key, 0 when none
+	pending string      // "g" waiting for the key that completes it
+	help    bool        // the key help is open
+	reading bool        // the origin box is open under the cursor row
+	readTop int         // first line of the origin box's text on the screen
+	asking  *target     // the input box of a is open, and what it asks about
+	input   string      // what is typed in the search or the : input
+	search  search      // the search: whether its input is open, the last query and where it is
+	choice  int         // the highlighted row of the command list
+	message string      // shown in the status line until the next key
+	tone    messageTone // how the message reads: a warning or an error
+	notice  *notice     // floats at the top right of the diff until the next key
 
 	drafting   *commentInput // the input box of c is open, and what it comments on
 	entry      textBox       // what is typed in the input box of a or c
@@ -341,7 +339,7 @@ func (m *model) mouse(msg tea.MouseMsg) tea.Cmd {
 	switch msg.(type) {
 	case tea.MouseClickMsg:
 		m.dragging = mouse.Button == tea.MouseLeft && mouse.Y < m.diffHeight() && m.onDivider(mouse.X)
-		if mouse.Button == tea.MouseLeft && !m.dragging && !m.help && !m.reading && !m.searching {
+		if mouse.Button == tea.MouseLeft && !m.dragging && !m.help && !m.reading && !m.search.open {
 			return m.click(mouse.X, mouse.Y)
 		}
 	case tea.MouseMotionMsg:
@@ -436,7 +434,7 @@ func (m *model) relayout() {
 	if split == m.splitShown {
 		return
 	}
-	m.splitShown, m.selecting, m.hits.ok = split, false, false
+	m.splitShown, m.selecting, m.search.hits.ok = split, false, false
 	switch {
 	case m.asking != nil:
 		m.asking.row = m.rows[m.asking.row].twin

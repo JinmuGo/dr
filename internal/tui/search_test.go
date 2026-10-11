@@ -115,18 +115,18 @@ func TestSearchNotFoundAndEsc(t *testing.T) {
 		t.Error("not found: the icon is not in the color of errors")
 	}
 	typeKeys(m, "/beta<enter>3<esc>")
-	if m.query != "beta" || m.count != 0 {
-		t.Errorf("Esc after a count: query %q, count %d; want the query kept and the count cleared", m.query, m.count)
+	if m.search.query != "beta" || m.count != 0 {
+		t.Errorf("Esc after a count: query %q, count %d; want the query kept and the count cleared", m.search.query, m.count)
 	}
 	typeKeys(m, "<esc>")
 	added := th.paint(th.code(chroma.Text), th.addbg)
-	if raw := m.drawRow(3, 80); m.query != "" || strings.Contains(statusLine(t, m), " of ") || strings.Contains(raw, th.match(added, false).Render("Beta")) {
-		t.Errorf("Esc: query %q, status line %q, row 3 %q; want no query, count or marks", m.query, statusLine(t, m), raw)
+	if raw := m.drawRow(3, 80); m.search.query != "" || strings.Contains(statusLine(t, m), " of ") || strings.Contains(raw, th.match(added, false).Render("Beta")) {
+		t.Errorf("Esc: query %q, status line %q, row 3 %q; want no query, count or marks", m.search.query, statusLine(t, m), raw)
 	}
 	// Esc in the search input closes it and keeps the last query.
 	typeKeys(m, "/beta<enter>/alp<esc>")
-	if m.searching || m.query != "beta" {
-		t.Errorf("Esc in the input: searching %t, query %q; want it closed with beta kept", m.searching, m.query)
+	if m.search.open || m.search.query != "beta" {
+		t.Errorf("Esc in the input: searching %t, query %q; want it closed with beta kept", m.search.open, m.search.query)
 	}
 }
 
