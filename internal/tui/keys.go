@@ -1,6 +1,7 @@
 package tui
 
 import (
+	"strings"
 	"time"
 	"unicode/utf8"
 
@@ -11,6 +12,86 @@ import (
 // the terminal back, as it does while they have it. An agent that exits on one ctrl+c, as
 // Codex does, must not let a second press meant for it quit dr. q quits at any time.
 const ctrlCGuard = time.Second
+
+// Keys that are not a character, as tea.KeyPressMsg.String names them. keyLabel gives the
+// glyph the key help and the key row show for them.
+const (
+	keyEnter      = "enter"
+	keyShiftEnter = "shift+enter"
+	keyAltEnter   = "alt+enter"
+	keyEsc        = "esc"
+	keyTab        = "tab"
+	keyBackspace  = "backspace"
+	keyUp         = "up"
+	keyDown       = "down"
+	keyLeft       = "left"
+	keyRight      = "right"
+	keyCtrlC      = "ctrl+c"
+	keyCtrlJ      = "ctrl+j"
+	keyCtrlN      = "ctrl+n"
+	keyCtrlP      = "ctrl+p"
+	keyCtrlU      = "ctrl+u"
+)
+
+// The keys of the diff and the origin box, named for what they do. keyPrefix waits for the
+// key after it, and with it makes keyTop and keyOpenSession.
+const (
+	keyLineDown    = "j"
+	keyLineUp      = "k"
+	keyHalfDown    = "d"
+	keyHalfUp      = "u"
+	keyHalfDownAlt = "J"
+	keyHalfUpAlt   = "K"
+	keyPrefix      = "g"
+	keyTop         = "gg"
+	keyBottom      = "G"
+	keyNextChange  = "}"
+	keyPrevChange  = "{"
+	keyNextFile    = "l"
+	keyPrevFile    = "h"
+	keySearch      = "/"
+	keyNextMatch   = "n"
+	keyPrevMatch   = "N"
+	keyOrigin      = keyEnter
+	keySplit       = "s"
+	keyViewed      = "v"
+	keySelect      = "V"
+	keyAsk         = "a"
+	keyOpenSession = "ga"
+	keyComment     = "c"
+	keyEdit        = "e"
+	keyCommand     = ":"
+	keyApply       = "y"
+	keyDrop        = "x"
+	keyHelp        = "?"
+	keyQuit        = "q"
+	keyPickModel   = "^" // in the input box, at the start of a word
+)
+
+// glyphs are the labels of the keys that keyLabel does not show by their name.
+var glyphs = map[string]string{
+	keyEnter: "⏎", keyShiftEnter: "⇧⏎", keyAltEnter: "⌥⏎", keyUp: "↑", keyDown: "↓",
+	keyCtrlC: "^C", keyCtrlJ: "^J", keyCtrlN: "^N", keyCtrlP: "^P", keyCtrlU: "^U",
+}
+
+// keyLabel returns how the key help and the key row show key k: a glyph for Enter, the
+// arrows and the ctrl keys, and its name for the others.
+func keyLabel(k string) string {
+	if g, ok := glyphs[k]; ok {
+		return g
+	}
+	return k
+}
+
+// keyLabels returns the labels of keys, one after another with a space between them, for
+// keys that share a line of the key help or a keycap.
+func keyLabels(keys ...string) string {
+	labels := make([]string, len(keys))
+	for i, k := range keys {
+		labels[i] = keyLabel(k)
+	}
+	return strings.Join(labels, " ")
+}
 
 // key handles a key press. Every key of the diff is a case of one switch on the key's
 // name, so a new key is a new case. It returns the command the key starts: quitting, saving
@@ -30,12 +111,12 @@ func (m *model) key(msg tea.KeyPressMsg) tea.Cmd {
 	n := m.notice
 	m.message, m.tone, m.notice = "", toneWarn, nil
 	switch {
-	case k == "ctrl+c" && !m.typing():
+	case k == keyCtrlC && !m.typing():
 		if m.handedOver || m.now().Sub(m.handedBack) < ctrlCGuard {
 			return nil
 		}
 		return tea.Quit
-	case n != nil && k == "esc":
+	case n != nil && k == keyEsc:
 		return nil
 	case m.help:
 		m.help = false // any key closes the help
@@ -44,11 +125,11 @@ func (m *model) key(msg tea.KeyPressMsg) tea.Cmd {
 		return m.typeCommand(k, msg.Text)
 	case len(m.rows) == 0:
 		switch k {
-		case "q":
+		case keyQuit:
 			return tea.Quit
-		case "?":
+		case keyHelp:
 			m.help = true
-		case ":":
+		case keyCommand:
 			m.openCommand()
 		}
 		return nil
@@ -57,13 +138,13 @@ func (m *model) key(msg tea.KeyPressMsg) tea.Cmd {
 		return nil
 	case m.typing():
 		return m.typeBox(msg)
-	case n != nil && k == "enter" && n.question != nil:
+	case n != nil && k == keyEnter && n.question != nil:
 		return m.read(n.question)
-	case n != nil && k == "enter" && n.fixes != nil:
+	case n != nil && k == keyEnter && n.fixes != nil:
 		return m.readFix(n.fixes)
 	case m.reading:
 		return m.readKey(k)
-	case k == "esc":
+	case k == keyEsc:
 		switch {
 		case m.count > 0 || m.pending != "":
 			m.count, m.pending, m.selecting = 0, "", false
@@ -79,7 +160,7 @@ func (m *model) key(msg tea.KeyPressMsg) tea.Cmd {
 	count := m.count
 	m.count, m.pending = 0, ""
 	switch k {
-	case "h", "left", "l", "right", "/", "s", "v", "enter":
+	case keyPrevFile, keyLeft, keyNextFile, keyRight, keySearch, keySplit, keyViewed, keyOrigin:
 		m.selecting = false // these end a selection, then do what they do
 	}
 	switch k {
@@ -87,69 +168,69 @@ func (m *model) key(msg tea.KeyPressMsg) tea.Cmd {
 		m.count = count*10 + int(k[0]-'0')
 	case "0":
 		m.count = count * 10 // a count does not start with 0
-	case "g":
+	case keyPrefix:
 		m.count, m.pending = count, k
-	case "j", "down":
+	case keyLineDown, keyDown:
 		m.moveTo(m.cursor + max(count, 1))
-	case "k", "up":
+	case keyLineUp, keyUp:
 		m.moveTo(m.cursor - max(count, 1))
-	case "gg":
+	case keyTop:
 		m.jumpTo(max(count, 1) - 1)
-	case "G":
+	case keyBottom:
 		if count == 0 {
 			count = len(m.rows)
 		}
 		m.jumpTo(count - 1)
-	case "d", "J":
+	case keyHalfDown, keyHalfDownAlt:
 		m.halfPage(1)
-	case "u", "K":
+	case keyHalfUp, keyHalfUpAlt:
 		m.halfPage(-1)
-	case "}":
+	case keyNextChange:
 		m.jump(count, 1, m.changeStart)
-	case "{":
+	case keyPrevChange:
 		m.jump(count, -1, m.changeStart)
-	case "l", "right":
+	case keyNextFile, keyRight:
 		m.jump(count, 1, m.fileStart)
-	case "h", "left":
+	case keyPrevFile, keyLeft:
 		m.jump(count, -1, m.fileStart)
-	case "/":
+	case keySearch:
 		m.searching, m.input = true, ""
-	case "n":
+	case keyNextMatch:
 		m.find(count, 1)
-	case "N":
+	case keyPrevMatch:
 		m.find(count, -1)
-	case "enter":
+	case keyOrigin:
 		m.reading, m.readTop = true, 0
 		if qs := m.questionsAt(m.cursor); len(qs) > 0 {
 			m.readTop = m.questionTop(qs[len(qs)-1]) // the newest, which the box opens for
 		}
-	case "s":
+	case keySplit:
 		m.splitOn = !m.splitOn // Update shows the view that fits
-	case "v":
+	case keyViewed:
 		return m.toggleViewed(m.rows[m.cursor].file)
-	case "?":
+	case keyHelp:
 		m.help = true
-	case "V":
+	case keySelect:
 		if m.selecting {
 			m.selecting = false
 		} else {
 			m.startSelection()
 		}
-	case "a":
+	case keyAsk:
 		m.startAsk()
-	case "e":
+	case keyEdit:
 		return m.openEditor()
-	case "ga":
+	case keyOpenSession:
 		return m.openSession()
-	case "c":
+	case keyComment:
 		m.startComment()
-	case ":":
+	case keyCommand:
 		m.openCommand()
-	case "y":
+	case keyApply:
 		return m.apply()
-	case "x":
+	case keyDrop:
 		m.drop()
-	case "q":
+	case keyQuit:
 		return tea.Quit
 	}
 	return nil
@@ -160,7 +241,7 @@ func (m *model) key(msg tea.KeyPressMsg) tea.Cmd {
 // and other keys edit it.
 func (m *model) typeSearch(k, text string) {
 	switch k {
-	case "enter":
+	case keyEnter:
 		m.searching = false
 		if m.input == "" {
 			m.find(1, 1)
@@ -168,7 +249,7 @@ func (m *model) typeSearch(k, text string) {
 		}
 		m.query = m.input
 		m.findHere()
-	case "esc":
+	case keyEsc:
 		m.searching = false
 	default:
 		m.edit(k, text)
@@ -180,10 +261,10 @@ func (m *model) typeSearch(k, text string) {
 // makes whole characters of.
 func (m *model) edit(k, text string) {
 	switch k {
-	case "backspace":
+	case keyBackspace:
 		_, size := utf8.DecodeLastRuneInString(m.input)
 		m.input = m.input[:len(m.input)-size]
-	case "ctrl+u":
+	case keyCtrlU:
 		m.input = ""
 	default:
 		m.input += text
@@ -199,25 +280,25 @@ func (m *model) readKey(k string) tea.Cmd {
 	m.pending = ""
 	half := max(m.boxRows()/2, 1)
 	switch k {
-	case "g":
+	case keyPrefix:
 		m.pending = k
-	case "j", "down":
+	case keyLineDown, keyDown:
 		m.readTop++
-	case "k", "up":
+	case keyLineUp, keyUp:
 		m.readTop--
-	case "d", "J":
+	case keyHalfDown, keyHalfDownAlt:
 		m.readTop += half
-	case "u", "K":
+	case keyHalfUp, keyHalfUpAlt:
 		m.readTop -= half
-	case "gg":
+	case keyTop:
 		m.readTop = 0
-	case "G":
+	case keyBottom:
 		m.readTop = m.blockHeight()
-	case "a":
+	case keyAsk:
 		m.startAsk()
-	case "ga":
+	case keyOpenSession:
 		return m.openSession()
-	case "q", "esc", "enter":
+	case keyQuit, keyEsc, keyEnter:
 		m.reading = false
 	}
 	return nil
@@ -278,12 +359,16 @@ type helpGroup struct {
 var helpColumns = [2][]helpGroup{
 	{
 		{"MOVE", [][2]string{
-			{"j k", "line down, up · 5j"}, {"d u J K", "half a page down, up"}, {"gg G", "top, bottom · 12G"},
-			{"} {", "next, previous change"}, {"l h", "next, previous file · 3l"}, {"/ n N", "search, next, previous"},
+			{keyLabels(keyLineDown, keyLineUp), "line down, up · 5j"},
+			{keyLabels(keyHalfDown, keyHalfUp, keyHalfDownAlt, keyHalfUpAlt), "half a page down, up"},
+			{keyLabels(keyTop, keyBottom), "top, bottom · 12G"},
+			{keyLabels(keyNextChange, keyPrevChange), "next, previous change"},
+			{keyLabels(keyNextFile, keyPrevFile), "next, previous file · 3l"},
+			{keyLabels(keySearch, keyNextMatch, keyPrevMatch), "search, next, previous"},
 		}},
 		{"REVIEW", [][2]string{
-			{"⏎", "origin; j k scroll it"}, {"v", "mark the file viewed"}, {"V", "select lines"},
-			{"s", "split or unified"},
+			{keyLabel(keyOrigin), "origin; j k scroll it"}, {keyViewed, "mark the file viewed"}, {keySelect, "select lines"},
+			{keySplit, "split or unified"},
 		}},
 		{"MOUSE", [][2]string{
 			{"drag", "resize the tree"}, {"wheel", "scroll three lines"}, {"click", "a file, or a Viewed box"},
@@ -292,15 +377,15 @@ var helpColumns = [2][]helpGroup{
 	},
 	{
 		{"ASK AND FIX", [][2]string{
-			{"a", "ask who wrote it"}, {"ga", "open it in the agent"}, {"c", "leave a change comment"},
-			{":submit", "send every comment"}, {"y x", "apply, drop a fix"}, {":undo", "revert the last fix"},
-			{"e", "edit in $EDITOR"},
+			{keyAsk, "ask who wrote it"}, {keyOpenSession, "open it in the agent"}, {keyComment, "leave a change comment"},
+			{keyCommand + "submit", "send every comment"}, {keyLabels(keyApply, keyDrop), "apply, drop a fix"},
+			{keyCommand + "undo", "revert the last fix"}, {keyEdit, "edit in $EDITOR"},
 		}},
 		{"IN A BOX", [][2]string{
-			{"⏎", "send or save"}, {"⇧⏎", "new line (⌥⏎, ^J)"}, {"^", "pick a model, word start"},
-			{"esc ^C", "cancel"},
+			{keyLabel(keyEnter), "send or save"}, {keyLabel(keyShiftEnter), "new line (⌥⏎, ^J)"},
+			{keyPickModel, "pick a model, word start"}, {keyLabels(keyEsc, keyCtrlC), "cancel"},
 		}},
-		{"OTHER", [][2]string{{"?", "this help"}, {"esc", "clear a count or search"}, {"q", "quit"}}},
+		{"OTHER", [][2]string{{keyHelp, "this help"}, {keyEsc, "clear a count or search"}, {keyQuit, "quit"}}},
 	},
 }
 
@@ -316,57 +401,61 @@ func (m *model) keycaps() []keycap {
 	case modeHelp:
 		return []keycap{{"any key", "close"}}
 	case modeSearch: // n and N type into the query here
-		return []keycap{{"⏎", "search"}, {"esc", "cancel"}}
+		return []keycap{{keyLabel(keyEnter), "search"}, {keyEsc, "cancel"}}
 	case modeCommand:
-		return []keycap{{"↑ ↓", "choose"}, {"tab", "complete"}, {"⏎", "run"}, {"esc", "cancel"}}
+		return []keycap{{keyLabels(keyUp, keyDown), "choose"}, {keyTab, "complete"}, {keyLabel(keyEnter), "run"}, {keyEsc, "cancel"}}
 	case modeAsk, modeComment:
 		if m.entry.picker != nil {
 			back := "back to the question"
 			if m.drafting != nil {
 				back = "back to the comment"
 			}
-			return []keycap{{"↑ ↓ ^N ^P", "move"}, {"⏎ tab", "pick"}, {"^U", "clear"}, {"esc", back}}
+			return []keycap{
+				{keyLabels(keyUp, keyDown, keyCtrlN, keyCtrlP), "move"}, {keyLabels(keyEnter, keyTab), "pick"},
+				{keyLabel(keyCtrlU), "clear"}, {keyEsc, back},
+			}
 		}
-		verb, newline := "save", "⌥⏎"
+		verb, newline := "save", keyAltEnter
 		if m.asking != nil {
 			verb = "send"
 		}
 		if m.shiftEnter {
-			newline = "⇧⏎"
+			newline = keyShiftEnter
 		}
-		return []keycap{{"⏎", verb}, {newline, "new line"}, {"^", "pick a model"}, {"esc", "cancel"}}
+		return []keycap{{keyLabel(keyEnter), verb}, {keyLabel(newline), "new line"}, {keyPickModel, "pick a model"}, {keyEsc, "cancel"}}
 	case modeOrigin:
 		// a asks from the box where its title offers it: on a changed line, or a line with
 		// questions, which a follows up.
-		keys := []keycap{{"j k", "scroll"}}
+		keys := []keycap{{keyLabels(keyLineDown, keyLineUp), "scroll"}}
 		switch {
 		case m.hasQuestions(m.cursor):
-			keys = append(keys, keycap{"a", "ask a follow-up"})
+			keys = append(keys, keycap{keyAsk, "ask a follow-up"})
 		case m.rows[m.cursor].isChange():
-			keys = append(keys, keycap{"a", "ask"})
+			keys = append(keys, keycap{keyAsk, "ask"})
 		}
-		return append(keys, keycap{"⏎ esc", "close"})
+		return append(keys, keycap{keyLabels(keyEnter, keyEsc), "close"})
 	case modeVisual:
+		extend, stop := keycap{keyLabels(keyLineDown, keyLineUp), "extend"}, keycap{keyLabels(keySelect, keyEsc), "stop selecting"}
 		if m.mixed() {
-			return []keycap{{"a", "ask"}, {"c", "comment"}, {"j k", "extend"}, {"V esc", "stop selecting"}}
+			return []keycap{{keyAsk, "ask"}, {keyComment, "comment"}, extend, stop}
 		}
 		n := countOf(len(m.selectedRows()), "line")
-		return []keycap{{"a", "ask about " + n}, {"c", "comment on " + n}, {"j k", "extend"}, {"V esc", "stop selecting"}}
+		return []keycap{{keyAsk, "ask about " + n}, {keyComment, "comment on " + n}, extend, stop}
 	}
 	if len(m.rows) == 0 {
-		return []keycap{{":", "command"}, {"?", "help"}, {"q", "quit"}}
+		return []keycap{{keyCommand, "command"}, {keyHelp, "help"}, {keyQuit, "quit"}}
 	}
 	keys := []keycap{
-		{"a", "ask"}, {"c", "comment"}, {"e", "edit"}, {"⏎", "origin"}, {"v", "viewed"},
-		{"V", "select"}, {"s", "split"}, {"/", "search"}, {":", "command"}, {"?", "help"},
+		{keyAsk, "ask"}, {keyComment, "comment"}, {keyEdit, "edit"}, {keyLabel(keyOrigin), "origin"}, {keyViewed, "viewed"},
+		{keySelect, "select"}, {keySplit, "split"}, {keySearch, "search"}, {keyCommand, "command"}, {keyHelp, "help"},
 	}
 	if c := m.commentOn(m.cursor); c != nil && c.fix != nil {
-		keys = append([]keycap{{"y", "apply"}, {"x", "drop"}}, keys...)
+		keys = append([]keycap{{keyApply, "apply"}, {keyDrop, "drop"}}, keys...)
 	}
 	return keys
 }
 
 // readHint returns the hint of a notice that Enter reads: Enter to read it, Esc to dismiss.
 func (m *model) readHint() []chunk {
-	return m.keys([2]string{"⏎", "to read"}, [2]string{"esc", "dismiss"})
+	return m.keys([2]string{keyLabel(keyEnter), "to read"}, [2]string{keyEsc, "dismiss"})
 }

@@ -79,23 +79,23 @@ type modelsMsg struct {
 func (m *model) pickKey(msg tea.KeyPressMsg) {
 	p := m.entry.picker
 	switch k := msg.String(); k {
-	case "up", "ctrl+p":
+	case keyUp, keyCtrlP:
 		m.moveHighlight(-1)
-	case "down", "ctrl+n":
+	case keyDown, keyCtrlN:
 		m.moveHighlight(1)
-	case "enter", "tab":
+	case keyEnter, keyTab:
 		m.pick()
-	case "esc":
+	case keyEsc:
 		m.entry.picker = nil
-	case "ctrl+c":
+	case keyCtrlC:
 		m.closeBox()
-	case "ctrl+u":
+	case keyCtrlU:
 		m.setQuery("")
-	case "backspace":
+	case keyBackspace:
 		_, n := utf8.DecodeLastRuneInString(p.query)
 		m.setQuery(p.query[:len(p.query)-n])
 	default:
-		if p.query == "" && msg.Text == "^" {
+		if p.query == "" && msg.Text == keyPickModel {
 			m.entry.picker = nil
 			_, w := m.layout()
 			m.entry.edit(k, msg.Text, m.entryWidth(w))

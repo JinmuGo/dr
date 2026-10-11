@@ -48,14 +48,14 @@ func (m *model) originCard(w int) card {
 	default:
 		left = []chunk{{text: m.where(), color: t.muted, cut: true}}
 	}
-	closing := m.keys([2]string{"⏎", "close"})
+	closing := m.keys([2]string{keyLabel(keyEnter), "close"})
 	options := [][]chunk{closing}
 	if r.isChange() || m.hasQuestions(m.cursor) {
-		ask := [2]string{"a", "ask"}
+		ask := [2]string{keyAsk, "ask"}
 		if m.hasQuestions(m.cursor) {
 			ask[1] = "follow-up"
 		}
-		options = [][]chunk{m.keys(ask, [2]string{"⏎", "close"}), closing}
+		options = [][]chunk{m.keys(ask, [2]string{keyLabel(keyEnter), "close"}), closing}
 	}
 	c.head = cardRow{left: left, right: fitKeys(left, w-3, options...)}
 	c.rows = m.originRows(textWidth(w))

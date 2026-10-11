@@ -355,16 +355,16 @@ func (m *model) keyRow() string {
 	label := t.paint(t.muted, nil)
 	mixed := m.mode() == modeVisual && m.mixed() // a and c only say why they do nothing
 	add := func(segs []seg, k keycap) []seg {
-		if mixed && (k.key == "a" || k.key == "c") {
+		if mixed && (k.key == keyAsk || k.key == keyComment) {
 			return append(segs, seg{text: " " + k.key + " ", st: t.paint(t.subtle, t.panel).Reverse(t.plain)}, seg{text: " " + k.does, st: t.paint(t.faint, nil)})
 		}
 		return append(segs, seg{text: " " + k.key + " ", st: keyStyle}, seg{text: " " + k.does, st: label})
 	}
 	var right []seg
 	if mode := m.mode(); len(m.rows) > 0 && (mode == modeNormal || mode == modeVisual) {
-		end := keycap{"q", "quit"}
+		end := keycap{keyQuit, "quit"}
 		if n := m.pendingCount(); n > 0 {
-			end = keycap{":submit", "send " + strconv.Itoa(n)}
+			end = keycap{keyCommand + "submit", "send " + strconv.Itoa(n)}
 		}
 		right = append(add(nil, end), seg{text: " "})
 	}

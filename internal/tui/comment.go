@@ -457,13 +457,13 @@ func (m *model) commentCard(c *comment, w int) card {
 	case c.request != "":
 		chip = chunk{text: askingFor(m.now().Sub(c.asked)), color: t.ask, chip: true}
 	case f == nil:
-		chip, keys = chunk{text: "pending", color: t.pending, chip: true}, [][2]string{{"c", "edit"}}
+		chip, keys = chunk{text: "pending", color: t.pending, chip: true}, [][2]string{{keyComment, "edit"}}
 	case f.Error != "":
-		chip, keys = chunk{text: "no fix", color: t.del, chip: true}, [][2]string{{"x", "drop"}, {"c", "edit"}}
+		chip, keys = chunk{text: "no fix", color: t.del, chip: true}, [][2]string{{keyDrop, "drop"}, {keyComment, "edit"}}
 	case f.Keep:
-		chip, keys = chunk{text: "keeps the lines", color: t.muted, chip: true}, [][2]string{{"x", "drop"}, {"c", "edit"}}
+		chip, keys = chunk{text: "keeps the lines", color: t.muted, chip: true}, [][2]string{{keyDrop, "drop"}, {keyComment, "edit"}}
 	default:
-		chip, keys = chunk{text: "fix ready", color: t.fix, chip: true}, [][2]string{{"y", "apply"}, {"x", "drop"}, {"c", "edit"}}
+		chip, keys = chunk{text: "fix ready", color: t.fix, chip: true}, [][2]string{{keyApply, "apply"}, {keyDrop, "drop"}, {keyComment, "edit"}}
 	}
 	left = append(left, chunk{text: "   "}, chip)
 	var options [][]chunk

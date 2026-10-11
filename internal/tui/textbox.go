@@ -47,7 +47,7 @@ func (b *textBox) edit(k, text string, width int) {
 		b.kept = false
 	}
 	switch k {
-	case "shift+enter", "alt+enter", "ctrl+j":
+	case keyShiftEnter, keyAltEnter, keyCtrlJ:
 		b.insert("\n")
 	case "backspace":
 		b.remove(b.before(b.cursor), b.cursor)

@@ -80,20 +80,20 @@ func (m *model) commandRows() []command {
 func (m *model) typeCommand(k, text string) tea.Cmd {
 	rows := m.commandRows()
 	switch k {
-	case "enter":
+	case keyEnter:
 		name := strings.TrimSpace(m.input)
 		if name != "" && len(rows) > 0 {
 			name = rows[m.choice].name
 		}
 		m.commanding, m.input = false, ""
 		return m.runCommand(name)
-	case "esc":
+	case keyEsc:
 		m.commanding, m.input = false, ""
-	case "up":
+	case keyUp:
 		m.choice = max(m.choice-1, 0)
-	case "down":
+	case keyDown:
 		m.choice = max(min(m.choice+1, len(rows)-1), 0)
-	case "tab":
+	case keyTab:
 		if len(rows) > 0 {
 			name := rows[m.choice].name
 			m.input = name
