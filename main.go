@@ -10,6 +10,7 @@ import (
 	"errors"
 	"fmt"
 	"os"
+	"runtime/debug"
 	"strings"
 
 	"github.com/JinmuGo/dr/internal/agent"
@@ -20,7 +21,11 @@ import (
 )
 
 const usage = `usage: dr [<ref>]
-       dr blame <path>`
+       dr blame <path>
+       dr --version`
+
+// version is the release version, set by release builds with -X main.version=<v>.
+var version string
 
 func main() {
 	os.Exit(run(os.Args[1:]))
@@ -30,6 +35,10 @@ func main() {
 func run(args []string) int {
 	var err error
 	switch {
+	case len(args) == 1 && args[0] == "--version":
+		info, _ := debug.ReadBuildInfo()
+		fmt.Println("dr", versionOf(version, info))
+		return 0
 	case len(args) == 2 && args[0] == "blame":
 		err = blame(os.Stdout, args[1])
 	case len(args) == 0:
@@ -45,6 +54,41 @@ func run(args []string) int {
 		return 1
 	}
 	return 0
+}
+
+// versionOf returns the version dr reports: ldflags when a release build set it, else the
+// main module version that go install records without its leading v, else devel with the
+// VCS revision the build came from. A build in a git checkout records both a revision and,
+// since Go 1.24, a pseudo-version as the module version, so a recorded revision means devel.
+// info is nil when the binary holds no build info.
+func versionOf(ldflags string, info *debug.BuildInfo) string {
+	if ldflags != "" {
+		return ldflags
+	}
+	if info == nil {
+		return "devel"
+	}
+	var revision string
+	var modified bool
+	for _, s := range info.Settings {
+		switch s.Key {
+		case "vcs.revision":
+			revision = s.Value
+		case "vcs.modified":
+			modified = s.Value == "true"
+		}
+	}
+	if v := info.Main.Version; revision == "" && v != "" && v != "(devel)" {
+		return strings.TrimPrefix(v, "v")
+	}
+	if revision == "" {
+		return "devel"
+	}
+	revision = revision[:min(len(revision), 7)]
+	if modified {
+		return "devel (" + revision + ", modified)"
+	}
+	return "devel (" + revision + ")"
 }
 
 // browse opens the diff screen on the files changed since the merge-base of HEAD and ref.

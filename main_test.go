@@ -3,6 +3,7 @@ package main
 import (
 	"os"
 	"os/exec"
+	"runtime/debug"
 	"strings"
 	"testing"
 	"time"
@@ -91,6 +92,33 @@ func TestOpens(t *testing.T) {
 		t.Run(tc.name, func(t *testing.T) {
 			if got := opens(tc.files, tc.log); got != tc.want {
 				t.Errorf("opens(%d files, %d applied, %d undone) = %t, want %t", len(tc.files), len(tc.log.Applied), len(tc.log.Undone), got, tc.want)
+			}
+		})
+	}
+}
+
+func TestVersion(t *testing.T) {
+	vcs := func(revision, modified string) *debug.BuildInfo {
+		return &debug.BuildInfo{Main: debug.Module{Version: "v0.0.0-20261011123635-abc1234def56+dirty"}, Settings: []debug.BuildSetting{
+			{Key: "vcs.revision", Value: revision}, {Key: "vcs.modified", Value: modified},
+		}}
+	}
+	for _, tc := range []struct {
+		name    string
+		ldflags string
+		info    *debug.BuildInfo
+		want    string
+	}{
+		{"release build", "0.1.0", &debug.BuildInfo{Main: debug.Module{Version: "v0.2.0"}}, "0.1.0"},
+		{"go install", "", &debug.BuildInfo{Main: debug.Module{Version: "v0.1.0"}}, "0.1.0"},
+		{"clean checkout", "", vcs("abc1234def5678", "false"), "devel (abc1234)"},
+		{"modified checkout", "", vcs("abc1234def5678", "true"), "devel (abc1234, modified)"},
+		{"no revision", "", &debug.BuildInfo{Main: debug.Module{Version: "(devel)"}}, "devel"},
+		{"no build info", "", nil, "devel"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			if got := versionOf(tc.ldflags, tc.info); got != tc.want {
+				t.Errorf("versionOf(%q, %+v) = %q, want %q", tc.ldflags, tc.info, got, tc.want)
 			}
 		})
 	}
