@@ -1,0 +1,81 @@
+claude ec6e8b8a #1  ec6e8b8a-34cf-47ad-b851-09985c776249
+    request: ratelimit.go 하나에 토큰 버킷 rate limiter를 짜줘. package ratelimit, type Limiter, func New(rate float64, burst int) *Limiter, func (l *Limiter) Allow() bool. 테스트에서 시간을 바꿀 수 있게 now func() time.Time 필드를 둬. 동시에 불려도 안전해야 해. 이건 일회용 실험 폴더야. 파일만 쓰고 셸 명령은 실행하지 마. 끝나면 한 줄로만 알려줘.
+    reply: `ratelimit.go`에 mutex로 보호되고 `now`를 바꿔 끼울 수 있는 토큰 버킷 `Limiter`를 작성했고, 요청대로 셸 명령은 실행하지 않아 컴파일과 테스트는 하지 않았어요.
+claude ec6e8b8a #2  ec6e8b8a-34cf-47ad-b851-09985c776249
+    request: AllowN(n int) bool 을 추가하고 Allow 는 AllowN(1) 을 부르게 바꿔줘. n 이 burst 보다 크면 항상 false 야. 셸 명령은 실행하지 마. 끝나면 한 줄로만 알려줘.
+    reply: `AllowN(n)`을 추가하고 `Allow`가 `AllowN(1)`을 부르게 바꿨으며, n이 burst보다 크면 항상 false이고 따로 정한 대로 n이 0 이하면 토큰을 쓰지 않고 true를 반환하는데, 셸 명…
+unknown  Not in any session record. A person changed it, or a tool that leaves no record, like a shell command.
+
+claude ec6e8b8a #1   1  // Package ratelimit은 토큰 버킷 방식의 rate limiter를 제공한다.
+claude ec6e8b8a #1   2  package ratelimit
+claude ec6e8b8a #1   3  
+claude ec6e8b8a #1   4  import (
+claude ec6e8b8a #1   5  	"sync"
+claude ec6e8b8a #1   6  	"time"
+claude ec6e8b8a #1   7  )
+claude ec6e8b8a #1   8  
+claude ec6e8b8a #1   9  // Limiter는 초당 rate개의 토큰을 채우고 최대 burst개까지 보관하는 토큰 버킷이다.
+claude ec6e8b8a #1  10  // 여러 goroutine에서 동시에 사용해도 안전하다.
+claude ec6e8b8a #1  11  type Limiter struct {
+claude ec6e8b8a #1  12  	mu     sync.Mutex
+claude ec6e8b8a #1  13  	rate   float64
+claude ec6e8b8a #1  14  	burst  float64
+claude ec6e8b8a #1  15  	tokens float64
+claude ec6e8b8a #1  16  	last   time.Time
+claude ec6e8b8a #1  17  
+claude ec6e8b8a #1  18  	// now는 현재 시각을 반환한다. 테스트에서 교체할 수 있다.
+claude ec6e8b8a #1  19  	now func() time.Time
+claude ec6e8b8a #1  20  }
+claude ec6e8b8a #1  21  
+claude ec6e8b8a #1  22  // New는 초당 rate개의 토큰을 채우고 최대 burst개까지 허용하는 Limiter를 만든다.
+claude ec6e8b8a #1  23  // 버킷은 가득 찬 상태로 시작한다.
+claude ec6e8b8a #1  24  func New(rate float64, burst int) *Limiter {
+claude ec6e8b8a #1  25  	return &Limiter{
+claude ec6e8b8a #1  26  		rate:   rate,
+claude ec6e8b8a #1  27  		burst:  float64(burst),
+claude ec6e8b8a #1  28  		tokens: float64(burst),
+claude ec6e8b8a #1  29  		now:    time.Now,
+claude ec6e8b8a #1  30  	}
+claude ec6e8b8a #1  31  }
+claude ec6e8b8a #1  32  
+claude ec6e8b8a #2  33  // Allow는 AllowN(1)과 같다.
+claude ec6e8b8a #1  34  func (l *Limiter) Allow() bool {
+claude ec6e8b8a #2  35  	return l.AllowN(1)
+claude ec6e8b8a #2  36  }
+claude ec6e8b8a #2  37  
+claude ec6e8b8a #2  38  // AllowN은 토큰이 n개 이상 남아 있으면 n개를 소비하고 true를 반환한다.
+claude ec6e8b8a #2  39  // n이 burst보다 크면 절대 채워질 수 없으므로 항상 false를 반환한다.
+claude ec6e8b8a #2  40  // n이 0 이하이면 토큰을 소비하지 않고 true를 반환한다.
+claude ec6e8b8a #2  41  func (l *Limiter) AllowN(n int) bool {
+claude ec6e8b8a #1  42  	l.mu.Lock()
+claude ec6e8b8a #1  43  	defer l.mu.Unlock()
+claude ec6e8b8a #2  44  
+claude ec6e8b8a #2  45  	if float64(n) > l.burst {
+claude ec6e8b8a #2  46  		return false
+claude ec6e8b8a #2  47  	}
+unknown             48  	if n < 1 {
+claude ec6e8b8a #2  49  		return true
+claude ec6e8b8a #2  50  	}
+claude ec6e8b8a #1  51  
+claude ec6e8b8a #1  52  	now := l.now()
+claude ec6e8b8a #1  53  	// last는 첫 호출 시점에 정한다. New 이후 now를 교체해도 기준 시각이 어긋나지 않는다.
+claude ec6e8b8a #1  54  	if l.last.IsZero() {
+claude ec6e8b8a #1  55  		l.last = now
+claude ec6e8b8a #1  56  	}
+claude ec6e8b8a #1  57  	if elapsed := now.Sub(l.last); elapsed > 0 && l.rate > 0 {
+claude ec6e8b8a #1  58  		l.tokens += elapsed.Seconds() * l.rate
+claude ec6e8b8a #1  59  		if l.tokens > l.burst {
+claude ec6e8b8a #1  60  			l.tokens = l.burst
+claude ec6e8b8a #1  61  		}
+claude ec6e8b8a #1  62  	}
+claude ec6e8b8a #1  63  	// 시계가 뒤로 가면 last를 되돌리지 않아 토큰이 중복으로 채워지는 것을 막는다.
+claude ec6e8b8a #1  64  	if now.After(l.last) {
+claude ec6e8b8a #1  65  		l.last = now
+claude ec6e8b8a #1  66  	}
+claude ec6e8b8a #1  67  
+claude ec6e8b8a #2  68  	if l.tokens < float64(n) {
+claude ec6e8b8a #1  69  		return false
+claude ec6e8b8a #1  70  	}
+claude ec6e8b8a #2  71  	l.tokens -= float64(n)
+claude ec6e8b8a #1  72  	return true
+claude ec6e8b8a #1  73  }

@@ -1,0 +1,18 @@
+omp 01a1f000 #1  01a1f000-0000-7000-8000-000000000001
+    request: notes.md에 a, b, c 세 줄을 써줘.
+    note: Writing notes
+    reply: notes.md를 썼어요.
+omp 01a1f000 #2  01a1f000-0000-7000-8000-000000000001
+    request: b를 대문자로 바꿔줘.
+    note: b를 B로 바꿀게요.
+    reply: b를 B로 바꿨어요.
+omp 01a1f000 #3  01a1f000-0000-7000-8000-000000000001
+    request: <task>끝에 d를 더하고 other.md의 x를 y로 바꿔줘.</task>
+    note: Appending d
+    reply: d를 더하고 other.md를 고쳤어요.
+
+                 1  a
+omp 01a1f000 #1  -  old
+omp 01a1f000 #2  2  B
+                 3  c
+omp 01a1f000 #3  4  d

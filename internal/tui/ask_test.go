@@ -1,0 +1,1186 @@
+package tui
+
+import (
+	"context"
+	"errors"
+	"image/color"
+	"path/filepath"
+	"slices"
+	"strings"
+	"sync"
+	"testing"
+	"time"
+	"unicode/utf8"
+
+	tea "charm.land/bubbletea/v2"
+	"github.com/JinmuGo/dr/internal/agent"
+	"github.com/JinmuGo/dr/internal/origin"
+	"github.com/JinmuGo/dr/internal/review"
+	"github.com/JinmuGo/dr/internal/state"
+	"github.com/charmbracelet/x/ansi"
+)
+
+// fakeAsk stands for agent.Ask: it keeps the questions it gets and gives each answer, or
+// fails with err. The agents in installed are installed, all of them when it is nil.
+type fakeAsk struct {
+	mu        sync.Mutex
+	questions []agent.Question
+	answer    agent.Answer
+	err       error
+	installed []string
+}
+
+func (f *fakeAsk) ask(_ context.Context, q agent.Question) (agent.Answer, error) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	f.questions = append(f.questions, q)
+	return f.answer, f.err
+}
+
+// isInstalled stands for agent.Installed.
+func (f *fakeAsk) isInstalled(name string) bool {
+	return f.installed == nil || slices.Contains(f.installed, name)
+}
+
+// asked returns the questions f got.
+func (f *fakeAsk) asked() []agent.Question {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	return slices.Clone(f.questions)
+}
+
+// answer is an answer that starts with its tag, as the question asks it to.
+var answer = agent.Answer{Fork: "fork-1", Text: "[decided] 토큰 버킷이라 float64로 했어요.", Model: "claude-opus-5-5", Took: 7012 * time.Millisecond}
+
+// root is the top directory of the worktree the screens of the tests show.
+const root = "/repo"
+
+// askScreen returns the screen on files in a 125×24 terminal that asks through f. It does not
+// tick, so the command of the key that asks is the question alone.
+func askScreen(files []review.File, saved Saved, f *fakeAsk) *model {
+	m := New(files, nil, saved, Asker{Ask: f.ask, Installed: f.isInstalled, Root: root}).(*model)
+	m.tick = noTick
+	m.Update(tea.WindowSizeMsg{Width: 125, Height: 24})
+	return m
+}
+
+// noTick stands for tick in a test that sends tickMsg itself, if at all.
+func noTick() tea.Cmd { return nil }
+
+// typeAndKeep types keys into m like typeKeys, but keeps the command of the last key for the
+// test to run, so the question it asks stays in flight until then.
+func typeAndKeep(m *model, keys string) tea.Cmd {
+	presses := keyPresses(keys)
+	for _, k := range presses[:len(presses)-1] {
+		send(m, k)
+	}
+	_, cmd := m.Update(presses[len(presses)-1])
+	return cmd
+}
+
+// boxText returns the text of the origin box of the cursor row, as paragraphText writes it.
+func boxText(m *model) string {
+	return paragraphText(m.originText())
+}
+
+// paragraphText returns the text of paragraphs, a paragraph a line: a paragraph of a thread
+// after "▍ ", a header with its badge and its note two spaces after its text, and a rule as
+// "─".
+func paragraphText(paragraphs []paragraph) string {
+	var texts []string
+	for _, p := range paragraphs {
+		text := p.text
+		for _, s := range []string{p.badge.text, p.note.text} {
+			if s != "" {
+				text += "  " + s
+			}
+		}
+		switch {
+		case p.rule:
+			text = "─"
+		case p.bar != noBar:
+			text = strings.TrimSuffix("▍ "+text, " ")
+		}
+		texts = append(texts, text)
+	}
+	return strings.Join(texts, "\n")
+}
+
+// askFiles returns testFiles and two more files. In d.go, rows 27 to 34, a Codex session
+// wrote the added line on row 30, the newest edit of the file, and a Claude subagent the one
+// on row 31; the line deleted on row 33 has no origin. e.go, rows 35 to 40, has no origins:
+// a deleted line on row 38 and an added one on row 39.
+func askFiles() []review.File {
+	d := parseDiff("x", "+codex line", "+subagent line", "y", "-old line", "z")
+	d[1].Edit = &agent.Edit{
+		Agent: "codex", Session: "c0dex000-3333", Turn: 1, Time: start.Add(5 * time.Minute), Cwd: "/work", Model: "gpt-6.1-sol", Effort: "medium",
+	}
+	d[2].Edit = &agent.Edit{Agent: "claude", Session: "5ub00000-4444", Parent: claudeSession, Turn: 1, Time: start, Cwd: "/work/sub"}
+	e := parseDiff("a", "-gone", "+new", "b")
+	return append(testFiles(), review.File{Path: "d.go", Status: 'M', Lines: d}, review.File{Path: "e.go", Status: 'M', Lines: e})
+}
+
+func TestAskKeyA(t *testing.T) {
+	// a asks; K moves half a page and no longer asks, in the diff and in the open origin box.
+	for _, keys := range []string{"4jK", "4j<enter>K"} {
+		m := askScreen(testFiles(), Saved{}, &fakeAsk{answer: answer})
+		typeKeys(m, keys)
+		if m.typing() {
+			t.Errorf("%q opened the input box", keys)
+		}
+	}
+}
+
+func TestAskInput(t *testing.T) {
+	// a on a changed line opens the input box right under the line, titled with who it asks,
+	// where the line is and the keys, with what it asks when nothing is typed dim after the
+	// cursor. Typing takes its place, an input method's text too, and the terminal's cursor
+	// stays where the text goes in. Backspace and ctrl+u take it back, and Esc closes the
+	// box without asking. The status line keeps telling of the cursor row.
+	f := &fakeAsk{answer: answer}
+	m := askScreen(testFiles(), Saved{}, f)
+	const title = "Ask claude c1a0de00 #1 · L2 (Enter:send Alt-Enter:newline ^:model Esc:cancel)"
+	for _, step := range []struct {
+		keys, text string
+	}{
+		{"4ja", " " + whyAdded}, // the cursor's cell, then the placeholder
+		{"왜", "왜"},
+		{"<bs>", " " + whyAdded},
+		{"abc<ctrl+u>", " " + whyAdded},
+		{"abc", "abc"},
+	} {
+		typeKeys(m, step.keys)
+		box := entryBox(t, m)
+		if lines := strings.Split(screen(t, m), "\n"); !strings.Contains(lines[cursorLine(m)], "Changed 2") ||
+			!strings.Contains(lines[cursorLine(m)+1], "┏━ "+title) || !slices.Equal(shownText(box), []string{step.text}) {
+			t.Errorf("after %q: the box\n%s\nwant it under the line, titled %q, holding %q", step.keys, strings.Join(box, "\n"), title, step.text)
+		}
+	}
+	m.Update(tea.KeyPressMsg{Code: tea.KeyExtended, Text: "왜요"}) // an input method commits two characters
+	if _, before := beforeCursor(t, m); m.entry.text != "abc왜요" || !strings.HasSuffix(before, "┃ abc왜요") {
+		t.Errorf("text %q with %q before the cursor, want %q with the cursor after it", m.entry.text, before, "abc왜요")
+	}
+	if status := statusLine(t, m); !strings.Contains(status, "claude c1a0de00 #1  row 5/27") || strings.Contains(status, "Enter") {
+		t.Errorf("status line %q, want the origin and the row of the cursor row without the hint", status)
+	}
+	typeKeys(m, "<esc>")
+	if m.asking != nil || m.reading || m.cursor != 4 || len(f.asked()) != 0 || entryBox(t, m) != nil || m.View().Cursor != nil {
+		t.Errorf("Esc: box open %t, origin box open %t, cursor at row %d, %d questions; want all closed at row 4 and none asked",
+			m.asking != nil, m.reading, m.cursor, len(f.asked()))
+	}
+	// A deleted line is asked about differently, and goes by its line in base.
+	typeKeys(m, "ka")
+	if box := entryBox(t, m); !strings.HasPrefix(shownTitle(box), "Ask claude c1a0de00 #1 · L2 ") || !slices.Equal(shownText(box), []string{" " + whyDeleted}) {
+		t.Errorf("a on a deleted line: the box\n%s", strings.Join(box, "\n"))
+	}
+}
+
+func TestInputRoom(t *testing.T) {
+	// An open search or : input goes first on the status line. The right leaves out the
+	// hint, then the origin, then the row number, to make room for it and the cursor after
+	// it. When the whole line is too narrow, the start of the input is cut, so what is typed
+	// and the cursor stay on the screen, and no wide character is split; screen checks every
+	// line is as wide as the screen.
+	query, long := strings.Repeat("가", 35), strings.Repeat("왜", 30)
+	for _, tc := range []struct {
+		name       string
+		width      int
+		keys       string
+		start, end string // of the status line without its trailing spaces
+		gone       []string
+	}{
+		{
+			name: "the hint and the origin make room", width: 100, keys: "32G/" + query,
+			start: " /" + query, end: " row 32/41", gone: []string{"claude 5ub00000", "Enter"},
+		},
+		{
+			// Cut after 4 cells, which go through the second 왜, so it goes too.
+			name: "only the end of what is typed", width: 60, keys: "32G/" + long,
+			start: " …" + strings.Repeat("왜", 28), end: strings.Repeat("왜", 28), gone: []string{"row"},
+		},
+		{
+			name: "a search", width: 60, keys: "/" + strings.Repeat("가나", 15),
+			start: " …" + strings.Repeat("가나", 14), end: strings.Repeat("가나", 14),
+		},
+		{
+			name: "a command", width: 60, keys: ":" + strings.Repeat("가나", 15),
+			start: " …" + strings.Repeat("가나", 14), end: strings.Repeat("가나", 14),
+		},
+	} {
+		m := askScreen(askFiles(), Saved{}, &fakeAsk{answer: answer})
+		m.Update(tea.WindowSizeMsg{Width: tc.width, Height: 24})
+		typeKeys(m, tc.keys)
+		status := strings.TrimRight(statusLine(t, m), " ")
+		if !strings.HasPrefix(status, tc.start) || !strings.HasSuffix(status, tc.end) {
+			t.Errorf("%s: status line %q, want it to start with %q and end with %q", tc.name, status, tc.start, tc.end)
+		}
+		for _, g := range tc.gone {
+			if strings.Contains(status, g) {
+				t.Errorf("%s: status line %q has %q", tc.name, status, g)
+			}
+		}
+		if c, want := m.View().Cursor, ansi.StringWidth(tc.start); c == nil || c.X != want || c.Y != 23 {
+			t.Errorf("%s: cursor %+v, want it at column %d of the status line", tc.name, c, want)
+		}
+	}
+}
+
+func TestAskRefusals(t *testing.T) {
+	for _, tc := range []struct {
+		keys, want string
+		installed  []string // the agents installed, all when nil
+	}{
+		{keys: "a", want: "Move to a changed line to ask"},    // a file header
+		{keys: "ja", want: "Move to a changed line to ask"},   // a hunk header
+		{keys: "2ja", want: "Move to a changed line to ask"},  // an unchanged line
+		{keys: "20ja", want: "Move to a changed line to ask"}, // why a binary file has no lines
+		{keys: "5jVjja", want: "The selection has no changed lines"},
+		{keys: "12jV4ja", want: "Some selected lines have no origin"},
+		{keys: "3jV9ja", want: "The selection mixes sessions. Select lines from one session"},
+		{keys: "40Ga", want: "No agent CLI is installed to ask (claude, codex or omp)", installed: []string{}},
+	} {
+		f := &fakeAsk{answer: answer, installed: tc.installed}
+		m := askScreen(askFiles(), Saved{}, f)
+		typeKeys(m, tc.keys)
+		if m.message != tc.want || m.news || m.asking != nil {
+			t.Errorf("%q: message %q, news %t, input open %t; want the warning %q and no input", tc.keys, m.message, m.news, m.asking != nil, tc.want)
+		}
+		if status := statusLine(t, m); !strings.Contains(status, tc.want) {
+			t.Errorf("%q: status line %q has no %q", tc.keys, status, tc.want)
+		}
+		if typeKeys(m, "<enter>"); len(f.asked()) != 0 {
+			t.Errorf("%q: asked %+v", tc.keys, f.asked())
+		}
+	}
+}
+
+func TestAskOthers(t *testing.T) {
+	// An OMP subagent is asked itself. Lines that no session dr can fork wrote go to another
+	// session, which the input box names with how it relates to them; the question tells it so,
+	// and what a asks when nothing is typed does not say it wrote them. The thread in the
+	// origin box names who was asked, and says dim how they relate to the lines. The model
+	// that answered is compared with the session's, which a new session does not have.
+	for _, tc := range []struct {
+		name, keys  string // keys to the lines, before a
+		installed   []string
+		label       string
+		placeholder string
+		ask         agent.Question // without the prompt
+		lines, end  string         // the prompt after the first line up to the question, and after it
+		who, note   string         // the header of the answer, without the badge
+		relation    string         // the dim line under it
+	}{
+		{
+			name: "an OMP subagent", keys: "12j",
+			label: "omp 0a1f0002 #1", placeholder: whyDeleted,
+			ask:   agent.Question{Agent: "omp", Session: ompSession, Log: subagent.Log, Cwd: "/work"},
+			lines: "a.go, deleted line 15 of the base file. Lines marked - were deleted.\n-line 15\n", end: questionEnd,
+			who: "omp 0a1f0002", note: "claude-opus-5-5 · 7s",
+		},
+		{
+			name: "the parent of a Claude subagent", keys: "32G",
+			label: "claude c1a0de00, which started the subagent", placeholder: whyAddedOther,
+			ask:   agent.Question{Agent: "claude", Session: claudeSession, Cwd: "/work", Model: "claude-opus-5-5"},
+			lines: parentIntro + "\nd.go:3\n>subagent line\n", end: parentEnd,
+			who: "claude c1a0de00", note: "claude-opus-5-5 · 7s", relation: "started the subagent that wrote these lines",
+		},
+		{
+			name: "the session that edited the file last", keys: "16j",
+			label: "omp 0a1f0002, which edited this file", placeholder: whyAddedOther,
+			ask:   agent.Question{Agent: "omp", Session: ompSession, Log: subagent.Log, Cwd: "/work"},
+			lines: editorIntro + "\na.go:18\n>new after 18\n", end: editorEnd,
+			who: "omp 0a1f0002", note: "claude-opus-5-5 · 7s", relation: "edited this file, not these lines",
+		},
+		{
+			name: "a deleted line the editor of the file did not write", keys: "34G",
+			label: "codex c0dex000, which edited this file", placeholder: whyDeletedOther,
+			ask:   agent.Question{Agent: "codex", Session: "c0dex000-3333", Cwd: "/work", Model: "gpt-6.1-sol", Effort: "medium"},
+			lines: editorIntro + "\nd.go, deleted line 3 of the base file. Lines marked - were deleted.\n-old line\n", end: editorEnd,
+			who: "codex c0dex000", note: "claude-opus-5-5, not gpt-6.1-sol · 7s", relation: "edited this file, not these lines",
+		},
+		{
+			name: "a new session", keys: "40G", installed: []string{"omp"},
+			label: "omp in a new session", placeholder: whyAddedOther,
+			ask:   agent.Question{Agent: "omp", Cwd: root},
+			lines: newIntro + "\ne.go:2\n>new\n", end: newEnd,
+			who: "omp, new session", note: "claude-opus-5-5 · 7s", relation: "new session, without this code's history",
+		},
+		{
+			name: "a new session of the agent behind the most edits", keys: "39G",
+			label: "claude in a new session", placeholder: whyDeletedOther,
+			ask:   agent.Question{Agent: "claude", Cwd: root},
+			lines: newIntro + "\ne.go, deleted line 2 of the base file. Lines marked - were deleted.\n-gone\n", end: newEnd,
+			who: "claude, new session", note: "claude-opus-5-5 · 7s", relation: "new session, without this code's history",
+		},
+		{
+			name: "lines for a new session", keys: "39GVj", installed: []string{"codex", "omp"},
+			label: "codex in a new session", placeholder: whyLinesOther,
+			ask:   agent.Question{Agent: "codex", Cwd: root},
+			lines: newIntro + "\ne.go:2. Lines marked - were deleted.\n-gone\n>new\n", end: newEnd,
+			who: "codex, new session", note: "claude-opus-5-5 · 7s", relation: "new session, without this code's history",
+		},
+	} {
+		f := &fakeAsk{answer: answer, installed: tc.installed}
+		m := askScreen(askFiles(), Saved{}, f)
+		typeKeys(m, tc.keys+"a")
+		if box := entryBox(t, m); !strings.HasPrefix(shownTitle(box), "Ask "+tc.label+" · L") || !slices.Equal(shownText(box), []string{" " + tc.placeholder}) {
+			t.Errorf("%s: the box\n%s\nwant it to ask %s %q", tc.name, strings.Join(box, "\n"), tc.label, tc.placeholder)
+		}
+		typeKeys(m, "<enter>")
+		want := tc.ask
+		want.Prompt = "[dr] Review question. Do not change any code, just answer.\n" + tc.lines + tc.placeholder + tc.end
+		if got := f.asked(); len(got) != 1 || got[0] != want {
+			t.Errorf("%s: asked\n%+v\nwant\n%+v", tc.name, got, want)
+		}
+		thread := "Questions · 1\n▍ You  just now\n▍ " + tc.placeholder + "\n▍\n▍ " + tc.who + "  ● decided  " + tc.note + "\n"
+		if tc.relation != "" {
+			thread += "▍ " + tc.relation + "\n"
+		}
+		thread += "▍ 토큰 버킷이라 float64로 했어요.\n─\n"
+		if text := boxText(m); !strings.HasPrefix(text, thread) {
+			t.Errorf("%s: the box\n%s\nwant it to start with\n%s", tc.name, text, thread)
+		}
+	}
+}
+
+func TestAskNewSession(t *testing.T) {
+	// Questions for a new session of an agent go on in the session the first one started,
+	// about any lines, in this run and the next. The log keeps who was asked.
+	dir := t.TempDir()
+	f := &fakeAsk{answer: agent.Answer{Fork: "new-1", Text: "추측이에요. [guess]", Model: "anthropic/claude-opus-5-5", Took: time.Second}, installed: []string{"omp"}}
+	m := askScreen(askFiles(), Saved{Dir: dir}, f)
+	typeKeys(m, "40Ga<enter><esc>39GaWhy gone?<enter>")
+	if got := f.asked(); len(got) != 2 || got[0].Fork != "" || got[1] != (agent.Question{Agent: "omp", Cwd: root, Fork: "new-1", Prompt: got[1].Prompt}) {
+		t.Errorf("asked %+v, want a new omp session and then the same one", got)
+	}
+	// A new session has no model of its own that another could answer in place of. The model
+	// shows without its provider.
+	const thread = "▍ Why gone?\n▍\n▍ omp, new session  ● guess  claude-opus-5-5 · 1s\n▍ new session, without this code's history\n▍ 추측이에요.\n─\n"
+	if text := boxText(m); !strings.Contains(text, thread) {
+		t.Errorf("the box:\n%s\nwant the question, who was asked, the answer and its model", text)
+	}
+	records, bad, err := state.NewLog(filepath.Join(dir, logFile)).Read()
+	if err != nil || bad != 0 {
+		t.Fatal(bad, err)
+	}
+	for _, q := range records.Questions {
+		if q.Agent != "omp" || q.Session != "" || q.Relation != "new" {
+			t.Errorf("question record %+v, want one for a new omp session", q)
+		}
+	}
+	if len(records.Questions) != 2 || len(records.Forks) != 1 || records.Forks[0].Agent != "omp" || records.Forks[0].Session != "" || records.Forks[0].Fork != "new-1" {
+		t.Errorf("records %+v, want two questions and one new session", records)
+	}
+
+	// The next run goes on in it too, and shows who answered the earlier questions.
+	f = &fakeAsk{answer: answer, installed: []string{"omp"}}
+	m = askScreen(askFiles(), Load(dir), f)
+	typeKeys(m, "39G<enter>")
+	if text := boxText(m); !strings.Contains(text, thread) {
+		t.Errorf("the box of the earlier question:\n%s", text)
+	}
+	typeKeys(m, "<esc>40Ga<enter>")
+	if got := f.asked(); len(got) != 1 || got[0].Fork != "new-1" {
+		t.Errorf("asked %+v, want it in new-1", got)
+	}
+}
+
+func TestAskBusy(t *testing.T) {
+	// One question at a time goes to a session; another session can be asked meanwhile.
+	f := &fakeAsk{answer: answer}
+	m := askScreen(askFiles(), Saved{}, f)
+	cmd := typeAndKeep(m, "4ja<enter>")
+	typeKeys(m, "<esc>ka")
+	const busy = "Still waiting for claude c1a0de00 to answer"
+	if m.message != busy || m.asking != nil {
+		t.Errorf("a on the same session: message %q, input open %t; want %q", m.message, m.asking != nil, busy)
+	}
+	typeKeys(m, "31Ga") // row 30, the Codex line
+	if box := entryBox(t, m); m.asking == nil || !strings.HasPrefix(shownTitle(box), "Ask codex c0dex000 #1 · ") {
+		t.Errorf("a on another session: the box\n%s\nwant one that asks codex", strings.Join(box, "\n"))
+	}
+	typeKeys(m, "<esc>")
+	send(m, cmd())
+	if typeKeys(m, "4Ga"); m.asking == nil {
+		t.Errorf("a after the answer came: message %q, want the input", m.message)
+	}
+}
+
+func TestAskAnswer(t *testing.T) {
+	// The question goes to a new fork of the session, in its directory, with the model that
+	// wrote the line. The origin box opens under the line with the thread first: the
+	// question, waiting for its answer, and then the answer with the badge of its tag, which
+	// the box does not show. A rule parts the thread from the origin of the line. The log
+	// keeps the question, the fork and the answer as the agent sent it.
+	dir := t.TempDir()
+	f := &fakeAsk{answer: answer}
+	m := askScreen(testFiles(), Saved{Dir: dir}, f)
+	m.now = func() time.Time { return start }
+	cmd := typeAndKeep(m, "4ja<enter>")
+	waiting := "Questions · 1\n▍ You  just now\n▍ " + whyAdded + "\n▍\n▍ claude c1a0de00  asking… 0s\n─\nSession\nclaude c1a0de00 #1\n"
+	if text := boxText(m); !m.reading || m.cursor != 4 || !strings.HasPrefix(text, waiting) {
+		t.Fatalf("after Enter: box open %t at row %d with\n%s\nwant it open at row 4, starting with\n%s", m.reading, m.cursor, text, waiting)
+	}
+	if s := screen(t, m); !strings.Contains(s, "asking… 0s") {
+		t.Errorf("the screen has no asking… 0s:\n%s", s)
+	}
+	send(m, cmd())
+	want := agent.Question{
+		Agent: "claude", Session: claudeSession, Cwd: "/work", Model: "claude-opus-5-5",
+		Prompt: "[dr] Review question. Do not change any code, just answer.\na.go:2\n>Changed 2\n" + whyAdded + questionEnd,
+	}
+	if got := f.asked(); len(got) != 1 || got[0] != want {
+		t.Errorf("asked %+v, want %+v", got, want)
+	}
+	answered := "Questions · 1\n▍ You  just now\n▍ " + whyAdded + "\n▍\n▍ claude c1a0de00  ● decided  claude-opus-5-5 · 7s\n▍ 토큰 버킷이라 float64로 했어요.\n─\nSession\n"
+	if text := boxText(m); !strings.HasPrefix(text, answered) {
+		t.Errorf("the box:\n%s\nwant it to start with\n%s", text, answered)
+	}
+	s := screen(t, m)
+	if !strings.Contains(s, "▍ 토큰 버킷이라 float64로 했어요.") || strings.Contains(s, "[decided]") || strings.Contains(s, "asking…") || m.message != "" {
+		t.Errorf("the box shows the answer without its tag, so the status line says nothing, got %q:\n%s", m.message, s)
+	}
+
+	// A question on another line of the session goes on in the fork. The box of each line
+	// shows only its own questions. An answer without a tag has no badge.
+	f.answer.Text = "지운 줄이에요."
+	typeKeys(m, "<esc>kaWhy delete it?<enter>")
+	if got := f.asked(); len(got) != 2 || got[1].Fork != "fork-1" || !strings.Contains(got[1].Prompt, "a.go, deleted line 2 of the base file.") {
+		t.Errorf("the second question: got %+v, want it in fork-1 about the deleted line 2", got)
+	}
+	if text := boxText(m); !strings.Contains(text, "▍ Why delete it?\n▍\n▍ claude c1a0de00  claude-opus-5-5 · 7s\n▍ 지운 줄이에요.\n") || strings.Contains(text, whyAdded) {
+		t.Errorf("the box of row 3:\n%s\nwant only its own question", text)
+	}
+	records, bad, err := state.NewLog(filepath.Join(dir, logFile)).Read()
+	if err != nil || bad != 0 {
+		t.Fatal(bad, err)
+	}
+	q := records.Questions[0]
+	wantLines := [3][]state.Line{
+		{{Kind: " ", Text: "line 1"}, {Kind: "-", Text: "line 2"}},
+		{{Kind: "+", Text: "Changed 2"}},
+		{{Kind: " ", Text: "line 3"}, {Kind: " ", Text: "line 4"}},
+	}
+	if len(records.Questions) != 2 || q.Agent != "claude" || q.Session != claudeSession || q.Relation != "author" || q.Path != "a.go" || q.Text != whyAdded || len(q.ID) != 16 ||
+		!slices.Equal(q.Before, wantLines[0]) || !slices.Equal(q.Lines, wantLines[1]) || !slices.Equal(q.After, wantLines[2]) {
+		t.Errorf("question records %+v, want two, the first about +Changed 2", records.Questions)
+	}
+	// The fork knows the session up to its newest edit, claude #2.
+	fork := state.Fork{Agent: "claude", Session: claudeSession, Fork: "fork-1", Base: claude2.Time}
+	if len(records.Forks) != 1 || records.Forks[0].Time.IsZero() {
+		t.Fatalf("fork records %+v, want one", records.Forks)
+	}
+	if got := records.Forks[0]; got.Agent != fork.Agent || got.Session != fork.Session || got.Fork != fork.Fork || !got.Base.Equal(fork.Base) {
+		t.Errorf("fork record %+v, want %+v", got, fork)
+	}
+	if a := records.Answers[q.ID]; a.Fork != "fork-1" || a.Model != "claude-opus-5-5" || a.TookMS != 7012 || a.Text != answer.Text || a.Error != "" {
+		t.Errorf("answer record %+v", a)
+	}
+}
+
+func TestAskModels(t *testing.T) {
+	// The header of an answer has the badge of its tag, and at its right edge the model that
+	// answered, without its provider, and how long it took; in the warning color with the
+	// session's model when that is another. A question without an answer says no answer,
+	// and why under it.
+	for _, tc := range []struct {
+		name        string
+		answer      agent.Answer
+		err         error
+		badge, note part
+		body        paragraph
+	}{
+		{
+			name: "the session's model", answer: answer,
+			badge: part{"● decided", agreed}, note: part{"claude-opus-5-5 · 7s", quiet},
+			body: paragraph{text: "토큰 버킷이라 float64로 했어요.", bar: answerBar},
+		},
+		{
+			name: "the session's model from a provider", answer: agent.Answer{Fork: "f", Text: "[chose] a", Model: "anthropic/claude-opus-5-5", Took: 41 * time.Second},
+			badge: part{"● chose", chosen}, note: part{"claude-opus-5-5 · 41s", quiet}, body: paragraph{text: "a", bar: answerBar},
+		},
+		{
+			name: "another model", answer: agent.Answer{Fork: "f", Text: "a [guess]", Model: "claude-sonnet-5", Took: 7 * time.Second},
+			badge: part{"● guess", guessed}, note: part{"claude-sonnet-5, not claude-opus-5-5 · 7s", trouble}, body: paragraph{text: "a", bar: answerBar},
+		},
+		{
+			name: "no model", answer: agent.Answer{Fork: "f", Text: "a"},
+			note: part{"unknown, not claude-opus-5-5 · 0s", trouble}, body: paragraph{text: "a", bar: answerBar},
+		},
+		{
+			name: "no answer", err: errors.New("claude is not installed or not in PATH"),
+			badge: part{"no answer", trouble}, body: paragraph{text: "claude is not installed or not in PATH", tone: trouble, bar: answerBar},
+		},
+	} {
+		m := askScreen(testFiles(), Saved{}, &fakeAsk{answer: tc.answer, err: tc.err})
+		typeKeys(m, "4ja<enter>")
+		got := m.originText()
+		i := slices.IndexFunc(got, func(p paragraph) bool { return p.head && p.bar == answerBar })
+		if i < 0 || got[i].badge != tc.badge || got[i].note != tc.note || got[i+1] != tc.body {
+			t.Errorf("%s: the box\n%s\nwant the badge %+v, the note %+v and then %+v", tc.name, boxText(m), tc.badge, tc.note, tc.body)
+		}
+	}
+}
+
+func TestModelNote(t *testing.T) {
+	// The note on an answer and on a fix warns only when it can compare: the session's own
+	// model is known, and the one that answered is unknown or another. A model picked with ^
+	// is never warned of: the note marks it with ^ and names the model that answered, or the
+	// one picked when the CLI did not tell.
+	for _, tc := range []struct {
+		name, model, own, picked string
+		want                     part
+	}{
+		{name: "own unknown", model: "claude-opus-5-5", want: part{"claude-opus-5-5 · 8s", quiet}},
+		{name: "both unknown", want: part{"unknown · 8s", quiet}},
+		{name: "answering unknown", own: "claude-opus-5-5", want: part{"unknown, not claude-opus-5-5 · 8s", trouble}},
+		{name: "another model", model: "claude-sonnet-5", own: "claude-opus-5-5", want: part{"claude-sonnet-5, not claude-opus-5-5 · 8s", trouble}},
+		{name: "same model", model: "anthropic/claude-opus-5-5", own: "claude-opus-5-5", want: part{"claude-opus-5-5 · 8s", quiet}},
+		{name: "picked, another answering", model: "claude-sonnet-5-5", own: "claude-opus-5-5", picked: "sonnet", want: part{"^claude-sonnet-5-5 · 8s", quiet}},
+		{name: "picked, answering unknown", own: "claude-opus-5-5", picked: "anthropic/claude-haiku-5-5", want: part{"^claude-haiku-5-5 · 8s", quiet}},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			q := &question{Question: state.Question{Relation: string(review.Author), Model: tc.picked}, own: tc.own}
+			if got := answeredBy(q, &state.Answer{Model: tc.model, TookMS: 8000}); got != tc.want {
+				t.Errorf("answer note: got %+v, want %+v", got, tc.want)
+			}
+			m := &model{
+				newest:  map[session]*agent.Edit{{"claude", "s"}: {Model: tc.own}},
+				records: state.Records{Requests: []state.Request{{ID: "r", Agent: "claude", Session: "s", Model: tc.picked}}},
+			}
+			if got := m.fixedBy(&state.Fix{Request: "r", Agent: "claude", Session: "s", Model: tc.model, TookMS: 8000}); got != tc.want {
+				t.Errorf("fix note: got %+v, want %+v", got, tc.want)
+			}
+		})
+	}
+}
+
+func TestAskNotice(t *testing.T) {
+	// An answer that comes while the box is closed, or shows another line, is told of on the
+	// status line until the next key. Enter goes to read it.
+	for _, tc := range []struct {
+		name, keys string // after the question on row 4 went
+		err        error
+		notice     string
+		answer     string // in the box
+	}{
+		{
+			name: "box closed", keys: "<esc>G", notice: "Answer from claude c1a0de00 #1 on a.go:2. Enter to read",
+			answer: "▍ claude c1a0de00  ● decided  claude-opus-5-5 · 7s\n▍ 토큰 버킷이라 float64로 했어요.\n─",
+		},
+		{
+			name: "box on another line", keys: "<esc>2j<enter>", notice: "Answer from claude c1a0de00 #1 on a.go:2. Enter to read",
+			answer: "▍ claude c1a0de00  ● decided  claude-opus-5-5 · 7s\n▍ 토큰 버킷이라 float64로 했어요.\n─",
+		},
+		{
+			name: "file folded since", keys: "<esc>v", notice: "Answer from claude c1a0de00 #1 on a.go:2. Enter to read",
+			answer: "▍ claude c1a0de00  ● decided  claude-opus-5-5 · 7s\n▍ 토큰 버킷이라 float64로 했어요.\n─",
+		},
+		{
+			name: "no answer", keys: "<esc>", err: errors.New("no answer in 3 minutes"), notice: "No answer from claude c1a0de00 #1 on a.go:2. Enter to read",
+			answer: "▍ claude c1a0de00  no answer\n▍ no answer in 3 minutes\n─",
+		},
+	} {
+		m := askScreen(testFiles(), Saved{Dir: t.TempDir()}, &fakeAsk{answer: answer, err: tc.err})
+		cmd := typeAndKeep(m, "4ja<enter>")
+		typeKeys(m, tc.keys)
+		send(m, cmd())
+		if status := statusLine(t, m); !strings.Contains(status, tc.notice) || m.news != (tc.err == nil) {
+			t.Errorf("%s: status line %q with news %t, want %q", tc.name, status, m.news, tc.notice)
+		}
+		typeKeys(m, "<enter>")
+		want := "Questions · 1\n▍ You  just now\n▍ " + whyAdded + "\n▍\n" + tc.answer
+		if text := boxText(m); m.cursor != 4 || !m.reading || !strings.HasPrefix(text, want) || m.message != "" {
+			t.Errorf("%s: Enter left the cursor at row %d with the box open %t:\n%s\nwant the box of row 4 starting with\n%s", tc.name, m.cursor, m.reading, text, want)
+		}
+	}
+	// Another key ends the notice, and Enter is Enter again.
+	m := askScreen(testFiles(), Saved{}, &fakeAsk{answer: answer})
+	cmd := typeAndKeep(m, "4ja<enter>")
+	typeKeys(m, "<esc>G")
+	send(m, cmd())
+	typeKeys(m, "k<enter>")
+	if m.cursor != 25 || m.unread != nil || strings.Contains(boxText(m), "Questions") {
+		t.Errorf("k, Enter: cursor at row %d, still unread %t; want the box of row 25", m.cursor, m.unread != nil)
+	}
+}
+
+func TestAskTick(t *testing.T) {
+	// While a question waits for its answer, a tick comes once a second, and the box counts
+	// the seconds it has waited. No tick comes while no question waits, nor once the answer
+	// came. The header of the question says how long ago it was asked.
+	m := askScreen(testFiles(), Saved{}, &fakeAsk{answer: answer})
+	now := start
+	m.now = func() time.Time { return now }
+	ticks := 0
+	m.tick = func() tea.Cmd {
+		ticks++
+		return nil
+	}
+	typeKeys(m, "4j<enter>jk<esc>")
+	cmd := typeAndKeep(m, "a<enter>")
+	if text := boxText(m); ticks != 1 || !strings.Contains(text, "\n▍ claude c1a0de00  asking… 0s\n") {
+		t.Errorf("after the question went: %d ticks, the box\n%s\nwant 1 tick and the question waiting 0s", ticks, text)
+	}
+	now = now.Add(12 * time.Second)
+	typeKeys(m, "j") // keys while the tick is on its way ask for no more
+	m.Update(tickMsg{})
+	if text := boxText(m); ticks != 2 || !strings.Contains(text, "\n▍ You  just now\n") || !strings.Contains(text, "\n▍ claude c1a0de00  asking… 12s\n") {
+		t.Errorf("after a tick 12s later: %d ticks, the box\n%s\nwant 2 ticks and the question waiting 12s", ticks, text)
+	}
+	send(m, cmd())
+	m.Update(tickMsg{}) // the tick on its way when the answer came
+	now = now.Add(4 * time.Minute)
+	typeKeys(m, "jk")
+	if text := boxText(m); ticks != 2 || !strings.Contains(text, "\n▍ You  4m\n") || !strings.Contains(text, "\n▍ claude c1a0de00  ● decided  claude-opus-5-5 · 7s\n") {
+		t.Errorf("after the answer: %d ticks, the box\n%s\nwant still 2 ticks, the question 4m ago and its answer", ticks, text)
+	}
+}
+
+func TestAskFromBox(t *testing.T) {
+	// a in the open origin box asks about what the newest question there asked about, as
+	// GitHub's Reply answers a thread: here the selection of rows 2 to 4, from the box of
+	// either row. It closes the origin box and opens the input box under the same row; Enter
+	// opens the origin box again, which stays under its row and shows the newest question with
+	// its answer when the thread does not fit. In a box without questions a asks about the
+	// box's changed line, and in a box with nothing to ask about it says why and the origin
+	// box stays. The top border of the origin box tells of a where it asks.
+	f := &fakeAsk{answer: answer}
+	m := askScreen(testFiles(), Saved{}, f)
+	m.Update(tea.WindowSizeMsg{Width: 125, Height: 14}) // the box shows 9 lines of its text
+	top := func() string { return strings.Split(screen(t, m), "\n")[cursorLine(m)+1] }
+	typeKeys(m, "2jVjja<enter>")
+	f.answer.Text = "[chose] 둘 다 버킷 상태라서요."
+	if !strings.Contains(top(), "a ask · Esc close") {
+		t.Errorf("the top border %q does not tell of a", top())
+	}
+	typeKeys(m, "a")
+	if box := entryBox(t, m); m.reading || m.cursor != 4 || !strings.Contains(top(), "┏━ Ask claude c1a0de00 #1 · L1-2 ") ||
+		!slices.Equal(shownText(box), []string{" " + whyLines}) {
+		t.Errorf("a in the box: origin box open %t at row %d, the line under it %q; want the input box for the selection there", m.reading, m.cursor, top())
+	}
+	typeKeys(m, "Why both?<enter>")
+	const lines = "\na.go:1-2. Lines marked - were deleted.\n>line 1\n-line 2\n>Changed 2\n"
+	if got := f.asked(); len(got) != 2 || got[1].Fork != "fork-1" || !strings.HasSuffix(got[1].Prompt, lines+"Why both?"+questionEnd) {
+		t.Errorf("asked %+v, want the follow-up in fork-1 about the selection", got)
+	}
+	thread := "Questions · 2\n▍ You  just now\n▍ " + whyLines + "\n▍\n▍ claude c1a0de00  ● decided  claude-opus-5-5 · 7s\n▍ 토큰 버킷이라 float64로 했어요.\n\n" +
+		"▍ You  just now\n▍ Why both?\n▍\n▍ claude c1a0de00  ● chose  claude-opus-5-5 · 7s\n▍ 둘 다 버킷 상태라서요.\n─\n"
+	if text := boxText(m); !m.reading || m.typing() || m.cursor != 4 || !strings.HasPrefix(text, thread) {
+		t.Errorf("box open %t at row %d:\n%s\nwant it open at row 4 starting with\n%s", m.reading, m.cursor, text, thread)
+	}
+	if s := screen(t, m); !strings.Contains(s, "Why both?") || !strings.Contains(s, "둘 다 버킷 상태라서요.") || strings.Contains(s, "Questions · 2") {
+		t.Errorf("the box does not show the newest question and its answer:\n%s", s)
+	}
+	for _, tc := range []struct {
+		keys, top string
+	}{
+		{keys: "<esc>gg2j<enter>a", top: "┏━ Ask claude c1a0de00 #1 · L1-2 "},   // an unchanged line of the selection
+		{keys: "<esc><esc>gg12j<enter>a", top: "┏━ Ask omp 0a1f0002 #1 · L15 "}, // no questions
+	} {
+		typeKeys(m, tc.keys)
+		if m.reading || !m.typing() || !strings.Contains(top(), tc.top) {
+			t.Errorf("%q: origin box open %t, the line under the row %q; want the input box %q", tc.keys, m.reading, top(), tc.top)
+		}
+	}
+	typeKeys(m, "<esc><esc>gg5j<enter>a")
+	if why := "Move to a changed line to ask"; !m.reading || m.typing() || m.message != why || !strings.Contains(top(), "─ Esc close") {
+		t.Errorf("a on an unchanged line: origin box open %t, input box open %t, message %q; want the origin box and %q", m.reading, m.typing(), m.message, why)
+	}
+}
+
+func TestAskFromBoxEsc(t *testing.T) {
+	// Esc in the input box that a opened from the origin box brings the origin box back as
+	// it was, scrolled as far, without asking.
+	f := &fakeAsk{answer: answer}
+	m := askScreen(testFiles(), Saved{}, f)
+	m.Update(tea.WindowSizeMsg{Width: 125, Height: 10}) // the origin box shows 5 lines of its text
+	typeKeys(m, "4j<enter>jj")
+	if m.readTop != 2 {
+		t.Fatalf("the origin box shows its text from line %d, want 2", m.readTop)
+	}
+	typeKeys(m, "a")
+	if m.reading || !m.typing() {
+		t.Fatalf("a: origin box open %t, input box open %t; want only the input box", m.reading, m.typing())
+	}
+	typeKeys(m, "why<esc>")
+	if !m.reading || m.typing() || m.readTop != 2 || m.cursor != 4 || len(f.asked()) != 0 {
+		t.Errorf("Esc: origin box open %t from line %d at row %d, input box open %t, %d questions; want the origin box as it was and none asked",
+			m.reading, m.readTop, m.cursor, m.typing(), len(f.asked()))
+	}
+}
+
+func TestThreadHeader(t *testing.T) {
+	// A header of a thread is a line as wide as the box. Its badge and its note are each left
+	// out whole when they do not fit two cells after the rest, a wide character that does not
+	// fit is left out whole, and line breaks and tabs draw as spaces.
+	m := askScreen(testFiles(), Saved{}, &fakeAsk{})
+	you := paragraph{text: "You", tone: strong, bar: askBar, head: true, note: part{"just now", quiet}}
+	who := paragraph{text: "claude 세션", tone: strong, bar: answerBar, head: true, badge: part{"● guess", guessed}, note: part{"claude-opus-5-5 · 7s", quiet}}
+	asking := paragraph{text: "claude c1a0de00", tone: strong, bar: answerBar, head: true, badge: part{"asking… 12s", quiet}}
+	decidedWho := paragraph{text: "claude 세션", tone: strong, bar: answerBar, head: true, badge: part{"● decided", agreed}}
+	broken := paragraph{text: "claude c1a0\nde00", tone: strong, bar: answerBar, head: true, badge: part{"● chose\r", chosen}, note: part{"opus\t5 · 7s", quiet}}
+	for _, tc := range []struct {
+		p     paragraph
+		width int
+		want  string
+	}{
+		{you, 20, "▍ You       just now"},
+		{you, 15, "▍ You  just now"},
+		{you, 14, "▍ You"},
+		{who, 44, "▍ claude 세션  ● guess  claude-opus-5-5 · 7s"},
+		{who, 43, "▍ claude 세션  ● guess"},
+		{who, 10, "▍ claude"},
+		{asking, 30, "▍ claude c1a0de00  asking… 12s"},
+		{asking, 29, "▍ claude c1a0de00"},
+		{asking, 28, "▍ claude c1a0de00"},
+		{decidedWho, 24, "▍ claude 세션  ● decided"},
+		{decidedWho, 23, "▍ claude 세션"},
+		{broken, 41, "▍ claude c1a0 de00  ● chose   opus 5 · 7s"},
+	} {
+		line := m.headLine(tc.p, tc.width)
+		if got := strings.TrimRight(ansi.Strip(line), " "); got != tc.want || ansi.StringWidth(line) != tc.width {
+			t.Errorf("%q at %d cells: got %q, %d cells; want %q", tc.p.text, tc.width, got, ansi.StringWidth(line), tc.want)
+		}
+	}
+}
+
+func TestAnswerKind(t *testing.T) {
+	// The tag of an answer is at its start after any space, or else at its end, in any case,
+	// also wrapped in ** or backticks. The box shows the answer without it.
+	for _, tc := range []struct {
+		text, kind, rest string
+	}{
+		{"[decided] Agreed in the first request.", decided, "Agreed in the first request."},
+		{" \n[chose] I picked it.", chose, "I picked it."},
+		{"[GUESS] Probably for speed.", guess, "Probably for speed."},
+		{"[Decided]\nWe agreed.", decided, "We agreed."},
+		{"**[chose]** I picked it.", chose, "I picked it."},
+		{"`[guess]` Maybe.", guess, "Maybe."},
+		{"I picked it. [chose]", chose, "I picked it."},
+		{"토큰 버킷이라서요. **[Decided]**\n", decided, "토큰 버킷이라서요."},
+		{"It was agreed. `[DECIDED]`", decided, "It was agreed."},
+		{"[guess] Maybe. [chose]", guess, "Maybe. [chose]"}, // the start goes first
+		{"No tag.", "", "No tag."},
+		{"[unsure] Maybe.", "", "[unsure] Maybe."},
+		{"A [chose] in the middle is no tag.", "", "A [chose] in the middle is no tag."},
+		{"", "", ""},
+	} {
+		if kind, rest := answerKind(tc.text); kind != tc.kind || rest != tc.rest {
+			t.Errorf("%q: got %q and %q, want %q and %q", tc.text, kind, rest, tc.kind, tc.rest)
+		}
+	}
+}
+
+func TestAgo(t *testing.T) {
+	for _, tc := range []struct {
+		d    time.Duration
+		want string
+	}{
+		{-time.Minute, "just now"}, // a clock set back
+		{0, "just now"},
+		{59 * time.Second, "just now"},
+		{time.Minute, "1m"},
+		{59*time.Minute + 59*time.Second, "59m"},
+		{time.Hour, "1h"},
+		{23*time.Hour + 59*time.Minute, "23h"},
+		{24 * time.Hour, "1d"},
+		{71 * time.Hour, "2d"},
+	} {
+		if got := ago(tc.d); got != tc.want {
+			t.Errorf("%v: got %q, want %q", tc.d, got, tc.want)
+		}
+	}
+}
+
+func TestQuestionMark(t *testing.T) {
+	// A row with questions has a dim ? where the cursor bar goes, unless the cursor is on it.
+	m := askScreen(testFiles(), Saved{}, &fakeAsk{answer: answer})
+	typeKeys(m, "4ja<enter><esc>")
+	bar := func(i int) string {
+		return firstRune(ansi.Strip(m.drawRow(i, 80)))
+	}
+	if got := bar(4); got != "▌" {
+		t.Errorf("the cursor row starts with %q, want the bar", got)
+	}
+	typeKeys(m, "j")
+	if got := []string{bar(3), bar(4), bar(5)}; !slices.Equal(got, []string{" ", "?", "▌"}) {
+		t.Errorf("rows 3 to 5 start with %q, want nothing, a ? and the bar", got)
+	}
+}
+
+func TestSelect(t *testing.T) {
+	// V selects lines from the cursor, as vim does. Moves extend the selection but stay in
+	// its file, a.go's lines on rows 2 to 18, or c/new.go's on 23 to 26.
+	for _, tc := range []struct {
+		keys      string
+		selecting bool
+		cursor    int
+		status    string
+	}{
+		{keys: "2jV", selecting: true, cursor: 2, status: "VISUAL 1 line"},
+		{keys: "2jVjj", selecting: true, cursor: 4, status: "VISUAL 3 lines"},
+		{keys: "5jVgg", selecting: true, cursor: 2, status: "VISUAL 4 lines"},
+		{keys: "2jVG", selecting: true, cursor: 18, status: "VISUAL 16 lines"}, // not the hunk header
+		{keys: "2jV100j", selecting: true, cursor: 18},
+		{keys: "2jV3G", selecting: true, cursor: 2},
+		{keys: "2jVdd", selecting: true, cursor: 18},
+		{keys: "2jV}}}}", selecting: true, cursor: 18}, // the next change is in another file
+		{keys: "2jV/new.go<enter>", cursor: 21},        // / ends it
+		{keys: "9jVk", selecting: true, cursor: 8, status: "VISUAL 1 line"},
+		{keys: "V", selecting: true, cursor: 2},  // from a file header to its first line
+		{keys: "jV", selecting: true, cursor: 2}, // from a hunk header to its first line
+		{keys: "21jVk", selecting: true, cursor: 23},
+		{keys: "lV", cursor: 19, status: "This file has no lines to select"},
+		{keys: "2jVjV", cursor: 3},
+		{keys: "2jVj<esc>", cursor: 3},
+		{keys: "2jVjl", cursor: 19},
+		{keys: "2jVjv", cursor: 0},
+		{keys: "2jVj<enter>", cursor: 3},
+		{keys: "s2jVjj", selecting: true, cursor: 4, status: "VISUAL 3 lines"},
+		{keys: "s2jVG", selecting: true, cursor: 17}, // the split view's last line of a.go
+		{keys: "2jVjs", cursor: 3},
+	} {
+		m := askScreen(testFiles(), Saved{Dir: t.TempDir()}, &fakeAsk{})
+		typeKeys(m, tc.keys)
+		if m.selecting != tc.selecting || m.cursor != tc.cursor {
+			t.Errorf("%q: selecting %t with the cursor at row %d, want %t and row %d", tc.keys, m.selecting, m.cursor, tc.selecting, tc.cursor)
+		}
+		if status := statusLine(t, m); !strings.Contains(status, tc.status) {
+			t.Errorf("%q: status line %q has no %q", tc.keys, status, tc.status)
+		}
+	}
+
+	// The wheel extends it too, and a click in the tree ends it.
+	m := askScreen(testFiles(), Saved{}, &fakeAsk{})
+	typeKeys(m, "2jV")
+	down := tea.MouseWheelMsg{X: 60, Y: 5, Button: tea.MouseWheelDown}
+	send(m, down, down, down, down, down, down, down)
+	if !m.selecting || m.cursor != 18 {
+		t.Errorf("wheel: selecting %t at row %d, want row 18", m.selecting, m.cursor)
+	}
+	send(m, tea.MouseClickMsg{X: 5, Y: 2, Button: tea.MouseLeft})
+	if m.selecting || m.cursor != 19 {
+		t.Errorf("tree click: selecting %t at row %d, want it ended at row 19", m.selecting, m.cursor)
+	}
+}
+
+func TestSelectTint(t *testing.T) {
+	// Selected rows are tinted, both sides in the split view, and added and deleted lines
+	// stay told apart under the tint.
+	for _, keys := range []string{"2jVjj", "s2jVj"} {
+		m := askScreen(testFiles(), Saved{}, &fakeAsk{})
+		typeKeys(m, keys)
+		selected := []string{m.drawRow(3, 120), m.drawRow(2, 120)}
+		typeKeys(m, "<esc>")
+		plain := []string{m.drawRow(3, 120), m.drawRow(2, 120)}
+		for i := range selected {
+			if selected[i] == plain[i] || ansi.Strip(selected[i]) != ansi.Strip(plain[i]) {
+				t.Errorf("%q: row %d looks the same selected, or reads differently:\n%q\n%q", keys, 3-i, selected[i], plain[i])
+			}
+		}
+	}
+	for _, dark := range []bool{true, false} {
+		th := newTheme(nil, dark, false)
+		unchanged, added, deleted := th.selected(nil, th.selectLine), th.selected(th.addLine, th.selectLine), th.selected(th.deleteLine, th.selectLine)
+		if !sameColor(unchanged, th.selectLine) || sameColor(added, deleted) || sameColor(added, unchanged) || sameColor(deleted, unchanged) || sameColor(added, th.addLine) {
+			t.Errorf("dark %t: selected lines %v, %v and %v are not told apart", dark, unchanged, added, deleted)
+		}
+	}
+}
+
+func TestAskSelection(t *testing.T) {
+	// a asks about the selected lines and ends the selection. The box opens under the last
+	// line. In the split view a row's both sides are selected.
+	for _, tc := range []struct {
+		keys        string
+		cursor      int
+		placeholder string
+		prompt      string
+	}{
+		{
+			keys: "2jVjja<enter>", cursor: 4, placeholder: whyLines,
+			prompt: "a.go:1-2. Lines marked - were deleted.\n>line 1\n-line 2\n>Changed 2\n",
+		},
+		{
+			keys: "s3jVa<enter>", cursor: 3, placeholder: whyLines,
+			prompt: "a.go:2. Lines marked - were deleted.\n-line 2\n>Changed 2\n",
+		},
+		{
+			keys: "3jVa<enter>", cursor: 3, placeholder: whyDeleted, // one line selected
+			prompt: "a.go, deleted line 2 of the base file. Lines marked - were deleted.\n-line 2\n",
+		},
+	} {
+		f := &fakeAsk{answer: answer}
+		m := askScreen(testFiles(), Saved{}, f)
+		typeKeys(m, tc.keys)
+		want := "[dr] Review question. Do not change any code, just answer.\n" + tc.prompt + tc.placeholder + questionEnd
+		if got := f.asked(); len(got) != 1 || got[0].Prompt != want {
+			t.Errorf("%q: asked %+v, want the prompt %q", tc.keys, got, want)
+		}
+		if m.selecting || !m.reading || m.cursor != tc.cursor || !strings.HasPrefix(boxText(m), "Questions · 1\n▍ You  just now\n▍ "+tc.placeholder+"\n") {
+			t.Errorf("%q: selecting %t, box open %t at row %d:\n%s\nwant the box of row %d with the question", tc.keys, m.selecting, m.reading, m.cursor, boxText(m), tc.cursor)
+		}
+	}
+	// The question goes with each line of the selection.
+	m := askScreen(testFiles(), Saved{}, &fakeAsk{answer: answer})
+	typeKeys(m, "2jVjja<enter><esc>")
+	for _, row := range []int{2, 3, 4} {
+		if len(m.questionsAt(row)) != 1 {
+			t.Errorf("row %d has %d questions, want the selection's", row, len(m.questionsAt(row)))
+		}
+	}
+}
+
+func TestPrompt(t *testing.T) {
+	for _, tc := range []struct {
+		name  string
+		lines []origin.Line
+		want  string // after the first line and before the question
+	}{
+		{"one added line", []origin.Line{{Text: "\tburst  float64", New: 14}}, "ratelimit.go:14\n>\tburst  float64\n"},
+		{"one deleted line", []origin.Line{{Text: "\trate   int", Old: 15}}, "ratelimit.go, deleted line 15 of the base file. Lines marked - were deleted.\n-\trate   int\n"},
+		{
+			"a mixed selection",
+			[]origin.Line{{Text: "\tburst  float64", Old: 14, New: 14}, {Text: "\trate   int", Old: 15}, {Text: "\trate   float64", New: 15}, {Text: "\ttokens float64", New: 16}},
+			"ratelimit.go:14-16. Lines marked - were deleted.\n>\tburst  float64\n-\trate   int\n>\trate   float64\n>\ttokens float64\n",
+		},
+		{
+			"deleted lines only",
+			[]origin.Line{{Text: "a", Old: 14}, {Text: "b", Old: 15}, {Text: "c", Old: 16}},
+			"ratelimit.go, deleted lines 14-16 of the base file. Lines marked - were deleted.\n-a\n-b\n-c\n",
+		},
+	} {
+		want := "[dr] Review question. Do not change any code, just answer.\n" + tc.want + "Why?" + questionEnd
+		if got := prompt(review.Author, "ratelimit.go", tc.lines, "Why?"); got != want {
+			t.Errorf("%s:\n got %q\nwant %q", tc.name, got, want)
+		}
+	}
+	// A session that did not write the lines first learns how it relates to them, and the
+	// end of the question asks for what it can know.
+	lines := []origin.Line{{Text: "\tburst  float64", New: 14}}
+	for _, tc := range []struct {
+		relation   review.Relation
+		intro, end string
+	}{
+		{review.Parent, parentIntro, parentEnd},
+		{review.Editor, editorIntro, editorEnd},
+		{review.NewSession, newIntro, newEnd},
+	} {
+		want := "[dr] Review question. Do not change any code, just answer.\n" + tc.intro + "\nratelimit.go:14\n>\tburst  float64\nWhy?" + tc.end
+		if got := prompt(tc.relation, "ratelimit.go", lines, "Why?"); got != want {
+			t.Errorf("%s:\n got %q\nwant %q", tc.relation, got, want)
+		}
+	}
+	// Each end of the question asks for the tags the session can give, then one sentence of
+	// at most 25 words: a new session knows only a guess.
+	for _, tc := range []struct {
+		relation review.Relation
+		tags     []string
+	}{
+		{review.Author, []string{"[decided]", "[chose]", "[guess]"}},
+		{review.Parent, []string{"[decided]", "[chose]", "[guess]"}},
+		{review.Editor, []string{"[decided]", "[chose]", "[guess]"}},
+		{review.NewSession, []string{"[guess]"}},
+	} {
+		got := prompt(tc.relation, "ratelimit.go", lines, "Why?")
+		_, end, _ := strings.Cut(got, "\nWhy?")
+		for _, tag := range []string{"[decided]", "[chose]", "[guess]"} {
+			if want := slices.Contains(tc.tags, tag); strings.Contains(end, tag) != want {
+				t.Errorf("%s: the end of the question %q asks for %s: %t, want %t", tc.relation, end, tag, !want, want)
+			}
+		}
+		if !strings.Contains(end, "one sentence of at most 25 words") || !strings.HasSuffix(end, "No preamble, no restating the question or the code, no suggestions.") {
+			t.Errorf("%s: the end of the question %q does not ask for one sentence of at most 25 words", tc.relation, end)
+		}
+	}
+}
+
+func TestEarlierQuestions(t *testing.T) {
+	// Questions of an earlier run go back to their lines when the lines and two around them
+	// are found once in the diff. The others show in the box of their file's header, with
+	// their lines quoted, in the look of a thread, all dim. A question dr quit before the
+	// answer came says so. A question whose time the log does not know has none.
+	dir := t.TempDir()
+	log := state.NewLog(filepath.Join(dir, logFile))
+	line := func(kind, text string) state.Line { return state.Line{Kind: kind, Text: text} }
+	for _, r := range []state.Record{
+		state.Question{
+			ID: "q1", Agent: "claude", Session: claudeSession, Path: "a.go", Text: "Why Changed?",
+			Before: []state.Line{line(" ", "line 1"), line("-", "line 2")}, Lines: []state.Line{line("+", "Changed 2")},
+			After: []state.Line{line(" ", "line 3"), line(" ", "line 4")},
+		},
+		state.Fork{Agent: "claude", Session: claudeSession, Fork: "fork-0", Base: claude2.Time},
+		state.Answer{Question: "q1", Fork: "fork-0", Model: "claude-opus-5-5", TookMS: 6400, Text: "Because."},
+		state.Question{ID: "q2", Agent: "claude", Session: claudeSession, Path: "a.go", Text: "Why gone?", Lines: []state.Line{line("+", "\tgone line")}},
+		state.Answer{Question: "q2", Error: "no answer in 3 minutes"},
+		state.Question{ID: "q3", Agent: "claude", Session: claudeSession, Path: "c/new.go", Text: "Why x?", Lines: []state.Line{line("+", "\tvar x = 1")}, Before: []state.Line{}},
+		state.Question{ID: "q4", Agent: "claude", Session: claudeSession, Path: "gone.go", Text: "Why?", Lines: []state.Line{line("+", "x")}},
+	} {
+		if err := log.Append(r); err != nil {
+			t.Fatal(err)
+		}
+	}
+	f := &fakeAsk{answer: answer}
+	m := askScreen(testFiles(), Load(dir), f)
+	for _, tc := range []struct {
+		keys      string
+		want, not []string
+	}{
+		{
+			keys: "4j<enter>",
+			want: []string{"Questions · 1\n▍ You\n▍ Why Changed?\n▍\n▍ claude c1a0de00  claude-opus-5-5 · 6s\n▍ Because.\n─\nSession"},
+			not:  []string{"Why gone?"},
+		},
+		{
+			keys: "<esc>gg<enter>",
+			want: []string{"Earlier questions · 1\n>     gone line\n▍ You\n▍ Why gone?\n▍\n▍ claude c1a0de00  no answer\n▍ no answer in 3 minutes"},
+			not:  []string{"Why Changed?"},
+		},
+		{keys: "<esc>G<enter>", want: []string{"▍ Why x?\n▍\n▍ claude c1a0de00  no answer\n▍ dr closed before it came\n─"}},
+	} {
+		typeKeys(m, tc.keys)
+		text := boxText(m)
+		for _, w := range tc.want {
+			if !strings.Contains(text, w) {
+				t.Errorf("%q: the box has no\n%s\nin\n%s", tc.keys, w, text)
+			}
+		}
+		for _, w := range tc.not {
+			if strings.Contains(text, w) {
+				t.Errorf("%q: the box has %q:\n%s", tc.keys, w, text)
+			}
+		}
+	}
+	// The earlier questions are dim, and the header tells of them with a ?.
+	typeKeys(m, "<esc>gg<enter>")
+	for _, p := range m.originText() {
+		if strings.Contains(p.text, "gone") && p.tone != quiet || p.bar != noBar && (p.bar != dimBar || p.tone != quiet || p.badge.tone != quiet) {
+			t.Errorf("%+v is not dim", p)
+		}
+	}
+	typeKeys(m, "<esc>j")
+	if got := firstRune(ansi.Strip(m.drawRow(0, 80))); got != "?" {
+		t.Errorf("the header of a.go starts with %q, want a ?", got)
+	}
+	// The fork of the earlier run goes on: the session has no edit newer than its base.
+	typeKeys(m, "2ja<enter>")
+	if got := f.asked(); len(got) != 1 || got[0].Fork != "fork-0" {
+		t.Errorf("asked %+v, want it in fork-0", got)
+	}
+}
+
+func TestSplitQuestionPlace(t *testing.T) {
+	// In the split view the first row of a two-line replacement holds -d1 and +a1, which
+	// have -d2 between them in the diff. A question about that row quotes those two, is kept
+	// with the lines from -d1 to +a1, and finds its place, with those two only, after a
+	// reopen.
+	lines := parseDiff("x", "-d1", "-d2", "+a1", "+a2", "y")
+	for i := 1; i <= 4; i++ {
+		lines[i].Edit = claude1
+	}
+	files := []review.File{{Path: "f.go", Status: 'M', Lines: lines}}
+	dir := t.TempDir()
+	f := &fakeAsk{answer: answer}
+	typeKeys(askScreen(files, Saved{Dir: dir}, f), "s3jVa<enter>")
+	if got := f.asked(); len(got) != 1 || !strings.Contains(got[0].Prompt, "\nf.go:2. Lines marked - were deleted.\n-d1\n>a1\n"+whyLines) {
+		t.Fatalf("asked %+v, want -d1 and +a1 quoted", got)
+	}
+	saved := Load(dir)
+	want := []state.Line{{Kind: "-", Text: "d1"}, {Kind: "-", Text: "d2"}, {Kind: "+", Text: "a1"}}
+	if qs := saved.Log.Questions; len(qs) != 1 || !slices.Equal(qs[0].Lines, want) || !slices.Equal(qs[0].Selected, []int{0, 2}) {
+		t.Fatalf("question records %+v, want the lines from -d1 to +a1 with the first and the third selected", qs)
+	}
+	m := askScreen(files, saved, f)
+	var with []int // the lines with the question, in m.lines: x, -d1, -d2, +a1, +a2, y
+	for k := range m.lines {
+		if len(m.asked[k]) > 0 {
+			with = append(with, k)
+		}
+	}
+	if len(m.files[0].earlier) != 0 || !slices.Equal(with, []int{1, 3}) {
+		t.Errorf("after the reopen: %d earlier questions, the question with lines %v; want it with lines 1 and 3", len(m.files[0].earlier), with)
+	}
+}
+
+func TestStaleFork(t *testing.T) {
+	// A fork made before the session's newest edit does not know of it, so a new one is made.
+	dir := t.TempDir()
+	if err := state.NewLog(filepath.Join(dir, logFile)).Append(state.Fork{Agent: "claude", Session: claudeSession, Fork: "fork-0", Base: claude1.Time}); err != nil {
+		t.Fatal(err)
+	}
+	f := &fakeAsk{answer: answer}
+	m := askScreen(testFiles(), Load(dir), f)
+	typeKeys(m, "4ja<enter>")
+	if got := f.asked(); len(got) != 1 || got[0].Fork != "" {
+		t.Errorf("asked %+v, want a new fork", got)
+	}
+}
+
+func TestAskQuit(t *testing.T) {
+	// Quitting stops the questions in flight and waits for them, but not for long. A stopped
+	// question stays in the log without an answer, and a question that had not gone yet
+	// does not go.
+	dir := t.TempDir()
+	started := make(chan struct{}, 2)
+	ask := func(ctx context.Context, _ agent.Question) (agent.Answer, error) {
+		started <- struct{}{}
+		<-ctx.Done()
+		return agent.Answer{}, ctx.Err()
+	}
+	m := New(askFiles(), nil, Saved{Dir: dir}, Asker{Ask: ask}).(*model)
+	m.tick = noTick
+	m.Update(tea.WindowSizeMsg{Width: 125, Height: 24})
+	cmd := typeAndKeep(m, "4ja<enter>")
+	later := typeAndKeep(m, "<esc>31Ga<enter>") // to the Codex session
+	done := make(chan tea.Msg)
+	go func() { done <- cmd() }()
+	<-started
+	stop := time.Now()
+	m.flights.stop(stopWait)
+	if took := time.Since(stop); took > time.Second {
+		t.Errorf("stopping took %v", took)
+	}
+	if msg := <-done; msg != nil {
+		t.Errorf("a stopped question brought %#v", msg)
+	}
+	if msg := later(); msg != nil || len(started) != 0 {
+		t.Errorf("a question after the stop brought %#v and was asked %t", msg, len(started) != 0)
+	}
+	records, _, err := state.NewLog(filepath.Join(dir, logFile)).Read()
+	if err != nil || len(records.Questions) != 1 || len(records.Answers) != 0 {
+		t.Errorf("log: %+v, %v; want the first question without an answer", records, err)
+	}
+
+	// A question that does not stop is waited for only so long.
+	release := make(chan struct{})
+	t.Cleanup(func() { close(release) })
+	m = New(testFiles(), nil, Saved{}, Asker{Ask: func(context.Context, agent.Question) (agent.Answer, error) {
+		started <- struct{}{}
+		<-release
+		return answer, nil
+	}}).(*model)
+	m.tick = noTick
+	m.Update(tea.WindowSizeMsg{Width: 125, Height: 24})
+	cmd = typeAndKeep(m, "4ja<enter>")
+	go cmd()
+	<-started
+	stop = time.Now()
+	m.flights.stop(100 * time.Millisecond)
+	if took := time.Since(stop); took > time.Second {
+		t.Errorf("stopping a question that does not stop took %v", took)
+	}
+}
+
+// firstRune returns the first character of s.
+func firstRune(s string) string {
+	r, _ := utf8.DecodeRuneInString(s)
+	return string(r)
+}
+
+// sameColor reports whether a and b are the same color.
+func sameColor(a, b color.Color) bool {
+	ar, ag, ab, aa := a.RGBA()
+	br, bg, bb, ba := b.RGBA()
+	return ar == br && ag == bg && ab == bb && aa == ba
+}

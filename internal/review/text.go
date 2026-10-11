@@ -1,0 +1,72 @@
+package review
+
+import (
+	"fmt"
+	"strconv"
+	"strings"
+	"unicode"
+	"unicode/utf8"
+
+	"github.com/JinmuGo/dr/internal/agent"
+)
+
+// NoOrigin explains a changed line that has no origin.
+const NoOrigin = "Not in any session record. A person changed it, or a tool that leaves no record, like a shell command."
+
+// Tag names the request behind e the way dr shows it, "claude 1a2b3c4d #2", or
+// "claude 1a2b3c4d fix" for a fix dr applied. short holds the short session ids from
+// ShortIDs.
+func Tag(e *agent.Edit, short map[string]string) string {
+	if e.Fix != nil {
+		return fmt.Sprintf("%s %s fix", e.Agent, short[e.Session])
+	}
+	return fmt.Sprintf("%s %s #%d", e.Agent, short[e.Session], e.Turn)
+}
+
+// ShortIDs returns, made visible, the shortest prefix of each id, at least 8 characters,
+// that tells it apart from the others.
+func ShortIDs(ids []string) map[string]string {
+	for n := 8; ; n++ {
+		short := make(map[string]string, len(ids))
+		taken := make(map[string]bool, len(ids))
+		clash := false
+		for _, id := range ids {
+			if id == "" || short[id] != "" {
+				continue
+			}
+			s := id[:min(n, len(id))]
+			clash = clash || taken[s]
+			taken[s] = true
+			short[id] = s
+		}
+		if !clash {
+			for id, s := range short {
+				short[id] = Visible(s)
+			}
+			return short
+		}
+	}
+}
+
+// Visible returns s with control characters other than tabs and newlines, and the
+// characters that reorder text, written as escapes such as \x1b and \u202e. Text from the
+// file or a session log then cannot drive the terminal or hide what it shows.
+func Visible(s string) string {
+	var b strings.Builder
+	start := 0 // start of the text not yet written to b
+	for i, r := range s {
+		switch {
+		case r == '\t' || r == '\n':
+		case unicode.IsControl(r) || unicode.Is(unicode.Bidi_Control, r):
+			b.WriteString(s[start:i])
+			q := strconv.QuoteRune(r)
+			b.WriteString(q[1 : len(q)-1]) // without the quotes
+			start = i + utf8.RuneLen(r)
+		}
+	}
+	if start == 0 {
+		return s
+	}
+	b.WriteString(s[start:])
+	return b.String()
+}
