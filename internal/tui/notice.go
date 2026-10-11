@@ -51,9 +51,7 @@ func (m *model) drawNotice(lines []string, w int) {
 	box := m.noticeBox(m.notice, width)
 	box = box[:min(len(box), len(lines))]
 	y := max(min(m.bandLines()+2, len(lines)-len(box)), 0)
-	for k, l := range box {
-		lines[y+k] = overlay(lines[y+k], l, x, width, m.width)
-	}
+	overlayBox(lines, box, x, y, width, m.width)
 }
 
 // noticeBox draws n, w cells wide, in a rounded border in the color of floating boxes on the
@@ -61,7 +59,7 @@ func (m *model) drawNotice(lines []string, w int) {
 // warning color, then its hint, each wrapped to the box.
 func (m *model) noticeBox(n *notice, w int) []string {
 	t := &m.theme
-	border := t.paint(t.line2, t.surface)
+	border := t.floatBorder()
 	base := t.paint(nil, t.surface)
 	inner := max(w-4, 1) // inside the border and a cell of margin on each side
 	var rows [][]chunk
@@ -88,9 +86,9 @@ func (m *model) noticeBox(n *notice, w int) []string {
 		for _, s := range m.segs(r, t.surface, false) {
 			l.add(s.text, s.st)
 		}
-		lines = append(lines, border.Render("│")+base.Render(" ")+l.fill(base)+base.Render(" ")+border.Render("│"))
+		lines = append(lines, t.floatSide(base.Render(" ")+l.fill(base)+base.Render(" ")))
 	}
-	return append(lines, border.Render("╰"+strings.Repeat("─", max(w-2, 0))+"╯"))
+	return append(lines, t.floatBottom(w))
 }
 
 // band is a line across the top of the diff that tells why the screen cannot be trusted
