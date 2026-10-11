@@ -171,9 +171,9 @@ func Load(dir string) Saved {
 	return s
 }
 
-// New returns the diff screen for files. problems are the session logs dr could not fully
-// read, saved what the screen kept from earlier runs, and asker how it asks agents.
-func New(files []review.File, problems []agent.Problem, saved Saved, asker Asker) tea.Model {
+// newModel returns the diff screen for files. problems are the session logs dr could not
+// fully read, saved what the screen kept from earlier runs, and asker how it asks agents.
+func newModel(files []review.File, problems []agent.Problem, saved Saved, asker Asker) *model {
 	m := &model{
 		unreadable: unreadableAgents(problems),
 		theme:      newTheme(nil, true, false),
@@ -254,7 +254,7 @@ func (m *model) setFiles(files []review.File) {
 // flight, which stay in the log without an answer. A save of the viewed files that was
 // still running may not have ended, so Run saves them once more when they changed.
 func Run(files []review.File, problems []agent.Problem, saved Saved, asker Asker) error {
-	m := New(files, problems, saved, asker).(*model)
+	m := newModel(files, problems, saved, asker)
 	_, err := tea.NewProgram(m).Run()
 	m.flights.stop(stopWait)
 	if err != nil {

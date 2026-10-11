@@ -153,7 +153,7 @@ func open(t *testing.T, keys string) *teatest.TestModel {
 // openFiles starts the screen on files like open.
 func openFiles(t *testing.T, files []review.File, keys string) *teatest.TestModel {
 	t.Helper()
-	tm := teatest.NewTestModel(t, New(files, nil, Saved{}, Asker{}), teatest.WithInitialTermSize(125, 24))
+	tm := teatest.NewTestModel(t, newModel(files, nil, Saved{}, Asker{}), teatest.WithInitialTermSize(125, 24))
 	for _, k := range keyPresses(keys) {
 		tm.Send(k)
 	}
@@ -207,7 +207,7 @@ func TestFileGap(t *testing.T) {
 		{keys: "18jjk", top: 0, cursor: 18},
 		{keys: "s17j", top: 0, cursor: 17}, // the last line of a.go in the split view
 	} {
-		m := New(testFiles(), nil, Saved{}, Asker{}).(*model)
+		m := newModel(testFiles(), nil, Saved{}, Asker{})
 		m.Update(tea.WindowSizeMsg{Width: 200, Height: 30})
 		for _, k := range keyPresses(tc.keys) {
 			m.Update(k)
@@ -232,7 +232,7 @@ func TestFileGap(t *testing.T) {
 	}
 
 	// A header at the top row has no blank line above it.
-	m := New(testFiles(), nil, Saved{}, Asker{}).(*model)
+	m := newModel(testFiles(), nil, Saved{}, Asker{})
 	m.Update(tea.WindowSizeMsg{Width: 120, Height: 8})
 	for _, k := range keyPresses("Gh") {
 		m.Update(k)
@@ -244,7 +244,7 @@ func TestFileGap(t *testing.T) {
 }
 
 func TestRows(t *testing.T) {
-	m := New(testFiles(), nil, Saved{}, Asker{}).(*model)
+	m := newModel(testFiles(), nil, Saved{}, Asker{})
 	m.Update(tea.WindowSizeMsg{Width: 160, Height: 24}) // a diff wide enough for the summary of a label
 	if len(m.rows) != 27 {
 		t.Fatalf("got %d rows, want 27", len(m.rows))
@@ -395,7 +395,7 @@ func TestHalfPageJK(t *testing.T) {
 		}
 	}
 	box := func(keys string) *model {
-		m := New(longFiles(), nil, Saved{}, Asker{}).(*model)
+		m := newModel(longFiles(), nil, Saved{}, Asker{})
 		m.Update(tea.WindowSizeMsg{Width: 120, Height: 24})
 		typeKeys(m, "G<enter>"+keys)
 		return m
@@ -487,7 +487,7 @@ func TestScroll(t *testing.T) {
 		{"Gh", 21, 21},
 		{"G2h", 19, 18},
 	} {
-		m := New(testFiles(), nil, Saved{}, Asker{}).(*model)
+		m := newModel(testFiles(), nil, Saved{}, Asker{})
 		m.Update(tea.WindowSizeMsg{Width: 120, Height: 8})
 		for _, k := range keyPresses(tc.keys) {
 			m.Update(k)
@@ -594,7 +594,7 @@ func TestBoxPlace(t *testing.T) {
 		{"<enter>", "▾ a.go", "▎ ▾ a.go", "@@ -1,5 +1,5 @@", false},
 		{"G<enter>", "var x = 1", "▎ ● claude c1a0 #2  c/new.go:4", "", true}, // the screen moves up to show the card
 	} {
-		m := New(testFiles(), nil, Saved{}, Asker{}).(*model)
+		m := newModel(testFiles(), nil, Saved{}, Asker{})
 		m.Update(tea.WindowSizeMsg{Width: 120, Height: 24})
 		for _, k := range keyPresses(tc.keys) {
 			m.Update(k)
@@ -641,7 +641,7 @@ func TestBox(t *testing.T) {
 	// and the key row less the cursor row, one more row, the card's header and its last row.
 	// d and u move 9.
 	for _, width := range []int{120, 70} {
-		m := New(files, nil, Saved{}, Asker{}).(*model)
+		m := newModel(files, nil, Saved{}, Asker{})
 		m.Update(tea.WindowSizeMsg{Width: width, Height: 24})
 		send := func(keys string) (string, tea.Cmd) {
 			var cmd tea.Cmd
@@ -705,7 +705,7 @@ func TestBox(t *testing.T) {
 }
 
 func TestTheme(t *testing.T) {
-	m := New(testFiles(), nil, Saved{}, Asker{}).(*model)
+	m := newModel(testFiles(), nil, Saved{}, Asker{})
 	for _, tc := range []struct {
 		bg   color.Color
 		dark bool
@@ -743,7 +743,7 @@ func brightness(c color.Color) uint32 {
 }
 
 func TestLayout(t *testing.T) {
-	m := New(testFiles(), nil, Saved{}, Asker{}).(*model)
+	m := newModel(testFiles(), nil, Saved{}, Asker{})
 	for _, tc := range []struct {
 		width int
 		list  bool
@@ -783,7 +783,7 @@ func TestDraw(t *testing.T) {
 			{"s24j", "claude c1a0 #2"},
 			{"sG<enter>", "claude c1a0 #2"},
 		} {
-			m := New(testFiles(), problems, Saved{}, Asker{}).(*model)
+			m := newModel(testFiles(), problems, Saved{}, Asker{})
 			m.Update(tea.WindowSizeMsg{Width: width, Height: 24})
 			for _, k := range keyPresses(tc.keys) {
 				m.Update(k)
@@ -839,7 +839,7 @@ func TestStatusRoom(t *testing.T) {
 	// The card's body is 11 rows, 4 of which fit on a 10-row screen under the band on two
 	// agents' logs.
 	problems := []agent.Problem{{Agent: "claude", Path: "a.jsonl", Bad: 1}, {Agent: "codex", Path: "rollout-1.jsonl", Bad: 1}}
-	m := New(testFiles(), problems, Saved{}, Asker{}).(*model)
+	m := newModel(testFiles(), problems, Saved{}, Asker{})
 	m.Update(tea.WindowSizeMsg{Width: 70, Height: 10})
 	for _, k := range keyPresses("4j<enter>") {
 		m.Update(k)
@@ -910,7 +910,7 @@ func TestSplitRows(t *testing.T) {
 			[]string{"d1|a1", "x|x", "d2|a2", "d3|"},
 		},
 	} {
-		m := New([]review.File{{Path: "f.txt", Status: 'M', Lines: tc.lines}}, nil, Saved{}, Asker{}).(*model)
+		m := newModel([]review.File{{Path: "f.txt", Status: 'M', Lines: tc.lines}}, nil, Saved{}, Asker{})
 		var got []string
 		for _, r := range m.split {
 			if r.kind != lineRow {
@@ -932,7 +932,7 @@ func TestSplitRows(t *testing.T) {
 
 	// The word marks pair the lines the way the split view does: the third added line has no
 	// partner and no marks.
-	m := New([]review.File{{Path: "f.txt", Status: 'M', Lines: parseDiff("x", "-v := 1", "-w := 1", "+v := 2", "+w := 2", "+u := 3")}}, nil, Saved{}, Asker{}).(*model)
+	m := newModel([]review.File{{Path: "f.txt", Status: 'M', Lines: parseDiff("x", "-v := 1", "-w := 1", "+v := 2", "+w := 2", "+u := 3")}}, nil, Saved{}, Asker{})
 	m.colorFile(0)
 	for _, tc := range []struct {
 		line int // in m.lines
@@ -1001,7 +1001,7 @@ func TestSplitWidth(t *testing.T) {
 	// the unified view again with the cursor still on the deleted line. On 125 cells the
 	// tree of testFiles, 20 cells, leaves the diff 104; dragged to 30 it leaves 94, and
 	// dragged back it stops at its least width, 20, which leaves 104 again.
-	m := New(testFiles(), nil, Saved{}, Asker{}).(*model)
+	m := newModel(testFiles(), nil, Saved{}, Asker{})
 	m.Update(tea.WindowSizeMsg{Width: 125, Height: 24})
 	for _, k := range keyPresses("3js") {
 		m.Update(k)

@@ -74,7 +74,7 @@ func pickFiles() []review.File {
 // models through models, with what it kept in the state directory dir, at the time start.
 // It does not tick.
 func pickScreen(files []review.File, dir string, f *fakeAsk, models *fakeModels) *model {
-	m := New(files, nil, Load(dir), Asker{Ask: f.ask, Installed: f.isInstalled, Models: models.list, Root: root}).(*model)
+	m := newModel(files, nil, Load(dir), Asker{Ask: f.ask, Installed: f.isInstalled, Models: models.list, Root: root})
 	m.tick, m.now = noTick, func() time.Time { return start }
 	m.Update(tea.WindowSizeMsg{Width: 125, Height: 24})
 	return m
@@ -620,7 +620,7 @@ func TestPickerSubmit(t *testing.T) {
 			}
 			f := &fakeAsk{answer: agent.Answer{Fork: "fork-1", Model: "claude-sonnet-5-5", Took: 7 * time.Second,
 				Text: `{"fixes":[{"comment":1,"new_lines":["Changed two"],"note":"renamed"}]}`}}
-			m := New(files, nil, Load(dir), Asker{Ask: f.ask, Installed: f.isInstalled, Models: agentModels().list, Root: writeTree(t, files)}).(*model)
+			m := newModel(files, nil, Load(dir), Asker{Ask: f.ask, Installed: f.isInstalled, Models: agentModels().list, Root: writeTree(t, files)})
 			m.tick, m.now = noTick, fixClock()
 			m.Update(tea.WindowSizeMsg{Width: 125, Height: 40})
 			typeAll(m, tc.keys)

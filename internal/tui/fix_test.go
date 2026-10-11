@@ -56,7 +56,7 @@ func writeTree(t *testing.T, files []review.File) string {
 // fixScreen returns the screen on files in a 125×40 terminal that asks through f, works on
 // the worktree root and reads the time from now. It does not tick.
 func fixScreen(files []review.File, saved Saved, f *fakeAsk, root string, now func() time.Time) *model {
-	m := New(files, nil, saved, Asker{Ask: f.ask, Installed: f.isInstalled, Root: root}).(*model)
+	m := newModel(files, nil, saved, Asker{Ask: f.ask, Installed: f.isInstalled, Root: root})
 	m.tick, m.now = noTick, now
 	m.Update(tea.WindowSizeMsg{Width: 125, Height: 40})
 	return m

@@ -19,7 +19,7 @@ import (
 // viewed before, which keeps what it saves in the state directory dir.
 func viewedScreen(t *testing.T, dir string, files state.Viewed) *model {
 	t.Helper()
-	m := New(testFiles(), nil, Saved{Dir: dir, Viewed: files}, Asker{}).(*model)
+	m := newModel(testFiles(), nil, Saved{Dir: dir, Viewed: files}, Asker{})
 	m.Update(tea.WindowSizeMsg{Width: 125, Height: 24})
 	return m
 }
@@ -129,7 +129,7 @@ func TestHeader(t *testing.T) {
 		{name: "no room for the dots", w: 35, prefix: " ▾ a.go ", suffix: " +2 -2 " + stat + "    ☐ Viewed ", not: "●"},
 		{name: "no room for the counts", w: 20, prefix: " ▾ a.go ", suffix: " ☐ Viewed ", not: "+2"},
 	} {
-		m := New(files, nil, Saved{Viewed: tc.viewed}, Asker{}).(*model)
+		m := newModel(files, nil, Saved{Viewed: tc.viewed}, Asker{})
 		line := ansi.Strip(m.drawHeader(m.files[tc.file], tc.w, false))
 		if !strings.HasPrefix(line, tc.prefix) || !strings.HasSuffix(line, tc.suffix) || tc.not != "" && strings.Contains(line, tc.not) || ansi.StringWidth(line) != tc.w {
 			t.Errorf("%s: got %q, %d cells, want %q at the left, %q at the right, no %q, %d cells", tc.name, line, ansi.StringWidth(line), tc.prefix, tc.suffix, tc.not, tc.w)
@@ -180,7 +180,7 @@ func TestViewedErrors(t *testing.T) {
 			t.Fatal(err)
 		}
 	}
-	m := New(testFiles(), nil, Load(dir), Asker{}).(*model)
+	m := newModel(testFiles(), nil, Load(dir), Asker{})
 	m.Update(tea.WindowSizeMsg{Width: 125, Height: 24})
 	const read = "could not read viewed state: parse " // the path, then why
 	const log = "; skipped 1 unreadable line of log.jsonl"
@@ -226,7 +226,7 @@ func TestTreeLines(t *testing.T) {
 	// check at the right edge of a viewed file. Its title counts the viewed files, and the
 	// line under it shows their share: a quarter of its 17 cells, 4.
 	files := append(testFiles(), review.File{Path: "gone.go", Status: 'D', Lines: origin.Blame("x\n", "", nil)})
-	m := New(files, nil, Saved{Viewed: state.Viewed{"a.go": files[0].Hash(contextLines)}}, Asker{}).(*model)
+	m := newModel(files, nil, Saved{Viewed: state.Viewed{"a.go": files[0].Hash(contextLines)}}, Asker{})
 	progress := strings.Repeat("━", 4) + strings.Repeat("─", 13)
 	want := []string{"Files 1/4 viewed", progress, "", "± a.go ✓", "+ b.bin", "▾ c", "+ new.go", "− gone.go"}
 	if m.listWidth != 19 {
