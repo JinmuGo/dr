@@ -1,0 +1,67 @@
+# yaml-language-server: $schema=https://goreleaser.com/static/schema.json
+# Builds the release archives, the checksums and the Homebrew cask when a v* tag is
+# pushed. See .github/workflows/release.yml and docs/install.md.
+version: 2
+
+project_name: dr
+
+builds:
+  - env:
+      - CGO_ENABLED=0
+    goos:
+      - darwin
+      - linux
+    goarch:
+      - amd64
+      - arm64
+    flags:
+      - -trimpath
+    ldflags:
+      - -s -w -X main.version={{ .Version }}
+    mod_timestamp: "{{ .CommitTimestamp }}"
+
+archives:
+  - formats: [tar.gz]
+    # The names match `uname -s` and `uname -m`, which site/install.sh relies on.
+    name_template: >-
+      {{ .ProjectName }}_
+      {{- title .Os }}_
+      {{- if eq .Arch "amd64" }}x86_64
+      {{- else }}{{ .Arch }}{{ end }}
+
+checksum:
+  name_template: checksums.txt
+
+changelog:
+  sort: asc
+  filters:
+    exclude:
+      - "^docs:"
+      - "^test:"
+      - "^ci:"
+      - "^chore:"
+
+release:
+  github:
+    owner: JinmuGo
+    name: dr
+
+homebrew_casks:
+  - name: dr
+    repository:
+      owner: JinmuGo
+      name: homebrew-tap
+      token: "{{ .Env.HOMEBREW_TAP_TOKEN }}"
+    homepage: https://dr.jinmugo.com
+    description: Diff review with the AI that wrote it
+    dependencies:
+      - formula: git
+    # The binary is not signed by Apple, and macOS refuses to run an unsigned binary
+    # that carries the quarantine Homebrew puts on downloads. The structured steps run
+    # without the deprecated Ruby postflight block.
+    custom_block: |
+      postflight_steps do
+        on_macos do
+          run "/usr/bin/xattr", args: ["-d", "com.apple.quarantine", "dr"], chdir: ".", must_succeed: false
+        end
+      end
