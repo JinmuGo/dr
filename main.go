@@ -71,6 +71,7 @@ func browse(ref string) (err error) {
 		fmt.Println("No changed files")
 		return nil
 	}
+	saved.Base = compared(repo.Root, ref, repo.Base)
 	dirs := agent.Dirs{Home: home, State: dir}
 	asker := tui.Asker{
 		Ask: func(ctx context.Context, q agent.Question) (agent.Answer, error) {
@@ -103,6 +104,18 @@ func browse(ref string) (err error) {
 // screen can revert.
 func opens(files []review.File, log state.Records) bool {
 	return len(files) > 0 || len(log.InPlace()) > 0
+}
+
+// compared returns what the diff of the worktree at root compares it with, base: ref, or
+// the default branch when ref is "", named as git names it for people, and whether base is
+// the merge-base of HEAD and that ref or the ref's own commit.
+func compared(root, ref, base string) tui.Base {
+	if ref == "" {
+		ref = git.DefaultBranch(root)
+		ref = strings.TrimPrefix(strings.TrimPrefix(ref, "refs/remotes/"), "refs/heads/")
+	}
+	commit, err := git.Commit(root, ref)
+	return tui.Base{Ref: ref, Commit: base, MergeBase: err != nil || commit != base} // an unknown commit is not claimed
 }
 
 // changes opens the worktree that holds dir, reading the agent edits from the session logs

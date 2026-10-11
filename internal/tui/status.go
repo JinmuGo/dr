@@ -6,10 +6,10 @@ import (
 	"path"
 	"slices"
 	"strconv"
+	"strings"
 	"time"
 
 	"charm.land/lipgloss/v2"
-	"github.com/JinmuGo/dr/internal/review"
 	"github.com/charmbracelet/x/ansi"
 )
 
@@ -120,35 +120,37 @@ func (m *model) pillWidth() int {
 }
 
 // status draws the status line under the diff. It starts with the mode pill. Then comes the
-// open search or : input, or a message with an icon of its tone, or the size of the
-// selection with its lines and the session that wrote them, or else where the cursor is:
-// the file and line, and the origin of a changed line with the first line of its request,
-// which is cut first, the directory next. noChanges takes its place when no changed file is
-// left. The right shows a read-only chip when this dr does not hold the lock on the
-// worktree, how long questions have been out, how many fixes are ready and comments
-// pending, how far the open origin box is read when its text does not fit, that the diff is
-// too narrow for the split view s asked for, the file number and the row number. The pill
-// and the start of the left come first: what of the right does not fit beside them is left
-// out whole, the row number first, then the file number, the pending comments and the
-// fixes, the questions and the chip last. An open input and the cursor after it are kept
-// whole.
+// open search or : input, or a message with an icon of its tone, or the selection: its size
+// with its lines and the session that wrote them, or a warning when its changed lines mix
+// sessions; or else where the cursor is: the file and line, and the origin of a changed line
+// with the first line of its request. The right shows which of the matches of the search
+// query the current one is while a query is set, a read-only chip when this dr does not hold
+// the lock on the worktree, how long questions have been out, how many fixes are ready and
+// comments pending, how far the open origin box is read when its text does not fit, that
+// the diff is too narrow for the split view s asked for, the file number and the row number.
+// As room runs out, the first line of the request is cut first, the directory of the file
+// next, then what of the right does not fit beside the rest of the left is left out whole,
+// the row number first, then the file number, the pending comments and the fixes, the
+// search count, the questions and the chip last; once the row number is left out, so are
+// the request and the directory. The pill, the file name, the origin's tag, an open input
+// and the cursor after it are kept whole.
 func (m *model) status() string {
 	t := &m.theme
 	on := func(fg color.Color) lipgloss.Style { return t.paint(fg, t.panel) }
 	left := m.pill()
 	typed := m.inputText()
+	where := false // the left shows where the cursor is
 	switch {
 	case typed != "":
 		left = append(left, seg{text: typed, st: on(t.strong)})
 	case m.message != "":
 		icon, c := t.icon(m.tone)
 		left = append(left, seg{text: icon + " ", st: on(c).Bold(true)}, seg{text: m.message, st: on(t.fg), cut: true})
-	case len(m.rows) == 0:
-		left = append(left, seg{text: noChanges, st: on(t.fg)})
+	case len(m.rows) == 0: // the empty screen says why
 	case m.selecting:
 		left = append(left, m.selectionSegs(on)...)
 	default:
-		left = append(left, m.cursorSegs(on)...)
+		left, where = append(left, m.cursorSegs(on)...), true
 	}
 	keep := 2 // a gap before the right
 	for _, s := range left {
@@ -162,7 +164,7 @@ func (m *model) status() string {
 	if typed != "" {
 		keep++ // the cursor after it
 	}
-	var readOnly, position, narrow, asking, fixes, pending, rowAt, fileAt []seg
+	var found, readOnly, position, narrow, asking, fixes, pending, rowAt, fileAt []seg
 	if m.lockErr != nil {
 		readOnly = []seg{{text: " read-only ", st: t.chip(t.pending, t.pending)}}
 	}
@@ -177,6 +179,13 @@ func (m *model) status() string {
 		pending = []seg{{text: commentMark + " " + strconv.Itoa(n) + " pending", st: on(t.pending)}}
 	}
 	if len(m.rows) > 0 {
+		if m.searchQuery() != "" {
+			h, at := m.found(), 0
+			if j := h.current(m.cursor); j >= 0 {
+				at = h.before[j] + 1
+			}
+			found = []seg{{text: fmt.Sprintf("%d of %d", at, h.total), st: on(t.pending).Bold(true)}}
+		}
 		if m.reading {
 			if n, rows := m.blockHeight(), m.boxRows(); n > rows {
 				position = []seg{{text: fmt.Sprintf("origin %d/%d", min(m.readTop+rows, n), n), st: on(t.muted)}}
@@ -189,15 +198,19 @@ func (m *model) status() string {
 		fileAt = []seg{{text: fmt.Sprintf("file %d/%d", m.rows[m.cursor].file+1, len(m.files)), st: on(t.subtle)}}
 	}
 	right := fitGroups([]group{
+		{segs: found, rank: 2, keep: keep},
 		{segs: readOnly, rank: 1, keep: keep},
-		{segs: position, rank: 4, keep: keep},
-		{segs: narrow, rank: 5, keep: keep},
+		{segs: position, rank: 5, keep: keep},
+		{segs: narrow, rank: 6, keep: keep},
 		{segs: asking, rank: 1, keep: keep},
-		{segs: fixes, rank: 2, keep: keep},
-		{segs: pending, rank: 3, keep: keep},
-		{segs: rowAt, rank: 7, keep: keep},
-		{segs: fileAt, rank: 6, keep: keep},
+		{segs: fixes, rank: 3, keep: keep},
+		{segs: pending, rank: 4, keep: keep},
+		{segs: rowAt, rank: 8, keep: keep},
+		{segs: fileAt, rank: 7, keep: keep},
 	}, m.width-1, seg{text: "   ", st: on(nil)}) // a margin at the right edge
+	if where && rowAt != nil && !slices.ContainsFunc(right, func(s seg) bool { return s.text == rowAt[0].text }) {
+		left = slices.DeleteFunc(left, func(s seg) bool { return s.cut }) // the request and the directory go before the positions
+	}
 	if right != nil {
 		right = append(right, seg{text: " ", st: on(nil)})
 	}
@@ -234,48 +247,32 @@ func (m *model) cursorSegs(on func(color.Color) lipgloss.Style) []seg {
 }
 
 // selectionSegs returns the selection as the status line shows it in the style on gives
-// each color: how many lines it has, where they are, and the session that wrote its changed
-// lines when one did.
+// each color: how many lines it has, where they are, and the dot and tag of the session
+// that wrote its changed lines when one did; or, when its changed lines mix sessions, a
+// warning that a and c need lines from one session, before either is pressed.
 func (m *model) selectionSegs(on func(color.Color) lipgloss.Style) []seg {
 	t := &m.theme
-	rows := m.selectedRows()
-	var lines []int
-	for _, i := range rows {
-		for _, k := range []int{m.rows[i].left, m.rows[i].right} {
-			if k >= 0 && !slices.Contains(lines, k) {
-				lines = append(lines, k)
-			}
-		}
+	lines := m.selectedLines()
+	who, edit, unknown := m.sessionsOf(lines)
+	if len(who) > 1 {
+		icon, c := t.icon(toneWarn)
+		return []seg{{text: icon + " ", st: on(c).Bold(true)}, {text: mixedSessions(who), st: on(c)}}
 	}
-	segs := []seg{{text: countOf(len(rows), "line"), st: on(t.strong)}}
+	segs := []seg{{text: countOf(len(m.selectedRows()), "line"), st: on(t.strong)}}
 	if len(lines) > 0 {
 		segs = append(segs, seg{text: " · " + m.lineLabel(lines), st: on(t.muted)})
 	}
-	if who := m.sessionOf(lines); who != "" {
-		segs = append(segs, seg{text: "   ", st: on(nil)}, seg{text: who, st: on(t.accent).Bold(true)})
+	if len(who) == 1 && !unknown {
+		dot, _, _, c := m.originOf(edit)
+		segs = append(segs, seg{text: "   ", st: on(nil)}, seg{text: dot + " ", st: on(c)}, seg{text: who[0], st: on(c).Bold(true)})
 	}
 	return segs
 }
 
-// sessionOf returns the agent and session that wrote the changed lines among lines, lines of
-// model.lines, when one session wrote all of them, and "" otherwise.
-func (m *model) sessionOf(lines []int) string {
-	who := ""
-	for _, k := range lines {
-		l := m.lines[k]
-		if l.Old != 0 && l.New != 0 {
-			continue // unchanged
-		}
-		if l.Edit == nil {
-			return ""
-		}
-		w := review.Visible(review.Who(l.Edit.Agent, l.Edit.Session, m.short))
-		if who != "" && w != who {
-			return ""
-		}
-		who = w
-	}
-	return who
+// mixedSessions returns the warning that a selection whose changed lines who, the tags of
+// two sessions or more, wrote cannot be asked about or take a comment.
+func mixedSessions(who []string) string {
+	return "The selection mixes sessions (" + strings.Join(who, ", ") + "). a and c need lines from one session."
 }
 
 // waited returns how long the oldest question in flight has waited for its answer, and
@@ -320,7 +317,8 @@ type keycap struct {
 	key, does string
 }
 
-// keycaps returns the keys of the current mode for the key row, the most used first.
+// keycaps returns the keys of the current mode for the key row, the most used first. On a
+// selection that mixes sessions, a and c say only ask and comment, as keyRow dims them.
 func (m *model) keycaps() []keycap {
 	switch m.mode() {
 	case "HELP":
@@ -357,8 +355,14 @@ func (m *model) keycaps() []keycap {
 		}
 		return append(keys, keycap{"⏎ esc", "close"})
 	case "VISUAL":
+		if m.mixed() {
+			return []keycap{{"a", "ask"}, {"c", "comment"}, {"j k", "extend"}, {"V esc", "stop selecting"}}
+		}
 		n := countOf(len(m.selectedRows()), "line")
 		return []keycap{{"a", "ask about " + n}, {"c", "comment on " + n}, {"j k", "extend"}, {"V esc", "stop selecting"}}
+	}
+	if len(m.rows) == 0 {
+		return []keycap{{":", "command"}, {"?", "help"}, {"q", "quit"}}
 	}
 	keys := []keycap{
 		{"a", "ask"}, {"c", "comment"}, {"e", "edit"}, {"⏎", "origin"}, {"v", "viewed"},
@@ -372,16 +376,22 @@ func (m *model) keycaps() []keycap {
 
 // keyRow draws the key row, the last row of the screen: the keys of the current mode, each
 // on a keycap with what it does, as many as fit, and at the right edge in NORMAL and VISUAL
-// how to quit, or how to send the pending comments when there are some.
+// how to quit, or how to send the pending comments when there are some. A key that would
+// only say why it does nothing is dimmed. The empty screen lists its few keys, quitting
+// among them.
 func (m *model) keyRow() string {
 	t := &m.theme
 	keyStyle := t.paint(t.strong, t.surface2).Bold(true).Reverse(t.plain)
 	label := t.paint(t.muted, nil)
+	mixed := m.mode() == "VISUAL" && m.mixed() // a and c only say why they do nothing
 	add := func(segs []seg, k keycap) []seg {
+		if mixed && (k.key == "a" || k.key == "c") {
+			return append(segs, seg{text: " " + k.key + " ", st: t.paint(t.subtle, t.panel).Reverse(t.plain)}, seg{text: " " + k.does, st: t.paint(t.faint, nil)})
+		}
 		return append(segs, seg{text: " " + k.key + " ", st: keyStyle}, seg{text: " " + k.does, st: label})
 	}
 	var right []seg
-	if mode := m.mode(); mode == "NORMAL" || mode == "VISUAL" {
+	if mode := m.mode(); len(m.rows) > 0 && (mode == "NORMAL" || mode == "VISUAL") {
 		end := keycap{"q", "quit"}
 		if n := m.pendingCount(); n > 0 {
 			end = keycap{":submit", "send " + strconv.Itoa(n)}

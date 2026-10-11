@@ -1,12 +1,10 @@
 package tui
 
 import (
-	"strings"
 	"time"
 	"unicode/utf8"
 
 	tea "charm.land/bubbletea/v2"
-	"github.com/JinmuGo/dr/internal/review"
 )
 
 // ctrlCGuard is how long ctrl+c does nothing after the editor or the agent ga opened hands
@@ -24,7 +22,9 @@ const ctrlCGuard = time.Second
 // ctrl+c does nothing. A key takes the message off the status line and the notice off the
 // diff. While a notice shows, Esc does only that, whatever is open, so the input and what is
 // typed in it stay. Enter on a notice of an answer or of fixes goes to read them, unless an
-// input is open, which Enter belongs to; any other key then does its own work.
+// input is open, which Enter belongs to; any other key then does its own work. Esc clears a
+// count or a g waiting for its key, the selection with them; without them it ends a
+// selection, and without one it clears the search query and its marks.
 func (m *model) key(msg tea.KeyPressMsg) tea.Cmd {
 	k := msg.String()
 	n := m.notice
@@ -64,7 +64,14 @@ func (m *model) key(msg tea.KeyPressMsg) tea.Cmd {
 	case m.reading:
 		return m.readKey(k)
 	case k == "esc":
-		m.count, m.pending, m.selecting = 0, "", false
+		switch {
+		case m.count > 0 || m.pending != "":
+			m.count, m.pending, m.selecting = 0, "", false
+		case m.selecting:
+			m.selecting = false
+		default:
+			m.query = "" // and its marks
+		}
 		return nil
 	}
 
@@ -148,16 +155,19 @@ func (m *model) key(msg tea.KeyPressMsg) tea.Cmd {
 	return nil
 }
 
-// typeSearch handles a key while the search input is open: Enter searches, Esc closes the
-// input, and other keys edit it.
+// typeSearch handles a key while the search input is open: Enter searches, going to the
+// match it lit, or again for the last query when nothing is typed; Esc closes the input;
+// and other keys edit it.
 func (m *model) typeSearch(k, text string) {
 	switch k {
 	case "enter":
 		m.searching = false
-		if m.input != "" { // an empty input searches again for the last query
-			m.query = m.input
+		if m.input == "" {
+			m.find(1, 1)
+			return
 		}
-		m.find(1, 1)
+		m.query = m.input
+		m.findHere()
 	case "esc":
 		m.searching = false
 	default:
@@ -255,39 +265,4 @@ func (m *model) jump(count, dir int, ok func(i int) bool) {
 		to = i
 	}
 	m.jumpTo(to)
-}
-
-// find moves the cursor count times to the next row in the direction dir (1 or -1) whose
-// text holds the last query, going on from the other end. A query without capitals
-// ignores case.
-func (m *model) find(count, dir int) {
-	if m.query == "" {
-		return
-	}
-	fold := m.query == strings.ToLower(m.query)
-	i := m.cursor
-	for range max(count, 1) {
-		if i = m.match(i, dir, fold); i < 0 {
-			m.warn("Not found: " + review.Visible(m.query))
-			return
-		}
-	}
-	m.jumpTo(i)
-}
-
-// match returns the first row after from in the direction dir, going around the ends,
-// whose text holds the query, or -1 when none does.
-func (m *model) match(from, dir int, fold bool) int {
-	n := len(m.rows)
-	for step := 1; step <= n; step++ {
-		i := ((from+dir*step)%n + n) % n
-		text := m.searchText(i)
-		if fold {
-			text = strings.ToLower(text)
-		}
-		if strings.Contains(text, m.query) {
-			return i
-		}
-	}
-	return -1
 }

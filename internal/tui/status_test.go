@@ -225,3 +225,118 @@ func TestStickyHeader(t *testing.T) {
 		t.Errorf("height 2: header on top %t, cursor on line %d of %q; want the cursor row alone", m.sticky(), cursorLine(m), lines)
 	}
 }
+
+func TestStatusDropOrder(t *testing.T) {
+	// As the screen narrows, the status line cuts the request first, then the directory,
+	// then leaves out the row number and the file number, and with the row number the request
+	// and the directory too; the pill, the file name and the origin's tag stay. Row 23 is
+	// the first line of c/new.go, which claude #2 wrote.
+	m := askScreen(testFiles(), Saved{}, &fakeAsk{})
+	typeKeys(m, "24G")
+	const summary = "새 파일로 나눠줘"
+	for _, tc := range []struct {
+		width     int
+		has, gone []string
+	}{
+		{150, []string{"c/new.go:1", "● claude c1a0 #2  " + summary, "row 24/27", "file 3/3"}, nil},
+		{75, []string{"c/new.go:1", "claude c1a0 #2  새 파일로…", "row 24/27", "file 3/3"}, []string{summary}},
+		{62, []string{" …new.go:1", "claude c1a0 #2  ", "row 24/27", "file 3/3"}, []string{"새", "c/"}},
+		{60, []string{" new.go:1", "claude c1a0 #2", "file 3/3"}, []string{"새", "c/", "…", "row"}},
+		{48, []string{" NORMAL   new.go:1    ● claude c1a0 #2"}, []string{"row", "file"}},
+	} {
+		m.Update(tea.WindowSizeMsg{Width: tc.width, Height: 24})
+		status := statusLine(t, m)
+		for _, s := range tc.has {
+			if !strings.Contains(status, s) {
+				t.Errorf("width %d: status line %q has no %q", tc.width, status, s)
+			}
+		}
+		for _, s := range tc.gone {
+			if strings.Contains(status, s) {
+				t.Errorf("width %d: status line %q still has %q", tc.width, status, s)
+			}
+		}
+	}
+}
+
+func TestVisualStatus(t *testing.T) {
+	// A selection of one session's lines shows its size, its range and the session's dot and
+	// tag in its color. One that mixes sessions says so before a or c is pressed, and the key
+	// row dims them.
+	m := askScreen(testFiles(), Saved{}, &fakeAsk{})
+	th := &m.theme
+	claude := m.sessionColor(session{"claude", claudeSession})
+	typeKeys(m, "2jVjj")
+	raw := m.View().Content
+	if status := statusLine(t, m); !strings.HasPrefix(status, " VISUAL   3 lines · L1-2   ● claude c1a0 ") ||
+		!strings.Contains(raw, th.paint(claude, th.panel).Bold(true).Render("claude c1a0")) || !strings.Contains(raw, th.paint(claude, th.panel).Render("● ")) {
+		t.Errorf("one session: status line %q, want the size, the range and the session in its color", status)
+	}
+	if keys := keyLine(t, m); !strings.HasPrefix(keys, "  a  ask about 3 lines    c  comment on 3 lines") {
+		t.Errorf("one session: key row %q, want a and c for the 3 lines", keys)
+	}
+	typeKeys(m, "G")
+	raw = m.View().Content
+	const warning = "The selection mixes sessions (claude c1a0, omp a1f2). a and c need lines from one session."
+	if status := statusLine(t, m); !strings.HasPrefix(status, " VISUAL   ! "+warning) || !strings.Contains(raw, th.paint(th.pending, th.panel).Render(warning)) {
+		t.Errorf("mixed: status line %q, want %q in the color of warnings", status, warning)
+	}
+	if keys := keyLine(t, m); !strings.HasPrefix(keys, "  a  ask    c  comment    j k  extend    V esc  stop selecting") ||
+		!strings.Contains(raw, th.paint(th.subtle, th.panel).Render(" a ")) || !strings.Contains(raw, th.paint(th.faint, nil).Render(" comment")) {
+		t.Errorf("mixed: key row %q, want a and c dimmed", keys)
+	}
+	if typeKeys(m, "a"); m.message != "The selection mixes sessions. Select lines from one session" {
+		t.Errorf("mixed: a says %q, want it refused", m.message)
+	}
+}
+
+func TestEmptyScreen(t *testing.T) {
+	// With no changed file the screen says so in the middle, then what the diff compared
+	// and, while a fix dr applied is in place, why dr opened here. The key row has the keys
+	// that work there.
+	applied := state.Records{Applied: []state.Applied{{ID: "f1", Path: "a.go", First: 1, Old: []string{"a"}, New: []string{"b"}}}}
+	for _, tc := range []struct {
+		name  string
+		saved Saved
+		want  string
+		undo  bool
+	}{
+		{"the default branch", Saved{Base: Base{Ref: "main", Commit: "1a2b3c4d5e6f", MergeBase: true}},
+			"The merge-base with main (1a2b3c4) and the working tree are the same.", false},
+		{"a ref and a fix in place", Saved{Base: Base{Ref: "HEAD~8", Commit: "1a2b3c4d5e6f"}, Log: applied},
+			"HEAD~8 (1a2b3c4) and the working tree are the same.", true},
+	} {
+		m := New(nil, nil, tc.saved, Asker{}).(*model)
+		m.Update(tea.WindowSizeMsg{Width: 120, Height: 24})
+		th := &m.theme
+		lines := strings.Split(screen(t, m), "\n")
+		at := func(text string) (int, int) {
+			for y, l := range lines {
+				if x := strings.Index(l, text); x >= 0 {
+					return y, ansi.StringWidth(l[:x])
+				}
+			}
+			return -1, -1
+		}
+		ry, rx := at(strings.Repeat("─", emptyRule))
+		ny, nx := at(noChanges)
+		wy, wx := at(tc.want)
+		uy, _ := at(undoHere)
+		if ry < 0 || ny != ry+2 || wy != ny+1 || nx != (120-len(noChanges))/2 || rx != (120-emptyRule)/2 || wx != (120-len(tc.want))/2 || (uy == wy+2) != tc.undo || !tc.undo && uy >= 0 {
+			t.Errorf("%s: rule at %d,%d, title at %d,%d, %q at %d,%d, undo at line %d\n%s", tc.name, ry, rx, ny, nx, tc.want, wy, wx, uy, strings.Join(lines, "\n"))
+		}
+		raw := m.View().Content
+		for name, want := range map[string]string{
+			"the rule":     th.paint(th.faint, nil).Render(strings.Repeat("─", emptyRule)),
+			"the title":    th.paint(th.strong, nil).Bold(true).Render(noChanges),
+			"the compared": th.paint(th.muted, nil).Render(tc.want),
+		} {
+			if !strings.Contains(raw, want) {
+				t.Errorf("%s: the screen has no %s in its colors", tc.name, name)
+			}
+		}
+		if keys := strings.TrimRight(keyLine(t, m), " "); keys != "  :  command    ?  help    q  quit" {
+			t.Errorf("%s: key row %q, want : ? and q alone", tc.name, keys)
+		}
+	}
+}

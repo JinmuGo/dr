@@ -48,18 +48,18 @@ func Branch(root string) (string, error) {
 	return strings.TrimSpace(out), err
 }
 
-// Base returns the merge-base of HEAD and ref. An empty ref means the default branch:
-// origin's HEAD, origin/main, origin/master, main or master, the first that exists.
-// Without any of them the base is HEAD.
+// Base returns the merge-base of HEAD and ref. An empty ref means DefaultBranch.
 func Base(root, ref string) (string, error) {
 	if ref == "" {
-		ref = defaultBranch(root)
+		ref = DefaultBranch(root)
 	}
 	out, err := run(root, "merge-base", "HEAD", ref)
 	return strings.TrimSpace(out), err
 }
 
-func defaultBranch(root string) string {
+// DefaultBranch returns the ref of the default branch: origin's HEAD, origin/main,
+// origin/master, main or master, the first that exists, or HEAD without any of them.
+func DefaultBranch(root string) string {
 	if out, err := run(root, "symbolic-ref", "-q", "--short", "refs/remotes/origin/HEAD"); err == nil {
 		return strings.TrimSpace(out)
 	}
@@ -69,6 +69,12 @@ func defaultBranch(root string) string {
 		}
 	}
 	return "HEAD"
+}
+
+// Commit returns the commit ref names.
+func Commit(root, ref string) (string, error) {
+	out, err := run(root, "rev-parse", "--verify", "-q", ref+"^{commit}")
+	return strings.TrimSpace(out), err
 }
 
 // Start returns the earliest time the changes since base can come from: the commit time of

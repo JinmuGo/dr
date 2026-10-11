@@ -70,6 +70,7 @@ type model struct {
 	asking    *target     // the input box of a is open, and what it asks about
 	input     string      // what is typed in the search or the : input
 	query     string      // the last search
+	hits      searchHits  // where the search query is in the rows
 	choice    int         // the highlighted row of the command list
 	message   string      // shown in the status line until the next key
 	tone      messageTone // how the message reads: a warning or an error
@@ -106,6 +107,7 @@ type model struct {
 	records  state.Records           // what the log holds: what it held when the screen opened, and the fix records of this run
 	requests map[string]*request     // the fix requests in flight, by ID
 	lockErr  error                   // why this dr does not hold the lock on the worktree, so y and :undo write no file; nil when it does
+	base     Base                    // what the diff compares the working tree with
 	reloads  int                     // how many times the changed files were asked to be read again; reloaded rebuilds from the last only
 
 	reload  func() ([]review.File, []agent.Problem, error) // reads the changed files again, nil for never
@@ -138,6 +140,16 @@ type Saved struct {
 	// Reload returns the changed files and the session logs dr could not fully read, as New
 	// takes them, read again; nil keeps the diff as it is.
 	Reload func() ([]review.File, []agent.Problem, error)
+	Base   Base // what the diff compares the working tree with
+}
+
+// Base is what the diff compares the working tree with, which the screen names when no file
+// differs from it.
+type Base struct {
+	Ref    string // the ref dr was opened with, or the default branch
+	Commit string // the base commit
+	// MergeBase tells that Commit is the merge-base of HEAD and Ref, not Ref's own commit.
+	MergeBase bool
 }
 
 // Load reads what the screen keeps in the state directory dir. What cannot be read is left
@@ -174,6 +186,7 @@ func New(files []review.File, problems []agent.Problem, saved Saved, asker Asker
 		earlier:    saved.Log,
 		records:    saved.Log,
 		lockErr:    saved.Lock,
+		base:       saved.Base,
 		reload:     saved.Reload,
 		execute:    tea.ExecProcess,
 		open:       agent.Open,
@@ -431,7 +444,7 @@ func (m *model) relayout() {
 	if split == m.splitShown {
 		return
 	}
-	m.splitShown, m.selecting = split, false
+	m.splitShown, m.selecting, m.hits.ok = split, false, false
 	switch {
 	case m.asking != nil:
 		m.asking.row = m.rows[m.asking.row].twin

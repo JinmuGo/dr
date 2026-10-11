@@ -209,7 +209,7 @@ func TestInputRoom(t *testing.T) {
 	}{
 		{
 			name: "the origin makes room", width: 100, keys: "32G/" + query,
-			start: " SEARCH   /" + query, end: " file 4/5", gone: []string{"claude 4444", "row"},
+			start: " SEARCH   /" + query, end: " 0 of 0", gone: []string{"claude 4444", "row", "file"},
 		},
 		{
 			// Cut after 13 cells, the / and 6 of the 왜.
@@ -858,9 +858,9 @@ func TestSelect(t *testing.T) {
 		status    string
 	}{
 		{keys: "2jV", selecting: true, cursor: 2, status: "VISUAL   1 line · L1"},
-		{keys: "2jVjj", selecting: true, cursor: 4, status: "VISUAL   3 lines · L1-2   claude c1a0"},
+		{keys: "2jVjj", selecting: true, cursor: 4, status: "VISUAL   3 lines · L1-2   ● claude c1a0"},
 		{keys: "5jVgg", selecting: true, cursor: 2, status: "VISUAL   4 lines"},
-		{keys: "2jVG", selecting: true, cursor: 18, status: "VISUAL   16 lines"}, // not the hunk header
+		{keys: "2jVG", selecting: true, cursor: 18, status: "VISUAL   ! The selection mixes sessions (claude c1a0, omp a1f2)"}, // not the hunk header
 		{keys: "2jV100j", selecting: true, cursor: 18},
 		{keys: "2jV3G", selecting: true, cursor: 2},
 		{keys: "2jVdd", selecting: true, cursor: 18},
@@ -924,6 +924,34 @@ func TestSelectTint(t *testing.T) {
 		unchanged, added, deleted := th.selbg, th.seladd, th.seldel
 		if sameColor(added, deleted) || sameColor(added, unchanged) || sameColor(deleted, unchanged) || sameColor(added, th.addbg) || sameColor(deleted, th.delbg) {
 			t.Errorf("dark %t: selected lines %v, %v and %v are not told apart", dark, unchanged, added, deleted)
+		}
+	}
+}
+
+func TestSelectTokens(t *testing.T) {
+	// A selected row has its numbers on the selection's number color and its code on the
+	// selection color of its kind: blue for an unchanged line, with green or red in it for
+	// an added or a deleted one. The cursor keeps its marker. Rows 2 to 4 are line 1,
+	// -line 2 and +Changed 2, the cursor on the last.
+	m := askScreen(testFiles(), Saved{}, &fakeAsk{})
+	th := &m.theme
+	typeKeys(m, "2jVjj")
+	for _, tc := range []struct {
+		name string
+		row  int
+		want []string
+	}{
+		{"an unchanged line", 2, []string{th.paint(th.fg, th.selnum).Render("  1  1 "), th.paint(nil, th.selbg).Render("  ")}},
+		{"a deleted line", 3, []string{th.paint(th.fg, th.selnum).Render("  2    "), th.paint(th.del, th.seldel).Render("- ")}},
+		{"an added line under the cursor", 4, []string{
+			th.paint(th.accent, th.selnum).Render("▌"), th.paint(th.strong, th.selnum).Bold(true).Render("     2 "), th.paint(th.add, th.seladd).Render("+ "),
+		}},
+	} {
+		raw := m.drawRow(tc.row, 120)
+		for _, want := range tc.want {
+			if !strings.Contains(raw, want) {
+				t.Errorf("%s: row %d %q has no %q", tc.name, tc.row, raw, want)
+			}
 		}
 	}
 }

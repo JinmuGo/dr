@@ -1,6 +1,8 @@
 package main
 
 import (
+	"os"
+	"os/exec"
 	"strings"
 	"testing"
 	"time"
@@ -10,6 +12,7 @@ import (
 	"github.com/JinmuGo/dr/internal/origin"
 	"github.com/JinmuGo/dr/internal/review"
 	"github.com/JinmuGo/dr/internal/state"
+	"github.com/JinmuGo/dr/internal/tui"
 )
 
 func TestShowWholeRequest(t *testing.T) {
@@ -90,5 +93,44 @@ func TestOpens(t *testing.T) {
 				t.Errorf("opens(%d files, %d applied, %d undone) = %t, want %t", len(tc.files), len(tc.log.Applied), len(tc.log.Undone), got, tc.want)
 			}
 		})
+	}
+}
+
+func TestCompared(t *testing.T) {
+	// The empty screen names what the diff compared: the default branch by its short name
+	// without a ref, and the base as the ref's own commit only when it is.
+	for k, v := range map[string]string{
+		"GIT_CONFIG_GLOBAL": os.DevNull, "GIT_CONFIG_NOSYSTEM": "1",
+		"GIT_AUTHOR_NAME": "t", "GIT_AUTHOR_EMAIL": "t@t", "GIT_COMMITTER_NAME": "t", "GIT_COMMITTER_EMAIL": "t@t",
+	} {
+		t.Setenv(k, v)
+	}
+	repo := t.TempDir()
+	runGit(t, repo, "init", "-q", "-b", "main")
+	runGit(t, repo, "commit", "-q", "--allow-empty", "-m", "one")
+	runGit(t, repo, "branch", "side")
+	runGit(t, repo, "commit", "-q", "--allow-empty", "-m", "two")
+	runGit(t, repo, "switch", "-q", "side")
+	runGit(t, repo, "commit", "-q", "--allow-empty", "-m", "three")
+	runGit(t, repo, "switch", "-q", "main")
+	commit := func(ref string) string {
+		out, err := exec.Command("git", "-C", repo, "rev-parse", ref).Output()
+		if err != nil {
+			t.Fatal(err)
+		}
+		return strings.TrimSpace(string(out))
+	}
+	one, two := commit("main~1"), commit("main")
+	for _, tc := range []struct {
+		ref, base string
+		want      tui.Base
+	}{
+		{"", two, tui.Base{Ref: "main", Commit: two}},
+		{"main~1", one, tui.Base{Ref: "main~1", Commit: one}},
+		{"side", one, tui.Base{Ref: "side", Commit: one, MergeBase: true}},
+	} {
+		if got := compared(repo, tc.ref, tc.base); got != tc.want {
+			t.Errorf("compared(%q) = %+v, want %+v", tc.ref, got, tc.want)
+		}
 	}
 }

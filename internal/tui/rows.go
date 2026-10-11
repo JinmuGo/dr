@@ -288,7 +288,7 @@ func (m *model) rail(k int) span {
 // line diff, or its hunks with their lines. The rows on the screen are then those of the
 // view shown.
 func (m *model) place() {
-	m.unified, m.split = m.unified[:0], m.split[:0]
+	m.unified, m.split, m.hits.ok = m.unified[:0], m.split[:0], false
 	for i := range m.files {
 		f := &m.files[i]
 		f.head, f.splitHead = len(m.unified), len(m.split)

@@ -38,6 +38,7 @@ type theme struct {
 	delbg, delnum, delword, delcur color.Color // likewise for a deleted line
 	hunkbg, hunkfg                 color.Color // the header of a hunk
 	selbg, selnum, seladd, seldel  color.Color // a selected unchanged line, its numbers, a selected added and deleted line
+	matchbg, matchcur              color.Color // a search match, and the current one
 
 	// sessions are the colors of the sessions, given in the order they first appear in the
 	// diff and cycled past the last. They are nil without colors.
@@ -103,6 +104,9 @@ func newTheme(bg color.Color, dark, plain bool) theme {
 		selnum:  tint("#c8d9f8", "#203760"),
 		seladd:  tint("#d7ebf0", "#173039"),
 		seldel:  tint("#eadff3", "#28263f"),
+		matchbg: tint("#fbe6ad", "#4b3b12"),
+
+		matchcur: c("#e0a020", "#f0b95b"), // bright, not a tint: the current match stands out on any line
 
 		syntax: styles.Get("github"),
 	}
@@ -156,6 +160,19 @@ func (t *theme) chip(fg, tone color.Color) lipgloss.Style {
 		return lipgloss.NewStyle().Reverse(true)
 	}
 	return t.paint(fg, mix(tone, t.surface, 0.18))
+}
+
+// match returns the style of a search match in text of style st: on the match color, or for
+// the current match in the color of the background on a bright one. Without colors a match
+// shows in reverse video against its text, the current one bold too.
+func (t *theme) match(st lipgloss.Style, current bool) lipgloss.Style {
+	switch {
+	case t.plain:
+		return st.Reverse(!st.GetReverse()).Bold(current)
+	case current:
+		return st.Foreground(t.base).Background(t.matchcur)
+	}
+	return st.Background(t.matchbg)
 }
 
 // code returns the color of code of token type k, GitHub's syntax color.

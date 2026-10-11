@@ -386,15 +386,16 @@ func TestRebuildOutOfOrder(t *testing.T) {
 }
 
 func TestRebuildEmpty(t *testing.T) {
-	// When no changed file is left, as after the last change was undone, the diff and the
-	// status line say so. An answer still in flight comes all the same, and a notice tells
-	// of it. Then keys and the mouse do nothing, but ? opens the help and q quits.
+	// When no changed file is left, as after the last change was undone, the diff says so,
+	// and the status line has only its pill and the questions out. An answer still in flight
+	// comes all the same, and a notice tells of it. Then keys and the mouse do nothing, but ?
+	// opens the help and q quits.
 	ed := &fakeEditor{}
 	m := editScreen(testFiles(), Saved{Reload: reloading(nil)}, ed)
 	cmd := typeAndKeep(m, "4ja<enter>")
 	typeKeys(m, "<esc>e")
-	if s := screen(t, m); len(m.files) != 0 || strings.Count(s, noChanges) != 2 || !strings.Contains(statusLine(t, m), noChanges) {
-		t.Fatalf("%d files on the screen\n%s\nwant none, and %q in the diff and the status line", len(m.files), s, noChanges)
+	if s := screen(t, m); len(m.files) != 0 || strings.Count(s, noChanges) != 1 || strings.Contains(statusLine(t, m), noChanges) {
+		t.Fatalf("%d files on the screen\n%s\nwant none, and %q in the diff alone", len(m.files), s, noChanges)
 	}
 	send(m, cmd())
 	const told = "● Answer from claude c1a0 #1 on a.go Its file left the diff."

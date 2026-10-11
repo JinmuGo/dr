@@ -245,6 +245,7 @@ func TestFileGap(t *testing.T) {
 
 func TestRows(t *testing.T) {
 	m := New(testFiles(), nil, Saved{}, Asker{}).(*model)
+	m.Update(tea.WindowSizeMsg{Width: 160, Height: 24}) // a diff wide enough for the summary of a label
 	if len(m.rows) != 27 {
 		t.Fatalf("got %d rows, want 27", len(m.rows))
 	}

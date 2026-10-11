@@ -92,6 +92,7 @@ func TestRunLabelDraw(t *testing.T) {
 	// the tag shows alone, and when the whole dot and tag do not fit nothing does. Row 3 is
 	// "-line 2" by claude #1, its code at column 11 and 6 cells wide.
 	m := New(testFiles(), nil, Saved{}, Asker{}).(*model)
+	m.Update(tea.WindowSizeMsg{Width: 160, Height: 24}) // a diff wide enough for the summary
 	for _, tc := range []struct {
 		row, w int
 		want   string
@@ -109,6 +110,24 @@ func TestRunLabelDraw(t *testing.T) {
 			t.Errorf("row %d at %d cells: got %q, want it to end with %q", tc.row, tc.w, got, tc.want)
 		}
 	}
+
+	// A diff narrower than 100 cells, where the split view gives way to the unified one,
+	// shows the dot and the tag alone, however much room the line has.
+	m.folded = true // the diff is the screen less the handle
+	for _, tc := range []struct {
+		width int
+		want  string
+	}{
+		{101, "- line 2    ● claude c1a0 #1  rate limiter를 짜줘"},
+		{100, "- line 2    ● claude c1a0 #1"},
+	} {
+		m.Update(tea.WindowSizeMsg{Width: tc.width, Height: 24})
+		if got := strings.TrimRight(ansi.Strip(m.drawRow(3, 99)), " "); !strings.HasSuffix(got, tc.want) {
+			t.Errorf("a diff %d cells wide: got %q, want it to end with %q", tc.width-1, got, tc.want)
+		}
+	}
+	m.folded = false
+	m.Update(tea.WindowSizeMsg{Width: 160, Height: 24})
 
 	// A long tag: request 12, of a session whose id grew to 5 characters to differ from
 	// another's. Row 2 is "-old a", its code at column 9 and 5 cells wide.
