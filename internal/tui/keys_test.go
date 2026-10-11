@@ -50,6 +50,8 @@ func snapshot(m *model) string {
 func TestKeysHandled(t *testing.T) {
 	// Every key that the key help or the key row names does something in its mode: it
 	// returns a command or changes the screen's state. A key no mode takes does neither.
+	// This catches a key the screen names but does not handle; what each key does is
+	// pinned by its own test, such as TestMove, TestSelect, TestApplyFix and TestDropFix.
 	screenOf := func(files []review.File, keys string) func(t *testing.T) *model {
 		return func(t *testing.T) *model {
 			m := pickScreen(files, t.TempDir(), &fakeAsk{answer: answer}, agentModels())
