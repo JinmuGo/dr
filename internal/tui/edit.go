@@ -255,7 +255,7 @@ func (m *model) rebuild(files []review.File, problems []agent.Problem) {
 	m.setFiles(files)
 	if len(m.rows) == 0 {
 		m.cursor, m.top = 0, 0
-		m.searching, m.input, m.count, m.pending = false, "", 0, ""
+		m.search.open, m.input, m.count, m.pending = false, "", 0, ""
 		return
 	}
 	m.cursor = m.restore(at)

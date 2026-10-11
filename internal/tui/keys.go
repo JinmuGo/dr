@@ -122,7 +122,7 @@ func (m *model) key(msg tea.KeyPressMsg) tea.Cmd {
 		return m.typeCommand(k, msg.Text)
 	case len(m.rows) == 0:
 		return m.emptyKey(k)
-	case m.searching:
+	case m.search.open:
 		m.typeSearch(k, msg.Text)
 		return nil
 	case m.typing():
@@ -164,7 +164,7 @@ func (m *model) escKey() {
 	case m.selecting:
 		m.selecting = false
 	default:
-		m.query = "" // and its marks
+		m.search.query = "" // and its marks
 	}
 }
 
@@ -184,7 +184,7 @@ func (m *model) normalKey(k string) tea.Cmd {
 	}
 	switch k {
 	case keySearch:
-		m.searching, m.input = true, ""
+		m.search.open, m.input = true, ""
 	case keyOrigin:
 		m.reading, m.readTop = true, 0
 		if qs := m.questionsAt(m.cursor); len(qs) > 0 {
@@ -271,15 +271,15 @@ func (m *model) moveKey(k string, count int) bool {
 func (m *model) typeSearch(k, text string) {
 	switch k {
 	case keyEnter:
-		m.searching = false
+		m.search.open = false
 		if m.input == "" {
 			m.find(1, 1)
 			return
 		}
-		m.query = m.input
+		m.search.query = m.input
 		m.findHere()
 	case keyEsc:
-		m.searching = false
+		m.search.open = false
 	default:
 		m.edit(k, text)
 	}

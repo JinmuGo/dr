@@ -347,9 +347,9 @@ func TestNoticeOverInput(t *testing.T) {
 		},
 		{
 			name: "search", keys: "<esc>G/line 3",
-			open: func(m *model) bool { return m.searching && m.input == "line 3" },
+			open: func(m *model) bool { return m.search.open && m.input == "line 3" },
 			entered: func(m *model) string {
-				if m.searching || !strings.Contains(rowName(m, m.cursor), "line 3") || m.reading {
+				if m.search.open || !strings.Contains(rowName(m, m.cursor), "line 3") || m.reading {
 					return "want the search run"
 				}
 				return ""
@@ -370,7 +370,7 @@ func TestNoticeOverInput(t *testing.T) {
 				if m.notice != nil || !tc.open(m) {
 					t.Errorf("%s, Esc: notice %q, input open %t; want the notice gone and the input kept", tc.name, noticeLines(t, m), tc.open(m))
 				}
-				if typeKeys(m, "<esc>"); m.drafting != nil || m.commanding || m.searching {
+				if typeKeys(m, "<esc>"); m.drafting != nil || m.commanding || m.search.open {
 					t.Errorf("%s, a second Esc: the input is still open", tc.name)
 				}
 			case "<enter>":

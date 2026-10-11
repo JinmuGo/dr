@@ -9,6 +9,13 @@ import (
 	"github.com/JinmuGo/dr/internal/review"
 )
 
+// search is the state of the search.
+type search struct {
+	open  bool       // the search input is open
+	query string     // the last search
+	hits  searchHits // where query is in the rows
+}
+
 // searchHits is where the search query is in the rows on the screen: the rows whose text
 // holds it, as searchText gives the text, and how many matches come before each of them.
 type searchHits struct {
@@ -22,18 +29,18 @@ type searchHits struct {
 // searchQuery returns what the search looks for now: what is typed while the search input
 // is open, and the last query otherwise. Esc clears the last query.
 func (m *model) searchQuery() string {
-	if m.searching {
+	if m.search.open {
 		return m.input
 	}
-	return m.query
+	return m.search.query
 }
 
 // found returns where the search query is in the rows, counted again when the query or the
 // rows changed since the last count.
 func (m *model) found() *searchHits {
 	q := m.searchQuery()
-	if m.hits.ok && m.hits.query == q {
-		return &m.hits
+	if m.search.hits.ok && m.search.hits.query == q {
+		return &m.search.hits
 	}
 	h := searchHits{query: q, ok: true}
 	if q != "" {
@@ -46,8 +53,8 @@ func (m *model) found() *searchHits {
 			}
 		}
 	}
-	m.hits = h
-	return &m.hits
+	m.search.hits = h
+	return &m.search.hits
 }
 
 // current returns the index in h.rows of the row of the current match, the first row at or
@@ -86,7 +93,7 @@ func (m *model) findHere() {
 // find moves the cursor count times to the next row in the direction dir (1 or -1) whose
 // text holds the last query, going on from the other end.
 func (m *model) find(count, dir int) {
-	if m.query == "" {
+	if m.search.query == "" {
 		return
 	}
 	h := m.found()
@@ -109,7 +116,7 @@ func (m *model) find(count, dir int) {
 
 // notFound says that no row holds the last query.
 func (m *model) notFound() {
-	m.fail("Not found: " + review.Visible(m.query))
+	m.fail("Not found: " + review.Visible(m.search.query))
 }
 
 // marks returns where the search query is in text, which the screen shows: the byte offsets
