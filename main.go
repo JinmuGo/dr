@@ -40,7 +40,7 @@ func run(args []string, stdout, stderr io.Writer, userHome func() (string, error
 	switch {
 	case len(args) == 1 && args[0] == "--version":
 		info, _ := debug.ReadBuildInfo()
-		fmt.Println("dr", versionOf(version, info))
+		_, _ = fmt.Fprintln(stdout, "dr", versionOf(version, info))
 		return 0
 	case len(args) == 2 && args[0] == "blame":
 		cmd = func(home string) error { return blame(stdout, stderr, ".", home, args[1]) }

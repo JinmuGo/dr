@@ -38,6 +38,7 @@ func TestRun(t *testing.T) {
 	runGit(t, repo, "commit", "-q", "-m", "base")
 	t.Chdir(repo)
 	errNoHome := errors.New("no home")
+	info, _ := debug.ReadBuildInfo() // TestVersion covers what versionOf makes of it
 	for _, tc := range []struct {
 		name           string
 		args           []string
@@ -53,6 +54,7 @@ func TestRun(t *testing.T) {
 		{"blame outside the worktree", []string{"blame", "../outside.md"}, nil, 1, "", "dr: not in the worktree " + repo + ": ../outside.md\n"},
 		{"no home", nil, errNoHome, 1, "", "dr: no home\n"},
 		{"no changed files", nil, nil, 0, "No changed files\n", ""},
+		{"version", []string{"--version"}, errNoHome, 0, "dr " + versionOf(version, info) + "\n", ""},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			var stdout, stderr strings.Builder
