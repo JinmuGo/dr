@@ -32,7 +32,7 @@ dr shows, for every changed line, which AI agent session wrote it and what you a
 - **See who wrote each line.** `git blame` names you, because you committed. dr names the agent session that wrote the line and the request you gave it.
 - **Ask the author.** Press `a` on a line to ask the session that wrote it why. dr asks a fork, so your conversation stays as it was.
 - **Get fixes from the author.** Leave comments as in a pull request review, then `:submit`. Each session fixes only the lines it wrote; `y` applies a fix and `x` drops it.
-- **Three agents, one diff.** Lines from Claude Code, Codex and OMP sessions sit side by side in one review.
+- **Three agents, one diff.** Each session gets its own color, so lines from Claude Code, Codex and OMP sessions sit side by side in one review.
 - **Local and exact.** Origins come from the session logs on your machine, with no model calls. Lines dr cannot explain stay unknown. There is no server, no account and no telemetry.
 
 ## Quick start
@@ -75,7 +75,9 @@ The base is the merge-base of `HEAD` and the default branch (`origin/HEAD`, else
 
 A session is one conversation with an agent, and a request is one message you sent in it. A line's origin is the session and request whose edit last changed the line.
 
-The status line shows the agent and request number for the line under the cursor. `Enter` opens the origin box below the line: the session, the request as you wrote it, the note the agent wrote right before the edit, and the reply that ended the request.
+Each session gets a color. A thin rail next to every changed line has the color of the session that wrote it, dotted when the origin is unknown and teal for a fix dr applied, and the first line a request changed in each hunk is labeled with the session and the request's first line, skipping headings and lines that end with a colon. Each file header has a dot for every session that changed the file. A session is named by its agent and the last four characters of its id, such as `claude c1a0`, and a request by its number in the session, `claude c1a0 #2`.
+
+The status line starts with the mode you are in, then shows the agent and request for the line under the cursor and, on the right, questions being asked, fixes ready and pending comments. The row under it lists the keys of that mode. `Enter` opens the origin box below the line: the session, the request as you wrote it, the note the agent wrote right before the edit, and the reply that ended the request.
 
 Press `v` on a file to mark it viewed, like the Viewed box on GitHub. A viewed file folds to its header and the file tree shows a check next to it. dr remembers viewed files per worktree, inside the git directory. If the file's diff changes after you marked it, the mark is cleared and the header says `Changed since last view`.
 
@@ -83,7 +85,7 @@ Press `v` on a file to mark it viewed, like the Viewed box on GitHub. A viewed f
 
 On a changed line, `a` opens a box under the line to type your question in. Left empty, it asks "Why did you write this line this way?". `Enter` sends, `Shift-Enter` or `Alt-Enter` starts a new line, and `Esc` cancels. Select several lines with `V` first to ask about all of them. The answer arrives in a few seconds as a thread at the top of the origin box, like a GitHub review comment. Answers are one short sentence unless you ask for more, with a badge for where the reason comes from: `decided` with you, `chose` by the agent, or a `guess`. Press `a` inside the origin box to ask a follow-up.
 
-Type `^` in the box to pick the model that answers. A list of the models that agent's CLI can run opens under the box; typing filters it, and `Enter` or `Tab` picks. The pick is for that one question, and the next one goes back to the session's own model. A picked model shows with a `^` in the box title and next to the answer. The session's reasoning effort is left out, because it belongs to the session's model.
+Type `^` at the start of a word in the box to pick the model that answers. A finder like fzf opens over the diff with its own prompt: typing ranks the models that agent's CLI can run the way fzf does, `↑` `↓` or `Ctrl-P` `Ctrl-N` move, `Enter` or `Tab` picks, `Ctrl-U` clears and `Esc` goes back without a pick. To type a `^` itself at the start of a word, press `^` again in the empty finder. The pick is for that one question, and the next one goes back to the session's own model. A picked model shows on the box's top border and next to the answer. The session's reasoning effort is left out, because it belongs to the session's model.
 
 The list comes from each agent:
 
@@ -115,7 +117,7 @@ The origin of such a line stays unknown; asking never changes it.
 
 Press `c` on a line, or on a selection made with `V`, and type how to change it in the box that opens under the line, such as "use errors.Is". `^` picks the model for that comment, as it does for a question. Nothing is sent yet: the comment waits under its lines, like a pending GitHub review comment. When you are done reading, `:submit` sends every comment at once. dr groups them by the session that wrote their lines and sends each session one request, to the same fork `a` asks; comments for one session that picked different models go one model at a time. The fork can only read, so it answers with the new lines as JSON instead of editing files.
 
-Each fix shows under its comment as a small diff, with anything the agent wants you to know. `y` applies it and `x` drops it; to get a different fix, edit the comment and submit again. `:undo` reverts the last fix dr applied.
+Each fix shows under its comment as a small diff, with anything the agent wants you to know. `y` applies it and `x` drops it; to get a different fix, edit the comment and submit again. `:undo` reverts the last fix dr applied. A fix taller than the screen can be read to its end: press `Enter` on the comment's last line, and the comments of that line scroll with its origin card.
 
 dr writes the file itself, and only when it is safe:
 
@@ -123,7 +125,7 @@ dr writes the file itself, and only when it is safe:
 - only when the file is exactly as it was when the request went out, or changed since only by fixes dr applied;
 - only the comment's lines, through a temporary file renamed into place.
 
-A line dr wrote this way shows `fix` in place of a request number, its origin box shows your comment, and `a` on it asks the fork that sent the fix. Only one dr per worktree applies fixes; another dr on the same worktree can still read, ask and comment.
+A line dr wrote this way shows `fix` in place of a request number, its origin box shows your comment, and `a` on it asks the fork that sent the fix. Only one dr per worktree applies fixes; another dr on the same worktree can still read, ask and comment, and a band over its diff says so.
 
 For changes too big for a comment, press `ga` on a line. dr opens a fork of the session that wrote it in the agent's own CLI, in this terminal, the way `e` opens your editor: `claude --resume <session> --fork-session`, `codex fork <session>` or `omp --fork <session log>`, with the session's model. The agent remembers the whole conversation and works with your usual tools, settings and approvals; the original session is not touched. When you leave the agent, dr reads the session logs again and redraws the diff, so the lines the fork changed show the fork as their origin. For a second after you come back, `Ctrl-C` does nothing, so the second press of a double tap that closed the agent does not close dr too.
 
@@ -136,20 +138,21 @@ For changes too big for a comment, press `ga` on a line. dr opens a fork of the 
 | `d` `u` `J` `K` | Half a page down, up |
 | `}` `{` | Next, previous change |
 | `l` `h` | Next, previous file. Arrows work too. Takes a count (3l) |
-| `/` `n` `N` | Search, next, previous. Lowercase queries ignore case |
-| `Enter` | Open the origin under the line. `j` `k` `d` `u` `J` `K` `gg` `G` scroll, `a` asks a follow-up, `q` `Esc` `Enter` close |
+| `/` `n` `N` | Search, next, previous. Lowercase queries ignore case. Every match is lit and the status line counts them |
+| `Enter` | Open the origin under the line. `j` `k` `d` `u` `J` `K` `gg` `G` scroll it, with the comments and fixes under that line, `a` asks a follow-up, `q` `Esc` `Enter` close |
 | `s` | Switch between split and unified. Narrow screens stay unified |
 | `v` | Mark the file viewed or not. Viewed files fold to their header |
-| `V` | Select lines, as in vim. Moves extend it in the file. `V` or `Esc` ends it |
+| `V` | Select lines, as in vim. Moves extend it in the file. `V` or `Esc` ends it. The status line warns when the lines come from more than one session, which `a` and `c` cannot take |
 | `a` | Ask the session that wrote the line or the selection, in a box under the line. The answer comes in the origin box |
 | `e` | Edit the line in your editor: `$VISUAL`, else `$EDITOR`, else `vi`. The diff is rebuilt when it closes |
 | `c` | Leave a change comment on the line or selection, or edit the one there, in a box under the line. Saving it empty removes it |
 | `ga` | Open a fork of the session that wrote the line in its agent, in this terminal. The diff is redrawn when you leave it |
-| In the box | `Enter` sends or saves, `Shift-Enter` or `Alt-Enter` (or `Ctrl-J`) starts a new line, `^` picks the model, `Esc` or `Ctrl-C` cancels. Arrows, `Ctrl-A` `Ctrl-E`, word moves, `Ctrl-U` and `Ctrl-W` edit |
+| In the box | `Enter` sends or saves, `Shift-Enter` or `Alt-Enter` (or `Ctrl-J`) starts a new line, `^` at the start of a word opens the model finder, `Esc` or `Ctrl-C` cancels. Arrows, `Ctrl-A` `Ctrl-E`, word moves, `Ctrl-U` and `Ctrl-W` edit |
+| `:` | Type a command. A list above the status line shows each command and what it would do now |
 | `:submit` | Send all pending comments, one request per session |
 | `y` `x` | Apply, drop the fix under the comment |
 | `:undo` | Revert the last fix dr applied |
-| `Esc` | Clear a pending count or key |
+| `Esc` | Clear a pending count or key, else the search |
 | `?` | Help |
 | `q` | Quit |
 | Mouse | Drag the line between tree and diff to resize the tree, all the way left to fold it. The wheel scrolls. Click a file in the tree to go to it, or the Viewed box on a header to mark it. Hold Shift or Option to select text |
@@ -166,7 +169,7 @@ Finding origins makes no model calls and no network requests. It reads these fil
 | Codex | `~/.codex/sessions/<date>/rollout-*.jsonl` |
 | OMP | `~/.omp/agent/sessions/<cwd>/` |
 
-Session log formats are not public APIs and can change. If dr cannot read some records, those lines become unknown and the status line names the agent. `dr blame` writes the same warning to stderr.
+Session log formats are not public APIs and can change. If dr cannot read some records, those lines become unknown and a band over the diff names the agent. `dr blame` writes the same warning to stderr.
 
 ## Privacy
 

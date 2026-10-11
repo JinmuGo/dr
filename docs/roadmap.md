@@ -7,7 +7,7 @@ These features are planned, not built. The plans may change before or while they
 - `:ship`: commit, push and open a PR. The plan is under "Plan: `:ship`" below.
 - PR review: see reviews that other people or bots left on a PR in the same screen and decide whether to apply them. The plan is under "Plan: PR review" below.
 - An origin cache.
-- A file header that stays at the top while scrolling, folding folders in the tree, and a filter box for file names, as GitHub has.
+- Folding folders in the tree, and a filter box for file names, as GitHub has.
 - Known limits. Each has one place to fix.
   - A repo with no commits does not open because there is no merge-base. Fix it in the base lookup in `internal/git/`.
   - Lines in files Codex moved are unknown. Fix `internal/agent/codex.go` to carry over the state of the old path.
