@@ -2,43 +2,58 @@ package tui
 
 import (
 	"cmp"
+	"image/color"
 	"maps"
 	"slices"
+	"strconv"
 	"strings"
-	"time"
-	"unicode"
+	"sync"
 	"unicode/utf8"
 
 	tea "charm.land/bubbletea/v2"
 	"github.com/JinmuGo/dr/internal/agent"
 	"github.com/JinmuGo/dr/internal/review"
 	"github.com/charmbracelet/x/ansi"
+	"github.com/junegunn/fzf/src/algo"
+	"github.com/junegunn/fzf/src/util"
 )
 
-// maxPickRows is how many rows the model list under the input box shows at most. A longer
-// list scrolls to keep the highlighted row in view.
-const maxPickRows = 8
+const (
+	finderHeight   = 12  // how many lines the model finder takes, its borders included, when they fit
+	finderMaxWidth = 100 // how many cells wide the model finder is at most
+	finderMinWidth = 24  // how many cells wide it is at least beside the box; narrower, it takes the whole diff
+	finderChrome   = 4   // the lines of the finder that are not rows: its borders, the prompt and the count
+)
 
-// picker is the model list open under the input box while ^ picks a model for what is
-// typed, as OMP's ^ does. The token, the ^ and what is typed after it up to the cursor,
-// filters it.
+// initAlgo sets fzf's matcher to its default scoring scheme, once.
+var initAlgo = sync.OnceFunc(func() { algo.Init("default") })
+
+// picker is the model finder, open over the diff under the input box while ^ picks a model
+// for what is typed, drawn the way fzf --layout=reverse --border --preview draws: a prompt
+// with the query, a line that counts the matches, the matching models with the characters
+// that matched lit, and a preview of the highlighted one. The query is its own; the box's
+// text does not change while it is open.
 type picker struct {
-	at     int      // the byte of the box's text where the token's ^ is
-	agent  string   // whose models it lists: the agent of the session the box sends to
-	own    string   // the model of that session, "" when not known
-	review []string // the other models of agent the sessions in the review used, newest edit first
-	id     string   // the model of the highlighted row, or the query of the row that takes it as typed
-	typed  bool     // the highlighted row takes the query as typed
-	top    int      // the first row it shows when it has more than fit
+	query  string
+	agent  string             // whose models it lists: the agent of the session the box sends to
+	own    string             // the model of that session, "" when not known
+	review []string           // the other models of agent the sessions in the review used, newest edit first
+	by     map[string]session // the session that made the newest edit with each of review
+	id     string             // the model of the highlighted row, or the query of the row that takes it as typed
+	typed  bool               // the highlighted row takes the query as typed
+	top    int                // the first row it shows when it has more than fit
+	slab   *util.Slab         // fzf's scratch memory, reused for every match
 }
 
-// pickRow is a row of the model list: a model, the query as typed, or a dim note on the
-// agent's own list.
+// pickRow is a row of the model finder: a model, the query as typed, or a note that cannot
+// be picked.
 type pickRow struct {
 	id, name string // the model as the CLI takes it and as the agent names it
-	session  bool   // the model of the session the box sends to
+	tag      string // "session" for the model of the session the box sends to, "review" for one the review used
+	lit      []int  // the runes of id the query matched, in order
 	typed    bool   // the query as typed, for a model the list does not hold
 	note     string // a note, which cannot be picked, in place of a model
+	fail     bool   // the note says why the agent's list is not there
 }
 
 // modelList is what Asker.Models gave for an agent in this run, or that it has not yet.
@@ -55,12 +70,15 @@ type modelsMsg struct {
 	err    error
 }
 
-// pickKey handles key k while the model list is open, before the input box does. Up, Down,
-// ctrl+p and ctrl+n move the highlight, Enter and Tab pick, and Esc closes the list and
-// leaves the token as typed. A key that moves the cursor in the text or starts a new line
-// closes the list and then does what it does in the box. It reports whether it took k.
-func (m *model) pickKey(k string) bool {
-	switch k {
+// pickKey handles a key while the model finder is open, which takes every key. Typing edits
+// the query, Backspace deletes its last character and ctrl+u clears it, and the highlight
+// goes to the best match, as in fzf. Up, Down, ctrl+p and ctrl+n move the highlight, Enter
+// and Tab pick, and Esc closes the finder without changing the pick. ^ on an empty query
+// types a ^ into the box and closes the finder, the way to write a word that starts with ^.
+// ctrl+c closes the box, as it does without the finder.
+func (m *model) pickKey(msg tea.KeyPressMsg) {
+	p := m.entry.picker
+	switch k := msg.String(); k {
 	case "up", "ctrl+p":
 		m.moveHighlight(-1)
 	case "down", "ctrl+n":
@@ -69,48 +87,56 @@ func (m *model) pickKey(k string) bool {
 		m.pick()
 	case "esc":
 		m.entry.picker = nil
-	case "left", "right", "home", "end", "ctrl+a", "ctrl+e", "alt+left", "ctrl+left", "alt+b", "alt+right", "ctrl+right",
-		"alt+f", "shift+enter", "alt+enter", "ctrl+j":
-		m.entry.picker = nil
-		return false
+	case "ctrl+c":
+		m.closeBox()
+	case "ctrl+u":
+		m.setQuery("")
+	case "backspace":
+		_, n := utf8.DecodeLastRuneInString(p.query)
+		m.setQuery(p.query[:len(p.query)-n])
 	default:
-		return false
+		if p.query == "" && msg.Text == "^" {
+			m.entry.picker = nil
+			_, w := m.layout()
+			m.entry.edit(k, msg.Text, m.entryWidth(w))
+			return
+		}
+		m.typeQuery(msg.Text)
 	}
-	return true
 }
 
-// opensPicker returns where the ^ right before the cursor is, and whether it opens the model
-// list: it starts the text or comes after white space, a line break too.
-func (b *textBox) opensPicker() (at int, ok bool) {
-	at = b.cursor - 1
-	if at < 0 || b.text[at] != '^' {
-		return 0, false
+// typeQuery adds text, typed or pasted, to the query of the open model finder, on one line.
+func (m *model) typeQuery(text string) {
+	if text = strings.ReplaceAll(clean(text), "\n", " "); text != "" {
+		m.setQuery(m.entry.picker.query + text)
 	}
-	return at, at == 0 || b.space(b.before(at))
 }
 
-// openPicker opens the model list for the ^ at byte at of the box's text, the highlight on
-// its first row. It returns the command that lists the models of the agent the box sends
-// to, the first time the list opens for that agent in this run.
-func (m *model) openPicker(at int) tea.Cmd {
+// setQuery sets the query of the open model finder and puts the highlight on its first row
+// that can be picked, the best match.
+func (m *model) setQuery(query string) {
+	p := m.entry.picker
+	p.query, p.id, p.typed, p.top = query, "", false, 0
+	m.settle()
+}
+
+// opensPicker reports whether ^ typed at the cursor opens the model finder: the cursor is at
+// the start of a word, at the start of the text or after white space, a line break too.
+func (b *textBox) opensPicker() bool {
+	return b.cursor == 0 || b.space(b.before(b.cursor))
+}
+
+// openPicker opens the model finder with an empty query, the highlight on its first row. It
+// returns the command that lists the models of the agent the box sends to, the first time
+// the finder opens for that agent in this run.
+func (m *model) openPicker() tea.Cmd {
+	initAlgo()
 	name, own := m.boxSession()
-	m.entry.picker = &picker{at: at, agent: name, own: own, review: m.reviewModels(name, own)}
+	models, by := m.reviewModels(name, own)
+	m.entry.picker = &picker{agent: name, own: own, review: models, by: by, slab: util.MakeSlab(16*1024, 2048)}
 	cmd := m.listModels(name)
 	m.settle()
 	return cmd
-}
-
-// keepPicker closes the model list when its token is gone: its ^ was deleted, or the
-// cursor is no longer after it with no white space between. Otherwise the highlight stays
-// on its model, as settle keeps it.
-func (m *model) keepPicker() {
-	b := &m.entry
-	p := b.picker
-	if p.at >= len(b.text) || b.text[p.at] != '^' || b.cursor <= p.at || strings.ContainsFunc(b.text[p.at+1:b.cursor], unicode.IsSpace) {
-		b.picker = nil
-		return
-	}
-	m.settle()
 }
 
 // boxSession returns the agent of the session the open input box sends to, the target's
@@ -133,24 +159,30 @@ func (m *model) boxSession() (name, own string) {
 }
 
 // reviewModels returns the models of agent name, other than own, that sessions made the
-// edits in the review with, the model of the newest edit first. A fix dr applied does not
-// count.
-func (m *model) reviewModels(name, own string) []string {
-	newest := make(map[string]time.Time) // the time of the newest edit of each model
+// edits in the review with, the model of the newest edit first, and the session that made
+// the newest edit with each. A fix dr applied does not count.
+func (m *model) reviewModels(name, own string) ([]string, map[string]session) {
+	newest := make(map[string]*agent.Edit) // the newest edit of each model
 	for _, f := range m.files {
 		for _, l := range f.diff {
 			e := l.Edit
 			if e == nil || e.Fix != nil || e.Agent != name || e.Model == "" || e.Model == own {
 				continue
 			}
-			if t, ok := newest[e.Model]; !ok || e.Time.After(t) {
-				newest[e.Model] = e.Time
+			if n := newest[e.Model]; n == nil || e.Time.After(n.Time) {
+				newest[e.Model] = e
 			}
 		}
 	}
 	models := slices.Collect(maps.Keys(newest))
-	slices.SortFunc(models, func(a, b string) int { return cmp.Or(newest[b].Compare(newest[a]), strings.Compare(a, b)) })
-	return models
+	slices.SortFunc(models, func(a, b string) int {
+		return cmp.Or(newest[b].Time.Compare(newest[a].Time), strings.Compare(a, b))
+	})
+	by := make(map[string]session, len(models))
+	for _, id := range models {
+		by[id] = session{newest[id].Agent, newest[id].Session}
+	}
+	return models, by
 }
 
 // listModels returns the command that lists the models of agent name with Asker.Models the
@@ -177,25 +209,40 @@ func (m *model) listModels(name string) tea.Cmd {
 	}
 }
 
-// listed keeps the models that came for an agent, or why none did, for the run, and keeps
-// the highlight of the open model list on its model.
+// listed keeps the models that came for an agent, or why none did, for the run. When the
+// open model finder lists that agent's models, its highlight stays on its model, and a
+// highlight on the query as typed goes to the best match, as the list can hold models that
+// match it. A list for another agent leaves the open finder as it is.
 func (m *model) listed(msg modelsMsg) {
 	l := &modelList{models: msg.models}
 	if msg.err != nil {
 		l = &modelList{err: msg.err.Error()}
 	}
 	m.models[msg.agent] = l
-	if m.entry.picker != nil {
+	if p := m.entry.picker; p != nil && p.agent == msg.agent {
+		if p.typed {
+			p.id, p.typed = "", false
+		}
 		m.settle()
 	}
 }
 
-// pickRows returns the rows of the open model list: the model of the session the box sends
-// to, marked, then the other models of its agent the review used, then the agent's own list
-// from Asker.Models, each model once, of them those that match the query as matchModels
-// orders them. A dim note tells that the agent's list is still coming, or why it is not
-// there. Last comes the query as typed, when it is not the ID of a model listed.
-func (m *model) pickRows() []pickRow {
+// listLoading reports whether the open model finder waits for its agent's list.
+func (m *model) listLoading() bool {
+	if !m.typing() || m.entry.picker == nil {
+		return false
+	}
+	l := m.models[m.entry.picker.agent]
+	return l != nil && l.loading
+}
+
+// pickRows returns the rows of the open model finder, and how many models it holds before
+// the query filters them: the model of the session the box sends to, then the other models
+// of its agent the review used, then the agent's own list from Asker.Models, each model
+// once, of them those that match the query as rankModels orders them. A note follows while
+// the agent's list is still coming, or two when it failed: why, and that a model can be
+// typed. Last comes the query as typed, when it is not the ID of a model listed.
+func (m *model) pickRows() (rows []pickRow, total int) {
 	p := m.entry.picker
 	list := m.models[p.agent]
 	names := make(map[string]string) // by ID
@@ -214,60 +261,58 @@ func (m *model) pickRows() []pickRow {
 			all = append(all, r)
 		}
 	}
-	add(pickRow{id: p.own, name: names[p.own], session: true})
+	add(pickRow{id: p.own, name: names[p.own], tag: "session"})
 	for _, id := range p.review {
-		add(pickRow{id: id, name: names[id]})
+		add(pickRow{id: id, name: names[id], tag: "review"})
 	}
 	for _, md := range listed {
 		add(pickRow{id: md.ID, name: md.Name})
 	}
-	query := m.entry.text[p.at+1 : m.entry.cursor]
-	rows := matchModels(all, query)
+	rows = rankModels(all, p.query, p.slab)
+	name := review.Visible(p.agent)
 	switch {
 	case list == nil:
 	case list.loading:
-		rows = append(rows, pickRow{note: "Loading " + review.Visible(p.agent) + " models…"})
+		rows = append(rows, pickRow{note: "Loading " + name + " models…"})
 	case list.err != "":
-		rows = append(rows, pickRow{note: "Could not list " + review.Visible(p.agent) + " models: " + review.Visible(list.err)})
+		rows = append(rows, pickRow{note: name + " models failed: " + review.Visible(list.err), fail: true},
+			pickRow{note: "Type a model name to use it as typed."})
 	}
-	if query != "" && !seen[query] {
-		rows = append(rows, pickRow{id: query, typed: true})
+	if p.query != "" && !seen[p.query] {
+		rows = append(rows, pickRow{id: p.query, typed: true})
 	}
-	return rows
+	return rows, len(all)
 }
 
-// matchModels returns the rows that match query, ignoring case: first those whose ID or name
-// holds it, then those whose ID holds its characters in order with others between, each in
-// the order of rows. An empty query matches every row.
-func matchModels(rows []pickRow, query string) []pickRow {
+// rankModels returns the rows whose ID matches query as fzf matches it, ignoring case, by
+// fzf's score, the best first and rows that score the same in the order of rows, each with
+// the characters that matched. An empty query keeps every row in its order. slab is fzf's
+// scratch memory.
+func rankModels(rows []pickRow, query string, slab *util.Slab) []pickRow {
 	if query == "" {
 		return rows
 	}
-	q := strings.ToLower(query)
-	var near, far []pickRow
+	pattern := []rune(strings.ToLower(query))
+	type hit struct {
+		row   pickRow
+		score int
+	}
+	var hits []hit
 	for _, r := range rows {
-		id := strings.ToLower(r.id)
-		switch {
-		case strings.Contains(id, q) || strings.Contains(strings.ToLower(r.name), q):
-			near = append(near, r)
-		case inOrder(id, q):
-			far = append(far, r)
+		chars := util.ToChars([]byte(r.id))
+		res, pos := algo.FuzzyMatchV2(false, true, true, &chars, pattern, true, slab)
+		if res.Start < 0 {
+			continue
 		}
+		r.lit = slices.Sorted(slices.Values(*pos))
+		hits = append(hits, hit{r, res.Score})
 	}
-	return append(near, far...)
-}
-
-// inOrder reports whether s holds the characters of sub in their order, with or without
-// others between them.
-func inOrder(s, sub string) bool {
-	for _, r := range sub {
-		i := strings.IndexRune(s, r)
-		if i < 0 {
-			return false
-		}
-		s = s[i+utf8.RuneLen(r):]
+	slices.SortStableFunc(hits, func(a, b hit) int { return b.score - a.score })
+	ranked := make([]pickRow, len(hits))
+	for i, h := range hits {
+		ranked[i] = h.row
 	}
-	return true
+	return ranked
 }
 
 // index returns which of rows is highlighted, -1 for none.
@@ -275,12 +320,11 @@ func (p *picker) index(rows []pickRow) int {
 	return slices.IndexFunc(rows, func(r pickRow) bool { return r.note == "" && r.id == p.id && r.typed == p.typed })
 }
 
-// settle keeps the highlight of the open model list on its model while the list holds it,
-// as the query or the agent's own list changes, and else puts it on the first row that can
-// be picked.
+// settle keeps the highlight of the open model finder on its model while the finder holds
+// it, as the agent's own list comes, and else puts it on the first row that can be picked.
 func (m *model) settle() {
 	p := m.entry.picker
-	rows := m.pickRows()
+	rows, _ := m.pickRows()
 	i := p.index(rows)
 	if i < 0 {
 		i = slices.IndexFunc(rows, func(r pickRow) bool { return r.note == "" })
@@ -291,11 +335,11 @@ func (m *model) settle() {
 	}
 }
 
-// moveHighlight moves the highlight of the open model list to the next row that can be
+// moveHighlight moves the highlight of the open model finder to the next row that can be
 // picked in the direction dir, 1 down or -1 up. It stays on the first and the last.
 func (m *model) moveHighlight(dir int) {
 	p := m.entry.picker
-	rows := m.pickRows()
+	rows, _ := m.pickRows()
 	for k := p.index(rows) + dir; k >= 0 && k < len(rows); k += dir {
 		if rows[k].note == "" {
 			p.id, p.typed = rows[k].id, rows[k].typed
@@ -304,124 +348,296 @@ func (m *model) moveHighlight(dir int) {
 	}
 }
 
-// pick takes the highlighted model as the box's and closes the list. The token goes from the
-// text, and picking the session's own model clears the pick, as asking with it is no pick.
-// With nothing to pick, it closes the list and leaves the token as typed.
+// pick takes the highlighted model as the box's and closes the finder. Picking the session's
+// own model clears the pick, as asking with it is no pick. With nothing to pick, it closes
+// the finder and leaves the pick as it was.
 func (m *model) pick() {
 	b := &m.entry
 	p := b.picker
-	rows := m.pickRows()
+	rows, _ := m.pickRows()
 	b.picker = nil
 	i := p.index(rows)
 	if i < 0 {
 		return
 	}
-	b.remove(p.at, b.cursor)
 	b.pick = rows[i].id
 	if b.pick == p.own {
 		b.pick = ""
 	}
 }
 
-// pickRoom returns how many of n rows the model list shows in a diff w cells wide: at most
-// maxPickRows, and on a short screen only as many as fit under the input box and its row,
-// which keep their place, and the file header that stays on top.
-func (m *model) pickRoom(n, w int) int {
-	return max(min(n, maxPickRows, m.diffHeight()-2-m.entryHeight(w)), 0)
-}
-
-// pickerHeight returns how many lines of the screen the open model list takes in a diff w
-// cells wide, a line a row it shows, 0 when it is closed.
-func (m *model) pickerHeight(w int) int {
-	if m.entry.picker == nil {
-		return 0
+// finderPlace returns where the open model finder shows in a diff w cells wide and h lines
+// high: its left cell and its top line, its width and its height. It floats over the diff
+// two cells right of the input box's left edge, as wide as finderMaxWidth or the room to the
+// right edge less a cell, and finderHeight lines high under the box. When those lines do not
+// fit under the box it goes above it, and when they fit on neither side, it takes the
+// larger, as long as that shows a row. Otherwise it floats over the box at the bottom of the
+// diff. It never leaves the diff, so the status line and the key row stay in view.
+func (m *model) finderPlace(w, h int) (x, y, width, height int) {
+	x = m.entryLeft(w) + 2
+	width = min(finderMaxWidth, w-x-1)
+	if width < finderMinWidth {
+		x, width = 0, w
 	}
-	return m.pickRoom(len(m.pickRows()), w)
+	r := m.entryRow()
+	boxTop := 0
+	if r >= m.top {
+		boxTop = min(m.lineOf(r)+1, h)
+	}
+	boxEnd := min(boxTop+m.entryHeight(w), h) // the line after the box
+	below, above := h-boxEnd, boxTop
+	switch {
+	case below >= finderHeight:
+		return x, boxEnd, width, finderHeight
+	case above >= finderHeight:
+		return x, boxTop - finderHeight, width, finderHeight
+	case below >= above && below > finderChrome:
+		return x, boxEnd, width, below
+	case above > finderChrome:
+		return x, 0, width, above
+	}
+	height = min(finderHeight, h) // no room beside the box: over it, at the bottom of the diff
+	return x, h - height, width, height
 }
 
-// followPicker scrolls the open model list in a diff w cells wide as little as it takes to
-// show the highlighted row, and leaves no empty rows at its bottom while there are rows
-// above to show.
-func (m *model) followPicker(w int) {
+// finderRowsShown returns how many rows a finder h lines high shows: those under its border,
+// prompt and count, or, when it is too short to show one under them, a row a line, alone.
+func finderRowsShown(h int) int {
+	if h > finderChrome {
+		return h - finderChrome
+	}
+	return h
+}
+
+// followPicker scrolls the rows of the open model finder in a diff w cells wide and h lines
+// high as little as it takes to show the highlighted row, and leaves no empty rows at its
+// bottom while there are rows above to show.
+func (m *model) followPicker(w, h int) {
 	p := m.entry.picker
 	if p == nil {
 		return
 	}
-	rows := m.pickRows()
-	n := m.pickRoom(len(rows), w)
+	rows, _ := m.pickRows()
+	_, _, _, height := m.finderPlace(w, h)
+	n := finderRowsShown(height)
 	if i := p.index(rows); i >= 0 {
 		p.top = max(min(p.top, i), i-n+1)
 	}
 	p.top = max(min(p.top, len(rows)-n), 0)
 }
 
-// pickerLines draws the open model list in a diff w cells wide, right under the input box
-// from its left edge to the right edge of the diff, the way OMP lists models under its
-// input: the highlighted row "❯ ● id  name" in the accent color and bold, the others
-// "  ● id  name" with the id in the text color and the name dim, the ids padded to one
-// column. A row too narrow for its name leaves the name out, and then cuts the id, never
-// through a wide character. Without colors, ❯ and bold mark the highlighted row. Notes are
-// dim, under the ids. It returns nil while the list is closed.
-func (m *model) pickerLines(w int) []string {
-	p := m.entry.picker
-	if p == nil {
-		return nil
+// drawFinder draws the open model finder over lines, the diff w cells wide, where
+// finderPlace puts it.
+func (m *model) drawFinder(lines []string, w int) {
+	x, y, width, height := m.finderPlace(w, len(lines))
+	for k, l := range m.finderLines(width, height) {
+		lines[y+k] = overlay(lines[y+k], l, x, width, w)
 	}
-	t := &m.theme
-	rows := m.pickRows()
-	n := m.pickRoom(len(rows), w)
-	top := max(min(p.top, len(rows)-n), 0)
-	at := p.index(rows)
-	x := m.entryLeft(w)
-	pad := strings.Repeat(" ", x)
-	idWidth := 0
-	for _, r := range rows {
-		if r.note == "" && !r.typed {
-			idWidth = max(idWidth, ansi.StringWidth(review.Visible(r.id)))
-		}
-	}
-	base, dim, text := t.paint(nil, t.surface), t.paint(t.muted, t.surface), t.paint(t.fg, t.surface)
-	lines := make([]string, 0, n)
-	for k := top; k < top+n; k++ {
-		r := rows[k]
-		l := newLine(w - x)
-		if r.note != "" {
-			l.add("    ", base)
-			l.add(r.note, dim)
-			lines = append(lines, pad+l.fill(base))
-			continue
-		}
-		mark, bullet, id, name := "  ", dim, text, dim
-		if k == at {
-			mark, bullet = "❯ ", t.paint(t.accent, t.surface).Bold(true)
-			id, name = bullet, bullet
-		}
-		l.add(mark, id)
-		l.add("● ", bullet)
-		shown := review.Visible(r.id)
-		switch about := pickName(r); {
-		case r.typed:
-			l.add(`Use "`+shown+`" as typed`, id)
-		case about != "" && idWidth+2+ansi.StringWidth(about) <= l.free:
-			l.add(shown+strings.Repeat(" ", idWidth-ansi.StringWidth(shown)), id)
-			l.add("  "+about, name)
-		default:
-			l.add(shown, id)
-		}
-		lines = append(lines, pad+l.fill(base))
-	}
-	return lines
 }
 
-// pickName returns what the model list tells of r after its ID: the name the agent gives
-// it, made visible, and for the session's own model that it is the session's.
-func pickName(r pickRow) string {
-	name := review.Visible(r.name)
-	switch {
-	case !r.session:
-		return name
-	case name == "":
-		return "session"
+// finderSplit returns the column of the line between the rows and the preview of a finder w
+// cells wide: the rows take 54% of it.
+func finderSplit(w int) int {
+	return w*54/100 + 1
+}
+
+// finderCursor returns the cell of the screen after the query of the open model finder, for
+// the terminal's cursor, so that an input method composes its characters there; on a finder
+// too short for its prompt, the highlighted row.
+func (m *model) finderCursor() (cx, cy int) {
+	_, w := m.layout()
+	x, y, width, height := m.finderPlace(w, m.diffHeight())
+	x += m.width - w
+	if height <= finderChrome {
+		rows, _ := m.pickRows()
+		return x + 3, y + max(m.entry.picker.index(rows)-m.entry.picker.top, 0)
 	}
-	return name + " · session"
+	shown := keepEnd(review.Visible(m.entry.picker.query), finderSplit(width)-6)
+	return x + 4 + ansi.StringWidth(shown), y + 1
+}
+
+// finderLines draws the open model finder, w cells wide and h lines high, in a rounded
+// border in the color of floating boxes, with the label "model · agent" on its top border.
+// The rows take the left: the prompt > in the ask color with the query and a block cursor,
+// the count of the models that match and of those listed with a rule after it, a spinner
+// before it while the agent's list loads, and the rows. A model's ID shows its provider, up
+// to a /, quiet, and the characters the query matched in the ask color and bold, with
+// "session" or "review" at the right; the highlighted row is on the selection band with ▌,
+// reversed without colors. The preview of the highlighted row takes the right. A finder too
+// short to show a row under its border, prompt and count shows its rows alone, a line each.
+func (m *model) finderLines(w, h int) []string {
+	t := &m.theme
+	p := m.entry.picker
+	rows, total := m.pickRows()
+	base := t.paint(nil, t.surface)
+	at := p.index(rows)
+	n := finderRowsShown(h)
+	first := max(min(p.top, len(rows)-n), 0)
+	if h <= finderChrome {
+		shown := make([]string, h)
+		for k := range shown {
+			shown[k] = base.Render(strings.Repeat(" ", w))
+			if first+k < len(rows) {
+				shown[k] = m.finderRow(rows[first+k], first+k == at, w)
+			}
+		}
+		return shown
+	}
+	mid := finderSplit(w)
+	left, right := mid-1, w-mid-2 // the cells inside the border on each side of the line
+	border := t.paint(t.line2, t.surface)
+	matched := 0
+	for _, r := range rows {
+		if r.note == "" && !r.typed {
+			matched++
+		}
+	}
+
+	top := newLine(mid)
+	top.add("╭─", border)
+	top.add(ansi.Truncate(" model · "+review.Visible(p.agent)+" ", max(mid-3, 0), "…"), t.paint(t.muted, t.surface))
+	top.add(strings.Repeat("─", top.free), border)
+	head := newLine(right) // between ┬ and ╮
+	head.add("─", border)
+	head.add(" preview ", t.paint(t.subtle, t.surface))
+	head.add(strings.Repeat("─", head.free), border)
+	lines := []string{top.fill(border) + border.Render("┬") + head.fill(border) + border.Render("╮")}
+
+	prompt := newLine(left)
+	prompt.add(" ", base)
+	prompt.add(">", t.paint(t.ask, t.surface).Bold(true))
+	prompt.add(" ", base)
+	prompt.add(keepEnd(review.Visible(p.query), left-5), t.paint(t.strong, t.surface))
+	prompt.add(" ", t.onBand(t.surface, t.ask))
+	count := newLine(left)
+	count.add("   ", base)
+	if m.listLoading() {
+		count.add(string(spinner[m.now().Second()%len(spinner)])+" ", t.paint(t.ask, t.surface))
+	}
+	count.add(strconv.Itoa(matched)+"/"+strconv.Itoa(total), t.paint(t.subtle, t.surface))
+	count.add(" ", base)
+	count.add(strings.Repeat("─", max(count.free-1, 0)), border)
+	body := []string{prompt.fill(base), count.fill(base)} // the left of each line inside the border
+	for k := first; k < min(first+n, len(rows)); k++ {
+		body = append(body, m.finderRow(rows[k], k == at, left))
+	}
+	var preview [][]span
+	if at >= 0 {
+		preview = m.previewLines(rows[at], right-2)
+	}
+	empty := base.Render(strings.Repeat(" ", left))
+	for k := range max(h-2, 0) {
+		l := empty
+		if k < len(body) {
+			l = body[k]
+		}
+		r := newLine(right)
+		r.add(" ", base)
+		if k < len(preview) {
+			for _, s := range preview[k] {
+				r.add(s.text, t.paint(s.color, t.surface).Bold(s.bold))
+			}
+		}
+		lines = append(lines, border.Render("│")+l+border.Render("│")+r.fill(base)+border.Render("│"))
+	}
+	if h > 1 {
+		bottom := newLine(w)
+		bottom.add("╰"+strings.Repeat("─", max(mid-1, 0))+"┴", border)
+		bottom.add(strings.Repeat("─", max(bottom.free-1, 0))+"╯", border)
+		lines = append(lines, bottom.fill(border))
+	}
+	return lines[:min(len(lines), h)]
+}
+
+// finderRow draws row r of the open model finder, w cells wide, highlighted or not: a model
+// with its tag at the right, the query as typed, or a note.
+func (m *model) finderRow(r pickRow, highlighted bool, w int) string {
+	t := &m.theme
+	bg, on := t.surface, t.paint
+	if highlighted {
+		bg, on = t.surface2, t.onBand
+	}
+	base := on(nil, bg)
+	head := newLine(min(3, w))
+	if highlighted {
+		head.add("▌", on(t.ask, bg))
+	}
+	tag, tagWidth := "", 0
+	if r.tag != "" && w >= len(r.tag)+12 {
+		tag, tagWidth = r.tag, len(r.tag)+3 // a gap before it and two cells after it
+	}
+	tail := newLine(tagWidth)
+	tail.add(" "+tag, on(t.subtle, bg))
+	l := newLine(w - 3 - tagWidth)
+	switch {
+	case r.fail:
+		l.add("✗ ", on(t.del, bg).Bold(true))
+		l.add(r.note, on(t.del, bg))
+	case r.note != "":
+		l.add(r.note, on(t.subtle, bg))
+	case r.typed:
+		l.add(`Use "`+review.Visible(r.id)+`" as typed`, on(t.fg, bg))
+	default:
+		text := t.fg
+		if highlighted {
+			text = t.strong
+		}
+		slash := strings.IndexByte(r.id, '/')
+		lit := r.lit
+		k := 0 // the rune of the ID at byte i
+		for i, c := range r.id {
+			st := on(text, bg)
+			switch {
+			case len(lit) > 0 && lit[0] == k:
+				st, lit = on(t.ask, bg).Bold(true), lit[1:]
+			case i <= slash:
+				st = on(t.subtle, bg)
+			}
+			l.add(review.Visible(string(c)), st)
+			k++
+		}
+	}
+	return head.fill(base) + l.fill(base) + tail.fill(base)
+}
+
+// previewLines returns the preview of row r of the open model finder, w cells wide: the
+// model's name and ID, and what picking it does, which is true of a and of c alike. A model
+// the review used tells which session used it.
+func (m *model) previewLines(r pickRow, w int) [][]span {
+	t := &m.theme
+	p := m.entry.picker
+	agentName := review.Visible(p.agent)
+	wrap := func(text string, c color.Color) [][]span {
+		var lines [][]span
+		for _, l := range strings.Split(ansi.Wrap(text, max(w, 1), ""), "\n") {
+			lines = append(lines, []span{{text: l, color: c}})
+		}
+		return lines
+	}
+	id := review.Visible(r.id)
+	if r.typed {
+		return slices.Concat([][]span{{{text: id, color: t.strong, bold: true}}, {{text: "not in the list of " + agentName + " models", color: t.muted}}, nil},
+			wrap("dr passes it to "+agentName+" as typed. If "+agentName+" has no such model, its error comes back in place of an answer.", t.fg))
+	}
+	lines := [][]span{{{text: cmp.Or(review.Visible(r.name), id), color: t.strong, bold: true}}, {{text: id, color: t.muted}}, nil}
+	if r.tag == "session" {
+		does := "Picking it asks the way a always does."
+		if m.drafting != nil {
+			does = "Picking it clears the comment's pick."
+		}
+		return append(lines, wrap("The session's own model. "+does, t.fg)...)
+	}
+	if s, ok := p.by[r.id]; ok {
+		by := span{text: review.Visible(review.Who(s.agent, s.id, m.short)), color: m.sessionColor(s)}
+		lines = append(lines, []span{{text: "used in this review by ", color: t.subtle}, by}, nil)
+	}
+	own := "the session's model"
+	if p.own != "" {
+		own = review.Visible(p.own)
+	}
+	only := "For this question only. The next one goes back to " + own + "."
+	if m.drafting != nil {
+		only = "For this comment only. :submit asks for its fix with this model; the other comments keep theirs."
+	}
+	return slices.Concat(lines, wrap(only, t.fg), [][]span{nil}, wrap("The session's reasoning effort is left out.", t.muted))
 }

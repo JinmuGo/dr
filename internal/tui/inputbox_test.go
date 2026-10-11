@@ -2,11 +2,14 @@ package tui
 
 import (
 	"bytes"
+	"regexp"
 	"slices"
 	"strings"
 	"testing"
+	"time"
 
 	tea "charm.land/bubbletea/v2"
+	"github.com/JinmuGo/dr/internal/agent"
 	"github.com/JinmuGo/dr/internal/review"
 	"github.com/charmbracelet/colorprofile"
 	"github.com/charmbracelet/x/ansi"
@@ -18,39 +21,57 @@ import (
 func entryBox(t *testing.T, m *model) []string {
 	t.Helper()
 	lines := strings.Split(screen(t, m), "\n")
-	top := slices.IndexFunc(lines, func(l string) bool { return strings.Contains(l, "┏") })
-	if top < 0 {
+	r := m.entryRow()
+	if r < 0 || r < m.top {
 		return nil
 	}
-	left := ansi.StringWidth(lines[top][:strings.Index(lines[top], "┏")])
+	_, w := m.layout()
+	left, top := m.width-w+m.entryLeft(w), m.lineOf(r)+1
 	var box []string
-	for _, l := range lines[top:] {
+	for _, l := range lines[top:min(top+m.entryHeight(w), m.diffHeight())] {
 		box = append(box, ansi.Cut(l, left, m.width))
-		if strings.Contains(l, "┗") {
-			break
-		}
 	}
 	return box
 }
 
-// shownTitle returns the title in the top border of box, as entryBox returns it.
+// boxTitle matches the top border of the input box: its pill, its title, and the model.
+var boxTitle = regexp.MustCompile(`^[╭┏][─━] (ASK|COMMENT|EDIT)  (.*?) [─━]+(?: (\^ .*?) [─━])?[╮┓]$`)
+
+// shownTitle returns what the top border of box, as entryBox returns it, says: the pill and
+// the title, "ASK claude c1a0 #1 · L2".
 func shownTitle(box []string) string {
 	if len(box) == 0 {
 		return ""
 	}
-	title, _, _ := strings.Cut(strings.TrimPrefix(box[0], "┏━ "), " ━")
-	return title
+	s := boxTitle.FindStringSubmatch(box[0])
+	if s == nil {
+		return ""
+	}
+	return s[1] + " " + s[2]
+}
+
+// shownModel returns what the top border of box says of the model, "" when it says nothing.
+func shownModel(box []string) string {
+	if s := boxTitle.FindStringSubmatch(box[0]); s != nil {
+		return s[3]
+	}
+	return ""
+}
+
+// shownNote returns what the bottom border of box says sending does.
+func shownNote(box []string) string {
+	return strings.Trim(box[len(box)-1], "╰╯┗┛─━ ")
 }
 
 // shownText returns the rows of text that box, as entryBox returns it, shows, without the
-// borders and the space after them.
+// borders, the mark before the first row and the spaces after them.
 func shownText(box []string) []string {
 	if len(box) < 2 {
 		return nil
 	}
 	var rows []string
 	for _, l := range box[1 : len(box)-1] {
-		rows = append(rows, strings.TrimRight(strings.TrimSuffix(strings.TrimPrefix(l, "┃ "), "┃"), " "))
+		rows = append(rows, strings.TrimRight(strings.TrimRight(ansi.Cut(l, 4, ansi.StringWidth(l)), "│┃"), " "))
 	}
 	return rows
 }
@@ -69,42 +90,54 @@ func beforeCursor(t *testing.T, m *model) (line, before string) {
 }
 
 func TestEntryTitles(t *testing.T) {
-	// The title names what the box does and for whom, the lines in the current file, or in
-	// base when all are deleted, and the keys: Enter sends a question and saves a comment,
-	// and the new line key is Shift-Enter once the terminal tells it from Enter. A title too
-	// long for the keys leaves them out.
-	const ask, save = " (Enter:send Alt-Enter:newline ^:model Esc:cancel)", " (Enter:save Alt-Enter:newline ^:model Esc:cancel)"
+	// The top border has a pill of what the box does, ASK, COMMENT or EDIT, and the title:
+	// whom it asks or whom the comment goes to, and the lines in the current file, or in base
+	// when all are deleted. The bottom border says what sending does. The keys are on the key
+	// row, not in the box.
 	for _, tc := range []struct {
-		name, keys string
-		enhanced   bool
-		want       string
+		name, keys  string
+		title, note string
 	}{
-		{name: "a on a line", keys: "4ja", want: "Ask claude c1a0 #1 · L2" + ask},
-		{name: "a on lines", keys: "2jVjja", want: "Ask claude c1a0 #1 · L1-2" + ask},
-		{name: "a on a deleted line", keys: "34Ga", want: "Ask codex 3333, which edited this file · L3"},
-		{name: "a with Shift+Enter told apart", keys: "4ja", enhanced: true, want: "Ask claude c1a0 #1 · L2 (Enter:send Shift-Enter:newline ^:model Esc:cancel)"},
-		{name: "c on a line", keys: "4jc", want: "Comment for claude c1a0 · L2" + save},
-		{name: "c on lines", keys: "11jVjc", want: "Comment for omp a1f2 · L14" + save},
-		{name: "c on a comment", keys: "4jcfix<enter>c", want: "Edit comment for claude c1a0 · L2" + save},
-		{name: "c with Shift+Enter told apart", keys: "4jc", enhanced: true, want: "Comment for claude c1a0 · L2 (Enter:save Shift-Enter:newline ^:model Esc:cancel)"},
+		{"a on a line", "4ja", "ASK claude c1a0 #1 · L2", "asks a read-only fork; the session is not changed"},
+		{"a on lines", "2jVjja", "ASK claude c1a0 #1 · L1-2", "asks a read-only fork; the session is not changed"},
+		{"a on a deleted line", "34Ga", "ASK codex 3333, which edited this file · L3", "asks a read-only fork; the session is not changed"},
+		{"c on a line", "4jc", "COMMENT → claude c1a0 · L2", "saved as pending; :submit asks for its fix"},
+		{"c on lines", "11jVjc", "COMMENT → omp a1f2 · L14", "saved as pending; :submit asks for its fix"},
+		{"c on a comment", "4jcfix<enter>c", "EDIT → claude c1a0 · L2", "save it empty to remove it"},
 	} {
 		m := commentScreen(askFiles(), t.TempDir())
-		if tc.enhanced {
-			send(m, tea.KeyboardEnhancementsMsg{Flags: 1})
-		}
 		typeKeys(m, tc.keys)
-		if got := shownTitle(entryBox(t, m)); got != tc.want {
-			t.Errorf("%s: title %q, want %q", tc.name, got, tc.want)
+		box := entryBox(t, m)
+		if got, note := shownTitle(box), shownNote(box); got != tc.title || note != tc.note {
+			t.Errorf("%s: title %q and note %q, want %q and %q", tc.name, got, note, tc.title, tc.note)
 		}
 	}
 }
 
+func TestEntryFollowUp(t *testing.T) {
+	// a in the origin box of a line with questions follows them up: the title says so, and
+	// the bottom border that the question goes on in the fork that answered, which has seen
+	// them. a on the line after that goes on in the same fork too.
+	f := &fakeAsk{answer: agent.Answer{Fork: "fork-1", Text: "[chose] a", Took: 7 * time.Second}}
+	m := askScreen(testFiles(), Saved{}, f)
+	run(m, typeAndKeep(m, "4jawhy<enter>"))
+	typeKeys(m, "a")
+	box := entryBox(t, m)
+	if got, note := shownTitle(box), shownNote(box); got != "ASK claude c1a0 #1 · follow-up · L2" || note != "continues the same fork; it has seen 1 earlier question" {
+		t.Errorf("a in the origin box: title %q and note %q", got, note)
+	}
+	typeKeys(m, "<esc><esc>a")
+	if note := shownNote(entryBox(t, m)); note != "continues the same fork; it has seen 1 earlier question" {
+		t.Errorf("a on the line: note %q", note)
+	}
+}
+
 func TestEntryLook(t *testing.T) {
-	// The input box stands out from the other boxes: heavy lines where they have light ones,
-	// its border and what it does in the accent color, in bold, and the keys dim. The cursor's
-	// cell is reversed in the accent color; nothing typed, a dim placeholder follows it. So in
-	// the dark and the light colors. Without colors, as with NO_COLOR, no color reaches the
-	// terminal, and the heavy lines and the reversed cursor set it apart.
+	// The input box is the only box with an outline in color: violet to ask, amber to
+	// comment, rounded. ❯ or ✎ comes before the text, and the cursor is a block in the box's
+	// color. Nothing typed, the placeholder shows dim with its first character under the
+	// cursor. Without colors, as with NO_COLOR, no color reaches the terminal, and heavy lines
+	// and the reversed cursor set the box apart.
 	for _, tc := range []struct {
 		name string
 		th   theme
@@ -117,30 +150,40 @@ func TestEntryLook(t *testing.T) {
 		m.theme = tc.th
 		typeKeys(m, "4jcuse errors.Is<enter>gg12ja")
 		th := &m.theme
-		border, cursor, dim := th.paint(th.accent, th.surface).Bold(true), th.paint(th.accent, th.surface).Reverse(true), th.paint(th.muted, th.surface)
+		f := m.entryFrame()
+		border, cursor, dim := th.paint(th.ask, th.surface), th.onBand(th.surface, th.ask), th.paint(th.subtle, th.surface)
 		raw := m.View().Content
 		for name, want := range map[string]string{
-			"the top border":          border.Render("┏━"),
-			"a side border":           border.Render("┃ "),
-			"the bottom border":       border.Render("┛"),
-			"what it does":            th.paint(th.accent, th.surface).Bold(true).Render("Ask omp a1f2 #1"),
-			"the keys":                dim.Render(" (Enter:send Alt-Enter:newline ^:model Esc:cancel)"),
-			"the cursor":              cursor.Render(" "),
-			"the placeholder":         dim.Render(whyDeleted),
-			"the comment card's band": th.paint(th.pending, th.surface2).Render("▎"),
+			"the top border":    border.Render(f.tl + f.h),
+			"a side border":     border.Render(f.v + " "),
+			"the bottom border": border.Render(f.br),
+			"the pill":          th.pill(th.base, th.ask).Render(" ASK "),
+			"the tag":           th.paint(m.sessionColor(session{"omp", ompSession}), th.surface).Bold(true).Render("omp a1f2 #1"),
+			"the mark":          th.paint(th.ask, th.surface).Bold(true).Render("❯ "),
+			"the cursor":        cursor.Render(whyDeleted[:1]),
+			"the placeholder":   dim.Render(whyDeleted[1:]),
 		} {
 			if !strings.Contains(raw, want) {
 				t.Errorf("%s: the screen has no %s %q", tc.name, name, want)
 			}
 		}
-		if s := screen(t, m); !strings.Contains(s, "┏━ Ask omp a1f2 #1 · L15 ") || !strings.Contains(s, "┗━━━") || strings.Contains(s, "┏━ a.go:2") {
-			t.Errorf("%s: the screen\n%s\nwant the input box in heavy lines and the comment's box in light ones", tc.name, s)
+		top := f.tl + f.h + " ASK  omp a1f2 #1 · L15 "
+		if s := screen(t, m); !strings.Contains(s, top) || !strings.Contains(s, f.bl+f.h+f.h) {
+			t.Errorf("%s: the screen\n%s\nwant the input box starting %q", tc.name, s, top)
 		}
 		typeKeys(m, "why<left>")
-		if raw := m.View().Content; !strings.Contains(raw, cursor.Render("y")) || !strings.Contains(raw, th.paint(th.fg, th.surface).Render("wh")) {
+		if raw := m.View().Content; !strings.Contains(raw, cursor.Render("y")) || !strings.Contains(raw, th.paint(th.strong, th.surface).Render("wh")) {
 			t.Errorf("%s: the screen does not show the cursor on the y of %q", tc.name, m.entry.text)
 		}
+		typeKeys(m, "<esc>gg4jc")
+		if raw := m.View().Content; !strings.Contains(raw, th.paint(th.pending, th.surface).Render(f.tl+f.h)) ||
+			!strings.Contains(raw, th.pill(th.base, th.pending).Render(" EDIT ")) || !strings.Contains(raw, th.paint(th.pending, th.surface).Bold(true).Render("✎ ")) {
+			t.Errorf("%s: the comment's box is not amber with ✎", tc.name)
+		}
 		if !th.plain {
+			if f != roundFrame {
+				t.Errorf("%s: the box's border is %+v, want rounded", tc.name, f)
+			}
 			continue
 		}
 		var out bytes.Buffer
@@ -149,7 +192,7 @@ func TestEntryLook(t *testing.T) {
 			t.Fatal(err)
 		}
 		if s := out.String(); strings.Contains(s, "38;") || strings.Contains(s, "48;") || !strings.Contains(s, "┏━") ||
-			!strings.Contains(s, "┃") || !strings.Contains(s, "┛") || !strings.Contains(s, "\x1b[7my") {
+			!strings.Contains(s, "┃") || !strings.Contains(s, "┛") || !strings.Contains(s, "\x1b[7m ") {
 			t.Errorf("%s: as the terminal gets it\n%q\nwant no colors, the heavy lines and the reversed cursor", tc.name, s)
 		}
 	}
@@ -160,24 +203,24 @@ func TestEntryWrap(t *testing.T) {
 	// and the box grows with it. The cursor shows where the text goes in: after the last
 	// character, or at the start of the next row where a row wraps.
 	m := askScreen(testFiles(), Saved{}, &fakeAsk{answer: answer})
-	m.Update(tea.WindowSizeMsg{Width: 70, Height: 24}) // the box is 60 cells wide, its text 55
+	m.Update(tea.WindowSizeMsg{Width: 70, Height: 24}) // the box is 60 cells wide, its text 53
 	typeKeys(m, "4ja"+strings.Repeat("한", 30))
 	box := entryBox(t, m)
-	if got, want := shownText(box), []string{strings.Repeat("한", 27), strings.Repeat("한", 3)}; !slices.Equal(got, want) {
+	if got, want := shownText(box), []string{strings.Repeat("한", 26), strings.Repeat("한", 4)}; !slices.Equal(got, want) {
 		t.Errorf("rows %q, want %q", got, want)
 	}
-	if line, before := beforeCursor(t, m); !strings.Contains(line, "┃ 한한한") || !strings.HasSuffix(before, "┃ 한한한") {
-		t.Errorf("cursor after %q on %q, want it after the third 한 of the second row", before, line)
+	if line, before := beforeCursor(t, m); !strings.Contains(line, "│   한한한한") || !strings.HasSuffix(before, "│   한한한한") {
+		t.Errorf("cursor after %q on %q, want it after the fourth 한 of the second row", before, line)
 	}
-	typeKeys(m, "<left><left><left>")
-	if line, before := beforeCursor(t, m); !strings.Contains(line, "┃ 한한한") || !strings.HasSuffix(before, "┃ ") {
+	typeKeys(m, "<left><left><left><left>")
+	if line, before := beforeCursor(t, m); !strings.Contains(line, "│   한한한한") || !strings.HasSuffix(before, "│   ") {
 		t.Errorf("cursor after %q on %q, want it at the start of the second row", before, line)
 	}
-	if raw := m.View().Content; !strings.Contains(raw, m.theme.paint(m.theme.accent, m.theme.surface).Reverse(true).Render("한")) {
-		t.Error("the cursor's cell is not the first 한 of the second row, reversed")
+	if raw := m.View().Content; !strings.Contains(raw, m.theme.onBand(m.theme.surface, m.theme.ask).Render("한")) {
+		t.Error("the cursor's cell is not the first 한 of the second row, on a block")
 	}
 	typeKeys(m, "<up>")
-	if line, before := beforeCursor(t, m); !strings.Contains(line, "┃ "+strings.Repeat("한", 27)) || !strings.HasSuffix(before, "┃ ") {
+	if line, before := beforeCursor(t, m); !strings.Contains(line, "│ ❯ "+strings.Repeat("한", 26)) || !strings.HasSuffix(before, "│ ❯ ") {
 		t.Errorf("Up: cursor after %q on %q, want it at the start of the first row", before, line)
 	}
 }
@@ -195,9 +238,9 @@ func TestEntryRows(t *testing.T) {
 		keys, cursor string
 		rows         []string
 	}{
-		{"", "┃ o", keys[5:]},
-		{strings.Repeat("<up>", 12), "┃ c", keys[2:12]},
-		{"<down>", "┃ d", keys[2:12]},
+		{"", "│   o", keys[5:]},
+		{strings.Repeat("<up>", 12), "│   c", keys[2:12]},
+		{"<down>", "│   d", keys[2:12]},
 	} {
 		typeKeys(m, step.keys)
 		box := entryBox(t, m)
@@ -218,45 +261,46 @@ func TestEntrySplit(t *testing.T) {
 	typeKeys(m, "s3jawhy") // -line 2 and +Changed 2
 	lines := strings.Split(screen(t, m), "\n")
 	y := cursorLine(m)
-	if !m.splitShown || !strings.Contains(lines[y], "Changed 2") || !strings.Contains(lines[y+1], "┏━ Ask claude c1a0 #1 · L2 ") ||
-		!strings.Contains(lines[y+2], "┃ why") || !strings.Contains(lines[y+3], "┗━") || !strings.Contains(lines[y+4], "line 3") {
+	if !m.splitShown || !strings.Contains(lines[y], "Changed 2") || !strings.Contains(lines[y+1], "╭─ ASK  claude c1a0 #1 · L2 ") ||
+		!strings.Contains(lines[y+2], "│ ❯ why") || !strings.Contains(lines[y+3], "╰─") || !strings.Contains(lines[y+4], "line 3") {
 		t.Errorf("split view %t: want the row, the box with the text and then line 3:\n%s", m.splitShown, strings.Join(lines, "\n"))
 	}
-	if _, before := beforeCursor(t, m); !strings.HasSuffix(before, "┃ why") {
+	if _, before := beforeCursor(t, m); !strings.HasSuffix(before, "│ ❯ why") {
 		t.Errorf("cursor after %q, want it after why", before)
 	}
 	m.Update(tea.WindowSizeMsg{Width: 90, Height: 24})
 	lines = strings.Split(screen(t, m), "\n")
-	if row := lines[cursorLine(m)]; m.splitShown || !strings.Contains(row, "Changed 2") || !strings.Contains(lines[cursorLine(m)+1], "┏━ Ask") {
+	if row := lines[cursorLine(m)]; m.splitShown || !strings.Contains(row, "Changed 2") || !strings.Contains(lines[cursorLine(m)+1], "╭─ ASK ") {
 		t.Errorf("after leaving the split view: want the box under +Changed 2:\n%s", strings.Join(lines, "\n"))
 	}
 	m = commentScreen(testFiles(), t.TempDir())
 	typeKeys(m, "s3jc")
-	if title := shownTitle(entryBox(t, m)); !m.splitShown || !strings.HasPrefix(title, "Comment for claude c1a0 · L2 ") {
+	if title := shownTitle(entryBox(t, m)); !m.splitShown || title != "COMMENT → claude c1a0 · L2" {
 		t.Errorf("c in the split view: the box titled %q", title)
 	}
 }
 
 func TestEntryNarrow(t *testing.T) {
-	// A narrow box leaves out the keys first, then cuts what it does with …, and at last
-	// shows its border alone. Its text wraps to the room left, a character a row at the
-	// least. screen checks every line is as wide as the screen.
+	// A narrow box leaves out the model first, then cuts the title with …, and at last shows
+	// its border alone; the note on its bottom border goes when it does not fit. Its text
+	// wraps to the room left, a character a row at the least. screen checks every line is as
+	// wide as the screen.
 	for _, tc := range []struct {
-		width int
-		top   string
-		rows  []string
+		width       int
+		top, bottom string
+		rows        []string
 	}{
-		{125, "┏━ Ask claude c1a0 #1 · L2 (Enter:send Alt-Enter:newline ^:model Esc:cancel) ━", []string{"한글 ab"}},
-		{70, "┏━ Ask claude c1a0 #1 · L2 ━", []string{"한글 ab"}},
-		{30, "┏━ Ask claude c1… ━┓", []string{"한글 ab"}},
-		{9, "┏━━━━┓", []string{"한", "글", "", "a", "b"}}, // the space is a row of its own
+		{125, "╭─ ASK  claude c1a0 #1 · L2 ───", "─ asks a read-only fork; the session is not changed ─╯", []string{"한글 ab"}},
+		{70, "╭─ ASK  claude c1a0 #1 · L2 ───", "─ asks a read-only fork; the session is not changed ─╯", []string{"한글 ab"}},
+		{40, "╭─ ASK  claude c1a0 #1 · … ─╮", "╰───────────────────────────╯", []string{"한글 ab"}},
+		{12, "╭──────╮", "╰──────╯", []string{"한", "글", "", "a", "b"}}, // the space is a row of its own
 	} {
 		m := askScreen(testFiles(), Saved{}, &fakeAsk{answer: answer})
 		m.Update(tea.WindowSizeMsg{Width: tc.width, Height: 24})
 		typeKeys(m, "4ja한글 ab")
 		box := entryBox(t, m)
-		if len(box) < 3 || !strings.HasPrefix(box[0], tc.top) || !strings.HasSuffix(box[len(box)-1], "┛") || !slices.Equal(shownText(box), tc.rows) {
-			t.Errorf("width %d: the box\n%s\nwant it to start with %q and show %q", tc.width, strings.Join(box, "\n"), tc.top, tc.rows)
+		if len(box) < 3 || !strings.HasPrefix(box[0], tc.top) || !strings.HasSuffix(box[len(box)-1], tc.bottom) || !slices.Equal(shownText(box), tc.rows) {
+			t.Errorf("width %d: the box\n%s\nwant it to start with %q, end with %q and show %q", tc.width, strings.Join(box, "\n"), tc.top, tc.bottom, tc.rows)
 		}
 	}
 	// A title is cut before a wide character that does not fit whole.
@@ -273,8 +317,8 @@ func TestEntryScrollsIntoView(t *testing.T) {
 	for _, keys := range []string{"", "a<alt+enter>b<alt+enter>c<alt+enter>d<alt+enter>e"} {
 		typeKeys(m, keys)
 		lines := strings.Split(screen(t, m), "\n")
-		top := slices.IndexFunc(lines, func(l string) bool { return strings.Contains(l, "┏━") })
-		bottom := slices.IndexFunc(lines, func(l string) bool { return strings.Contains(l, "┗━") })
+		top := slices.IndexFunc(lines, func(l string) bool { return strings.Contains(l, "╭─ ASK ") })
+		bottom := slices.IndexFunc(lines, func(l string) bool { return strings.Contains(l, "╰─") })
 		if top < 1 || !strings.Contains(lines[top-1], "var x = 1") || bottom < 0 || bottom >= m.diffHeight() {
 			t.Errorf("after %q: want the last row and the whole box under it:\n%s", keys, strings.Join(lines, "\n"))
 		}
@@ -378,7 +422,7 @@ func TestEntryComment(t *testing.T) {
 		t.Errorf("the comment's box does not show each line:\n%s", strings.Join(lines, "\n"))
 	}
 	typeKeys(m, "c")
-	if _, before := beforeCursor(t, m); !slices.Equal(shownText(entryBox(t, m)), []string{"one", "two"}) || !strings.HasSuffix(before, "┃ two") {
+	if _, before := beforeCursor(t, m); !slices.Equal(shownText(entryBox(t, m)), []string{"one", "two"}) || !strings.HasSuffix(before, "│   two") {
 		t.Errorf("c on the comment: the box\n%s\nwith %q before the cursor", strings.Join(entryBox(t, m), "\n"), before)
 	}
 	typeKeys(m, "<up><end>!<enter>")
@@ -395,14 +439,14 @@ func TestEntryAboveTallComment(t *testing.T) {
 	typeKeys(m, "4jc1<alt+enter>2<alt+enter>3<alt+enter>4<alt+enter>5<alt+enter>6<alt+enter>7<alt+enter>8<alt+enter>9<alt+enter>10<enter>awhy")
 	lines := strings.Split(screen(t, m), "\n")
 	y := cursorLine(m)
-	if y < 0 || y+3 >= m.diffHeight() || !strings.Contains(lines[y], "Changed 2") || !strings.Contains(lines[y+1], "┏━ Ask") ||
-		!strings.Contains(lines[y+2], "┃ why") || !strings.Contains(lines[y+3], "┗━") {
+	if y < 0 || y+3 >= m.diffHeight() || !strings.Contains(lines[y], "Changed 2") || !strings.Contains(lines[y+1], "╭─ ASK ") ||
+		!strings.Contains(lines[y+2], "│ ❯ why") || !strings.Contains(lines[y+3], "╰─") {
 		t.Fatalf("want the row, then the whole box with the text:\n%s", strings.Join(lines, "\n"))
 	}
 	if c := m.View().Cursor; c == nil || c.Y != y+2 {
 		t.Errorf("cursor %+v, want it on line %d, the box's text row", c, y+2)
 	}
-	if _, before := beforeCursor(t, m); !strings.HasSuffix(before, "┃ why") {
+	if _, before := beforeCursor(t, m); !strings.HasSuffix(before, "│ ❯ why") {
 		t.Errorf("cursor after %q, want it after why", before)
 	}
 }
@@ -422,11 +466,15 @@ func TestEntryGrowsAboveComment(t *testing.T) {
 		if c == nil || c.Y >= m.diffHeight() {
 			t.Fatalf("after %d lines: cursor %+v, want it on the screen:\n%s", i+1, c, screen(t, m))
 		}
-		if _, before := beforeCursor(t, m); !strings.HasSuffix(before, "┃ "+string(rune('a'+i))) {
+		mark := "│   "
+		if i == 0 {
+			mark = "│ ❯ "
+		}
+		if _, before := beforeCursor(t, m); !strings.HasSuffix(before, mark+string(rune('a'+i))) {
 			t.Fatalf("after %d lines: cursor after %q", i+1, before)
 		}
 	}
-	if box := entryBox(t, m); len(box) != m.entryRows()+2 || !strings.HasSuffix(box[len(box)-1], "┛") {
+	if box := entryBox(t, m); len(box) != m.entryRows()+2 || !strings.HasSuffix(box[len(box)-1], "╯") {
 		t.Errorf("the box\n%s\nwant %d rows and its bottom border", strings.Join(box, "\n"), m.entryRows())
 	}
 }
@@ -452,9 +500,9 @@ func TestEntryBeforeOtherComment(t *testing.T) {
 	}
 	s := strings.Split(screen(t, m), "\n")
 	y := cursorLine(m)
-	bottom := slices.IndexFunc(s, func(l string) bool { return strings.Contains(l, "┗━") })
+	bottom := slices.IndexFunc(s, func(l string) bool { return strings.Contains(l, "╰─") })
 	at := slices.IndexFunc(s, func(l string) bool { return strings.Contains(l, "▎ beta") })
-	if !strings.Contains(s[y], "newB") || !strings.Contains(s[y+1], "┏━ Edit comment") || bottom <= y+1 || at <= bottom ||
+	if !strings.Contains(s[y], "newB") || !strings.Contains(s[y+1], "╭─ EDIT ") || bottom <= y+1 || at <= bottom ||
 		slices.ContainsFunc(s, func(l string) bool { return strings.Contains(l, "▎ alpha") }) {
 		t.Errorf("want the row, the box, then beta's box and no box for alpha:\n%s", strings.Join(s, "\n"))
 	}

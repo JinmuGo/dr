@@ -50,9 +50,9 @@ func TestCommentKeys(t *testing.T) {
 	// removal is a record of the log, all with the comment's ID.
 	dir := t.TempDir()
 	m := commentScreen(testFiles(), dir)
-	const title = "Comment for claude c1a0 · L2 (Enter:save Alt-Enter:newline ^:model Esc:cancel)"
+	const title = "COMMENT → claude c1a0 · L2"
 	typeKeys(m, "4jc")
-	if box := entryBox(t, m); m.drafting == nil || m.entry.text != "" || shownTitle(box) != title || !slices.Equal(shownText(box), []string{" " + commentPlaceholder}) {
+	if box := entryBox(t, m); m.drafting == nil || m.entry.text != "" || shownTitle(box) != title || !slices.Equal(shownText(box), []string{commentPlaceholder}) {
 		t.Fatalf("c: the box\n%s\nwant an empty one titled %q", strings.Join(box, "\n"), title)
 	}
 	typeKeys(m, "use errors.Is<enter>")
@@ -72,7 +72,7 @@ func TestCommentKeys(t *testing.T) {
 	}
 
 	typeKeys(m, "c")
-	const edit = "Edit comment for claude c1a0 · L2 (Enter:save Alt-Enter:newline ^:model Esc:cancel)"
+	const edit = "EDIT → claude c1a0 · L2"
 	if box := entryBox(t, m); m.drafting == nil || m.drafting.editing == nil || shownTitle(box) != edit ||
 		!slices.Equal(shownText(box), []string{"use errors.Is"}) || strings.Contains(screen(t, m), "✎ you → ● claude c1a0 · a.go:2") {
 		t.Fatalf("c on the comment: the screen\n%s\nwant the box %q with its text in place of its box", screen(t, m), edit)
@@ -106,7 +106,7 @@ func TestCommentSelection(t *testing.T) {
 	// exactly its lines. A selection that overlaps it otherwise is refused.
 	m := commentScreen(testFiles(), t.TempDir())
 	typeKeys(m, "3jVjc")
-	if title := shownTitle(entryBox(t, m)); !strings.HasPrefix(title, "Comment for claude c1a0 · L2 ") {
+	if title := shownTitle(entryBox(t, m)); title != "COMMENT → claude c1a0 · L2" {
 		t.Fatalf("c on a selection: the box titled %q", title)
 	}
 	typeKeys(m, "fix<enter>")
@@ -145,8 +145,8 @@ func TestCommentRefusals(t *testing.T) {
 		{"3jc", "Deleted lines alone cannot take a comment"},
 		{"16jc", "Lines without an origin cannot take a comment. Fix them with e"},
 		{"4jV8jc", "The selection mixes sessions. Select lines from one session"},
-		{"31jc", "┏━ Comment for claude c1a0, which started the subagent · L3 "},
-		{"30jc", "┏━ Comment for codex 3333 · L2 "},
+		{"31jc", "╭─ COMMENT  → claude c1a0, which started the subagent · L3 "},
+		{"30jc", "╭─ COMMENT  → codex 3333 · L2 "},
 	} {
 		m := commentScreen(askFiles(), t.TempDir())
 		typeKeys(m, tc.keys)
@@ -451,7 +451,7 @@ func TestCommentSplitRange(t *testing.T) {
 		lines[k].Edit = e
 		return []review.File{{Path: "f.go", Status: 'M', Lines: lines}}
 	}
-	const newB = "┏━ Comment for claude c1a0 · L3 "
+	const newB = "╭─ COMMENT  → claude c1a0 · L3 "
 	for _, tc := range []struct {
 		name, keys string
 		k          int
@@ -484,7 +484,7 @@ func TestCommentSplitRange(t *testing.T) {
 	// In the unified view newA is not a line of the comment: c there makes a new comment for
 	// codex. oldB and newB are its lines.
 	typeKeys(m, "sgg5jc")
-	if title := shownTitle(entryBox(t, m)); m.drafting == nil || m.drafting.editing != nil || !strings.HasPrefix(title, "Comment for codex 3333 · L2 ") {
+	if title := shownTitle(entryBox(t, m)); m.drafting == nil || m.drafting.editing != nil || title != "COMMENT → codex 3333 · L2" {
 		t.Errorf("c on newA: the box titled %q, want a new comment for codex", title)
 	}
 	for _, keys := range []string{"<esc>gg4jc", "<esc>gg6jc"} {

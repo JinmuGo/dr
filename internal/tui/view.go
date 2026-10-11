@@ -59,14 +59,16 @@ var helpKeys = [][2]string{
 
 // View draws the screen: the file tree and the diff side by side, with the origin box open
 // under the cursor row when Enter opened it, the status line under them and the key row
-// last. The terminal's cursor shows where the text typed in the open input box of a or c
-// goes in, or else after the search or the : input on the status line. It takes the mouse,
-// for dragging the file tree's edge and for the wheel.
+// last. The terminal's cursor shows where the text typed in the open model finder or input
+// box of a or c goes in, or else after the search or the : input on the status line. It
+// takes the mouse, for dragging the file tree's edge and for the wheel.
 func (m *model) View() tea.View {
 	v := tea.NewView(m.draw())
 	v.AltScreen = true
 	v.MouseMode = tea.MouseModeCellMotion
 	switch typed := m.inputText(); {
+	case m.typing() && m.entry.picker != nil && len(m.rows) > 0:
+		v.Cursor = tea.NewCursor(m.finderCursor())
 	case m.typing():
 		if x, y, ok := m.entryCursor(); ok {
 			v.Cursor = tea.NewCursor(x, y)
@@ -133,6 +135,9 @@ func (m *model) draw() string {
 		list = m.fileTree(listWidth, h)
 	}
 	diff := m.diffLines(diffWidth, h)
+	if m.typing() && m.entry.picker != nil {
+		m.drawFinder(diff, diffWidth)
+	}
 	if m.help {
 		m.drawHelp(diff, diffWidth)
 	}

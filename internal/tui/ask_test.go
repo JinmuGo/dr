@@ -156,25 +156,25 @@ func TestAskInput(t *testing.T) {
 	// box without asking. The status line keeps telling of the cursor row.
 	f := &fakeAsk{answer: answer}
 	m := askScreen(testFiles(), Saved{}, f)
-	const title = "Ask claude c1a0 #1 · L2 (Enter:send Alt-Enter:newline ^:model Esc:cancel)"
+	const title = "ASK claude c1a0 #1 · L2"
 	for _, step := range []struct {
 		keys, text string
 	}{
-		{"4ja", " " + whyAdded}, // the cursor's cell, then the placeholder
+		{"4ja", whyAdded}, // its first character under the cursor
 		{"왜", "왜"},
-		{"<bs>", " " + whyAdded},
-		{"abc<ctrl+u>", " " + whyAdded},
+		{"<bs>", whyAdded},
+		{"abc<ctrl+u>", whyAdded},
 		{"abc", "abc"},
 	} {
 		typeKeys(m, step.keys)
 		box := entryBox(t, m)
 		if lines := strings.Split(screen(t, m), "\n"); !strings.Contains(lines[cursorLine(m)], "Changed 2") ||
-			!strings.Contains(lines[cursorLine(m)+1], "┏━ "+title) || !slices.Equal(shownText(box), []string{step.text}) {
+			shownTitle(box) != title || !slices.Equal(shownText(box), []string{step.text}) {
 			t.Errorf("after %q: the box\n%s\nwant it under the line, titled %q, holding %q", step.keys, strings.Join(box, "\n"), title, step.text)
 		}
 	}
 	m.Update(tea.KeyPressMsg{Code: tea.KeyExtended, Text: "왜요"}) // an input method commits two characters
-	if _, before := beforeCursor(t, m); m.entry.text != "abc왜요" || !strings.HasSuffix(before, "┃ abc왜요") {
+	if _, before := beforeCursor(t, m); m.entry.text != "abc왜요" || !strings.HasSuffix(before, "❯ abc왜요") {
 		t.Errorf("text %q with %q before the cursor, want %q with the cursor after it", m.entry.text, before, "abc왜요")
 	}
 	if status := statusLine(t, m); !strings.HasPrefix(status, " ASK ") || !strings.Contains(status, "claude c1a0 #1") ||
@@ -188,7 +188,7 @@ func TestAskInput(t *testing.T) {
 	}
 	// A deleted line is asked about differently, and goes by its line in base.
 	typeKeys(m, "ka")
-	if box := entryBox(t, m); !strings.HasPrefix(shownTitle(box), "Ask claude c1a0 #1 · L2 ") || !slices.Equal(shownText(box), []string{" " + whyDeleted}) {
+	if box := entryBox(t, m); shownTitle(box) != title || !slices.Equal(shownText(box), []string{whyDeleted}) {
 		t.Errorf("a on a deleted line: the box\n%s", strings.Join(box, "\n"))
 	}
 }
@@ -343,7 +343,7 @@ func TestAskOthers(t *testing.T) {
 		f := &fakeAsk{answer: answer, installed: tc.installed}
 		m := askScreen(askFiles(), Saved{}, f)
 		typeKeys(m, tc.keys+"a")
-		if box := entryBox(t, m); !strings.HasPrefix(shownTitle(box), "Ask "+tc.label+" · L") || !slices.Equal(shownText(box), []string{" " + tc.placeholder}) {
+		if box := entryBox(t, m); !strings.HasPrefix(shownTitle(box), "ASK "+tc.label+" · L") || !slices.Equal(shownText(box), []string{tc.placeholder}) {
 			t.Errorf("%s: the box\n%s\nwant it to ask %s %q", tc.name, strings.Join(box, "\n"), tc.label, tc.placeholder)
 		}
 		typeKeys(m, "<enter>")
@@ -416,7 +416,7 @@ func TestAskBusy(t *testing.T) {
 		t.Errorf("a on the same session: message %q, input open %t; want %q", m.message, m.asking != nil, busy)
 	}
 	typeKeys(m, "31Ga") // row 30, the Codex line
-	if box := entryBox(t, m); m.asking == nil || !strings.HasPrefix(shownTitle(box), "Ask codex 3333 #1 · ") {
+	if box := entryBox(t, m); m.asking == nil || !strings.HasPrefix(shownTitle(box), "ASK codex 3333 #1 · ") {
 		t.Errorf("a on another session: the box\n%s\nwant one that asks codex", strings.Join(box, "\n"))
 	}
 	typeKeys(m, "<esc>")
@@ -717,8 +717,8 @@ func TestAskFromBox(t *testing.T) {
 		t.Errorf("the card's header %q does not tell of a", top())
 	}
 	typeKeys(m, "a")
-	if box := entryBox(t, m); m.reading || m.cursor != 4 || !strings.Contains(top(), "┏━ Ask claude c1a0 #1 · L1-2 ") ||
-		!slices.Equal(shownText(box), []string{" " + whyLines}) {
+	if box := entryBox(t, m); m.reading || m.cursor != 4 || !strings.Contains(top(), "╭─ ASK  claude c1a0 #1 · follow-up · L1-2 ") ||
+		!slices.Equal(shownText(box), []string{whyLines}) {
 		t.Errorf("a in the box: origin box open %t at row %d, the line under it %q; want the input box for the selection there", m.reading, m.cursor, top())
 	}
 	typeKeys(m, "Why both?<enter>")
@@ -737,8 +737,8 @@ func TestAskFromBox(t *testing.T) {
 	for _, tc := range []struct {
 		keys, top string
 	}{
-		{keys: "<esc>gg2j<enter>a", top: "┏━ Ask claude c1a0 #1 · L1-2 "},   // an unchanged line of the selection
-		{keys: "<esc><esc>gg12j<enter>a", top: "┏━ Ask omp a1f2 #1 · L15 "}, // no questions
+		{keys: "<esc>gg2j<enter>a", top: "╭─ ASK  claude c1a0 #1 · follow-up · L1-2 "}, // an unchanged line of the selection
+		{keys: "<esc><esc>gg12j<enter>a", top: "╭─ ASK  omp a1f2 #1 · L15 "},           // no questions
 	} {
 		typeKeys(m, tc.keys)
 		if m.reading || !m.typing() || !strings.Contains(top(), tc.top) {

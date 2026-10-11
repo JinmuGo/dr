@@ -281,11 +281,11 @@ func (m *model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	case tea.KeyPressMsg:
 		cmd = m.key(msg)
 	case tea.PasteMsg:
-		if m.typing() {
+		switch {
+		case m.typing() && m.entry.picker != nil:
+			m.typeQuery(msg.Content)
+		case m.typing():
 			m.entry.paste(msg.Content)
-		}
-		if m.entry.picker != nil {
-			m.keepPicker()
 		}
 	case tea.MouseMsg:
 		cmd = m.mouse(msg)
@@ -310,7 +310,7 @@ func (m *model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	case tea.KeyboardEnhancementsMsg:
 		m.shiftEnter = msg.SupportsKeyDisambiguation()
 	}
-	if !m.ticking && len(m.busy) > 0 {
+	if !m.ticking && (len(m.busy) > 0 || m.listLoading()) { // the spinners turn with the seconds
 		m.ticking = true
 		cmd = tea.Batch(cmd, m.tick())
 	}
@@ -467,9 +467,9 @@ func (m *model) diffHeight() int {
 // box under it, and leaves no blank lines at the bottom while there are rows above to show
 // instead, as far as the blank line above a file header allows. The box likewise leaves no
 // blank lines at its bottom while its text has lines above to show. The open input box
-// scrolls its text to show the cursor's row, and its model list to show the highlighted
-// row, and the screen then moves to show the whole box and the list with their row, the
-// cursor row too when they fit together.
+// scrolls its text to show the cursor's row, and the screen then moves to show the whole
+// box with its row, the cursor row too when they fit together. The model finder floating
+// over the diff scrolls its rows to show the highlighted one.
 func (m *model) scroll() {
 	h := m.diffHeight()
 	if m.reading {
@@ -480,8 +480,8 @@ func (m *model) scroll() {
 	if r := m.entryRow(); r >= 0 {
 		_, w := m.layout()
 		m.entry.follow(m.entryWidth(w), m.entryRows())
-		m.followPicker(w)
 		m.top = max(min(m.top, r), m.fitTop(r, h))
+		m.followPicker(w, h)
 	}
 }
 
@@ -490,13 +490,13 @@ func (m *model) scroll() {
 // what comes under it, the boxes of its comments and the input box, and the header of each
 // file after the first takes one more for the blank line above it, as GitHub leaves a gap
 // between files, unless it is the top row. A top row inside a file takes one more for the
-// header that stays on top. When last holds the open input box, only the box and its model
-// list count under it: the comments' boxes after them may run past the bottom of the screen.
+// header that stays on top. When last holds the open input box, only the box counts under
+// it: the comments' boxes after it may run past the bottom of the screen.
 func (m *model) fitTop(last, h int) int {
 	under := m.underHeight(last)
 	if last == m.entryRow() {
 		_, w := m.layout()
-		under = m.entryHeight(w) + m.pickerHeight(w)
+		under = m.entryHeight(w)
 	}
 	top, lines := last, 1+under
 	for top > 0 {

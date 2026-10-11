@@ -49,8 +49,13 @@ func TestModes(t *testing.T) {
 	// The model list adds a chip after the pill, and the key row has its keys.
 	m = pickScreen(pickFiles(), t.TempDir(), &fakeAsk{answer: answer}, agentModels())
 	typeKeys(m, "31Ga^")
-	if status, keys := statusLine(t, m), keyLine(t, m); !strings.HasPrefix(status, " ASK  ^ model   ") || !strings.HasPrefix(keys, "  ↑ ↓  move    ⏎ tab  pick    esc  close the list") {
-		t.Errorf("model list: status line %q, key row %q; want the chip and the keys of the list", status, keys)
+	if status, keys := statusLine(t, m), keyLine(t, m); !strings.HasPrefix(status, " ASK  ^ model   ") ||
+		!strings.HasPrefix(keys, "  ↑ ↓ ^N ^P  move    ⏎ tab  pick    ^U  clear    esc  back to the question") {
+		t.Errorf("model finder: status line %q, key row %q; want the chip and the keys of the finder", status, keys)
+	}
+	typeKeys(m, "<esc><esc>31Gc^")
+	if keys := keyLine(t, m); !strings.Contains(keys, "esc  back to the comment") {
+		t.Errorf("model finder of c: key row %q, want esc back to the comment", keys)
 	}
 }
 

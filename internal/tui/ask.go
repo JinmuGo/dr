@@ -122,6 +122,7 @@ type target struct {
 	tag         string
 	label       string // tag, and how the session relates to the lines
 	placeholder string // what is asked when nothing is typed
+	followUp    bool   // a in the origin box asks after the questions there
 	reading     bool   // a closed the origin box under row to open the input box
 	readTop     int    // and the first line of its text that it showed
 }
@@ -158,7 +159,7 @@ func (m *model) target(whom review.Asking) (*target, string) {
 	switch r := m.rows[m.cursor]; {
 	case m.reading && m.hasQuestions(m.cursor):
 		qs := m.questionsAt(m.cursor)
-		t.lines = slices.Clone(qs[len(qs)-1].lines)
+		t.lines, t.followUp = slices.Clone(qs[len(qs)-1].lines), true
 	case m.selecting:
 		rows := m.selectedRows()
 		for _, i := range rows {

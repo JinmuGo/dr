@@ -326,7 +326,11 @@ func (m *model) keycaps() []keycap {
 		return []keycap{{"⏎", "run"}, {"esc", "cancel"}}
 	case "ASK", "COMMENT":
 		if m.entry.picker != nil {
-			return []keycap{{"↑ ↓", "move"}, {"⏎ tab", "pick"}, {"esc", "close the list"}}
+			back := "back to the question"
+			if m.drafting != nil {
+				back = "back to the comment"
+			}
+			return []keycap{{"↑ ↓ ^N ^P", "move"}, {"⏎ tab", "pick"}, {"^U", "clear"}, {"esc", back}}
 		}
 		verb, newline := "save", "⌥⏎"
 		if m.asking != nil {
