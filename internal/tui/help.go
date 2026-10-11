@@ -8,43 +8,6 @@ import (
 	"github.com/charmbracelet/x/ansi"
 )
 
-// helpGroup is a group of keys in the key help: its name and each key with what it does.
-type helpGroup struct {
-	name string
-	keys [][2]string
-}
-
-// helpColumns are the groups of the key help, in its two columns, left and right. What a key
-// does is short, so that both columns fit on a screen 80 cells wide.
-var helpColumns = [2][]helpGroup{
-	{
-		{"MOVE", [][2]string{
-			{"j k", "line down, up · 5j"}, {"d u J K", "half a page down, up"}, {"gg G", "top, bottom · 12G"},
-			{"} {", "next, previous change"}, {"l h", "next, previous file · 3l"}, {"/ n N", "search, next, previous"},
-		}},
-		{"REVIEW", [][2]string{
-			{"⏎", "origin; j k scroll it"}, {"v", "mark the file viewed"}, {"V", "select lines"},
-			{"s", "split or unified"},
-		}},
-		{"MOUSE", [][2]string{
-			{"drag", "resize the tree"}, {"wheel", "scroll three lines"}, {"click", "a file, or a Viewed box"},
-			{"⇧ drag", "select text (⌥ on macOS)"},
-		}},
-	},
-	{
-		{"ASK AND FIX", [][2]string{
-			{"a", "ask who wrote it"}, {"ga", "open it in the agent"}, {"c", "leave a change comment"},
-			{":submit", "send every comment"}, {"y x", "apply, drop a fix"}, {":undo", "revert the last fix"},
-			{"e", "edit in $EDITOR"},
-		}},
-		{"IN A BOX", [][2]string{
-			{"⏎", "send or save"}, {"⇧⏎", "new line (⌥⏎, ^J)"}, {"^", "pick a model, word start"},
-			{"esc ^C", "cancel"},
-		}},
-		{"OTHER", [][2]string{{"?", "this help"}, {"esc", "clear a count or search"}, {"q", "quit"}}},
-	},
-}
-
 // Columns of the key help, in cells: what a key does starts helpLabel cells after its
 // keycap, the first column helpMargin cells inside the box's left border, and the second
 // helpGap cells after the first.

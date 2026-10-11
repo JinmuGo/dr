@@ -29,11 +29,6 @@ func (n *notice) warn(warning string) {
 // maxNoticeWidth is how wide a notice is at most, in cells.
 const maxNoticeWidth = 60
 
-// readHint returns the hint of a notice that Enter reads: Enter to read it, Esc to dismiss.
-func (m *model) readHint() []chunk {
-	return m.keys([2]string{"⏎", "to read"}, [2]string{"esc", "dismiss"})
-}
-
 // quiet returns text as a chunk in the muted color, the hint of a notice that says what
 // follows from it.
 func (m *model) quiet(text string) []chunk {
