@@ -109,7 +109,7 @@ func (m *model) mode() mode {
 		return modeComment
 	case m.originBox.open:
 		return modeOrigin
-	case m.selecting:
+	case m.selection.on:
 		return modeVisual
 	}
 	return modeNormal
@@ -179,7 +179,7 @@ func (m *model) status() string {
 		icon, c := t.icon(m.tone)
 		left = append(left, seg{text: icon + " ", st: on(c).Bold(true)}, seg{text: m.message, st: on(t.fg), cut: true})
 	case len(m.rows) == 0: // the empty screen says why
-	case m.selecting:
+	case m.selection.on:
 		left = append(left, m.selectionSegs(on)...)
 	default:
 		left, where = append(left, m.cursorSegs(on)...), true

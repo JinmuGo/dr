@@ -109,7 +109,7 @@ func (m *model) startComment() {
 func (m *model) commentTarget() (*commentInput, string) {
 	rows := []int{m.cursor}
 	switch {
-	case m.selecting:
+	case m.selection.on:
 		rows = m.selectedRows()
 	case m.rows[m.cursor].kind != lineRow:
 		return nil, "Move to a changed line to comment"
@@ -125,7 +125,7 @@ func (m *model) commentTarget() (*commentInput, string) {
 			continue
 		}
 		switch {
-		case m.selecting && (from != at || to != end):
+		case m.selection.on && (from != at || to != end):
 			return nil, "The selection overlaps a comment. Edit it with c on its lines"
 		case c.request != "":
 			return nil, "Wait for the fix to this comment"
@@ -134,7 +134,7 @@ func (m *model) commentTarget() (*commentInput, string) {
 		in.who, in.from, in.to = m.commentWho(c.Agent, c.Session, review.Relation(c.Relation)), at, end
 		return in, ""
 	}
-	if !m.selecting && !m.rows[m.cursor].isChange() {
+	if !m.selection.on && !m.rows[m.cursor].isChange() {
 		return nil, "Move to a changed line to comment"
 	}
 	var lines []origin.Line
@@ -261,7 +261,7 @@ func (m *model) saveComment() {
 		c = m.newComment(in, text, pick)
 		m.comments = append(m.comments, c)
 	}
-	m.selecting = false
+	m.selection.on = false
 	m.listWidth = m.treeWidth() // for the count by the file's name
 	if err := write(m.log, c.Comment); err != nil {
 		m.fail("could not save the comment: " + review.Visible(err.Error()))

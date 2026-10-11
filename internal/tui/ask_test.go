@@ -856,8 +856,8 @@ func TestSelect(t *testing.T) {
 	} {
 		m := askScreen(testFiles(), Saved{Dir: t.TempDir()}, &fakeAsk{})
 		typeKeys(m, tc.keys)
-		if m.selecting != tc.selecting || m.cursor != tc.cursor {
-			t.Errorf("%q: selecting %t with the cursor at row %d, want %t and row %d", tc.keys, m.selecting, m.cursor, tc.selecting, tc.cursor)
+		if m.selection.on != tc.selecting || m.cursor != tc.cursor {
+			t.Errorf("%q: selecting %t with the cursor at row %d, want %t and row %d", tc.keys, m.selection.on, m.cursor, tc.selecting, tc.cursor)
 		}
 		if status := statusLine(t, m); !strings.Contains(status, tc.status) {
 			t.Errorf("%q: status line %q has no %q", tc.keys, status, tc.status)
@@ -869,12 +869,12 @@ func TestSelect(t *testing.T) {
 	typeKeys(m, "2jV")
 	down := tea.MouseWheelMsg{X: 60, Y: 5, Button: tea.MouseWheelDown}
 	send(m, down, down, down, down, down, down, down)
-	if !m.selecting || m.cursor != 18 {
-		t.Errorf("wheel: selecting %t at row %d, want row 18", m.selecting, m.cursor)
+	if !m.selection.on || m.cursor != 18 {
+		t.Errorf("wheel: selecting %t at row %d, want row 18", m.selection.on, m.cursor)
 	}
 	send(m, tea.MouseClickMsg{X: 5, Y: treeHead + 1, Button: tea.MouseLeft})
-	if m.selecting || m.cursor != 19 {
-		t.Errorf("tree click: selecting %t at row %d, want it ended at row 19", m.selecting, m.cursor)
+	if m.selection.on || m.cursor != 19 {
+		t.Errorf("tree click: selecting %t at row %d, want it ended at row 19", m.selection.on, m.cursor)
 	}
 }
 
@@ -959,8 +959,8 @@ func TestAskSelection(t *testing.T) {
 		if got := f.asked(); len(got) != 1 || got[0].Prompt != want {
 			t.Errorf("%q: asked %+v, want the prompt %q", tc.keys, got, want)
 		}
-		if m.selecting || !m.originBox.open || m.cursor != tc.cursor || !strings.HasPrefix(boxText(m), "THREAD · 1\nyou  just now\n"+tc.placeholder+"\n") {
-			t.Errorf("%q: selecting %t, box open %t at row %d:\n%s\nwant the box of row %d with the question", tc.keys, m.selecting, m.originBox.open, m.cursor, boxText(m), tc.cursor)
+		if m.selection.on || !m.originBox.open || m.cursor != tc.cursor || !strings.HasPrefix(boxText(m), "THREAD · 1\nyou  just now\n"+tc.placeholder+"\n") {
+			t.Errorf("%q: selecting %t, box open %t at row %d:\n%s\nwant the box of row %d with the question", tc.keys, m.selection.on, m.originBox.open, m.cursor, boxText(m), tc.cursor)
 		}
 	}
 	// The question goes with each line of the selection.
