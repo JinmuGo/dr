@@ -25,6 +25,20 @@ func names(t *testing.T, dir string) []string {
 	return out
 }
 
+func TestPaths(t *testing.T) {
+	// The names on disk are what earlier versions of dr wrote, so they must not change.
+	dir := filepath.Join("repo", ".git", state.DirName)
+	if got, want := dir, filepath.Join("repo", ".git", "dr"); got != want {
+		t.Errorf("state directory %q, want %q", got, want)
+	}
+	if got, want := state.LogPath(dir), filepath.Join(dir, "log.jsonl"); got != want {
+		t.Errorf("LogPath: got %q, want %q", got, want)
+	}
+	if got, want := state.ViewedPath(dir), filepath.Join(dir, "viewed.json"); got != want {
+		t.Errorf("ViewedPath: got %q, want %q", got, want)
+	}
+}
+
 func TestSaveLoad(t *testing.T) {
 	// The directory is made when missing, and each save replaces the file through a
 	// temporary file that is renamed over it, so no other file is left beside it.
