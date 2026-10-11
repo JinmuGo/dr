@@ -126,6 +126,47 @@ func overlay(base, top string, x, topWidth, w int) string {
 	return left + strings.Repeat(" ", max(x-ansi.StringWidth(left), 0)) + ansi.ResetStyle + top + right
 }
 
+// overlayBox writes box, lines boxWidth cells wide, over lines, the lines of a screen w cells
+// wide, with its top left corner at cell x of line y.
+func overlayBox(lines, box []string, x, y, boxWidth, w int) {
+	for k, l := range box {
+		lines[y+k] = overlay(lines[y+k], l, x, boxWidth, w)
+	}
+}
+
+// floatBorder returns the style of the rounded border of a box that floats over the screen:
+// the key help, the command list, a notice and the model finder.
+func (t *theme) floatBorder() lipgloss.Style {
+	return t.paint(t.line2, t.surface)
+}
+
+// floatTop returns the top border of a floating box w cells wide, with title after its left
+// corner and, when they fit with three cells of the border after them, right at its right.
+func (t *theme) floatTop(w int, title, right seg) string {
+	border := t.floatBorder()
+	top := newLine(w - 1)
+	top.add("╭─", border)
+	top.add(title.text, title.st)
+	const end = "───"
+	if right.text != "" && top.free >= ansi.StringWidth(right.text+end)+1 {
+		top.add(strings.Repeat("─", top.free-ansi.StringWidth(right.text+end)), border)
+		top.add(right.text, right.st)
+	}
+	top.add(strings.Repeat("─", top.free), border)
+	return top.fill(border) + border.Render("╮")
+}
+
+// floatSide returns a line of a floating box: inside, between its left and right borders.
+func (t *theme) floatSide(inside string) string {
+	border := t.floatBorder()
+	return border.Render("│") + inside + border.Render("│")
+}
+
+// floatBottom returns the bottom border of a floating box w cells wide.
+func (t *theme) floatBottom(w int) string {
+	return t.floatBorder().Render("╰" + strings.Repeat("─", max(w-2, 0)) + "╯")
+}
+
 // line builds a screen line of a fixed width from styled text.
 type line struct {
 	b    strings.Builder
