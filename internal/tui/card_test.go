@@ -2,7 +2,6 @@ package tui
 
 import (
 	"image/color"
-	"path/filepath"
 	"slices"
 	"strconv"
 	"strings"
@@ -418,7 +417,7 @@ func TestQuotedLinesWrap(t *testing.T) {
 	// under its text, so its end shows at any width.
 	dir := t.TempDir()
 	long := "x := " + strings.Repeat("abcdefghij", 10) + "END"
-	log := state.NewLog(filepath.Join(dir, logFile))
+	log := state.NewLog(state.LogPath(dir))
 	lines := []state.Line{{Kind: "+", Text: long}}
 	if err := log.Append(state.Question{Time: start, ID: "000000000000000q", Agent: "claude", Session: claudeSession, Relation: "author", Path: "a.go", Lines: lines, Text: "why?"}); err != nil {
 		t.Fatal(err)

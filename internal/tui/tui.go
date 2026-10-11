@@ -25,12 +25,6 @@ import (
 // wheelLines is how many lines a step of the mouse wheel moves, as in tuicr.
 const wheelLines = 3
 
-// The files the screen keeps in the state directory.
-const (
-	viewedFile = "viewed.json"
-	logFile    = "log.jsonl"
-)
-
 // model is the state of the diff screen.
 type model struct {
 	files      []file
@@ -156,16 +150,17 @@ func Load(dir string) Saved {
 	s := Saved{Dir: dir}
 	var problems []string
 	var err error
-	if s.Viewed, err = state.Load(filepath.Join(dir, viewedFile)); err != nil {
+	if s.Viewed, err = state.Load(state.ViewedPath(dir)); err != nil {
 		problems = append(problems, "could not read viewed state: "+review.Visible(err.Error()))
 	}
 	var bad int
-	s.Log, bad, err = state.NewLog(filepath.Join(dir, logFile)).Read()
+	logPath := state.LogPath(dir)
+	s.Log, bad, err = state.NewLog(logPath).Read()
 	switch {
 	case err != nil:
 		problems = append(problems, "could not read questions: "+review.Visible(err.Error()))
 	case bad > 0:
-		problems = append(problems, "skipped "+countOf(bad, "unreadable line")+" of "+logFile)
+		problems = append(problems, "skipped "+countOf(bad, "unreadable line")+" of "+filepath.Base(logPath))
 	}
 	s.Problem = strings.Join(problems, "; ")
 	return s
@@ -197,8 +192,8 @@ func newModel(files []review.File, problems []agent.Problem, saved Saved, asker 
 		tick:       tick,
 	}
 	if saved.Dir != "" {
-		m.saver.path = filepath.Join(saved.Dir, viewedFile)
-		m.log = state.NewLog(filepath.Join(saved.Dir, logFile))
+		m.saver.path = state.ViewedPath(saved.Dir)
+		m.log = state.NewLog(state.LogPath(saved.Dir))
 	}
 	if m.viewed == nil {
 		m.viewed = state.Viewed{}

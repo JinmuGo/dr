@@ -20,11 +20,11 @@ const FixAgent = "dr"
 // since, as edits in the order they were applied. A log dr cannot fully read is a problem;
 // a missing log has none.
 func fixes(root string, since time.Time) ([]agent.Edit, []agent.Problem, error) {
-	dir, err := git.Path(root, "dr")
+	dir, err := git.Path(root, state.DirName)
 	if err != nil {
 		return nil, nil, err
 	}
-	path := filepath.Join(dir, "log.jsonl")
+	path := state.LogPath(dir)
 	records, bad, err := state.NewLog(path).Read()
 	if err != nil {
 		return nil, []agent.Problem{{Agent: FixAgent, Path: path}}, nil
