@@ -63,8 +63,7 @@ nav a { padding-block: 10px; }
 .eyebrow { color: var(--muted); font-size: 13px; font-weight: 500; letter-spacing: .055em; margin-bottom: 20px; }
 h1 { font-size: clamp(44px, 5.3vw, 76px); font-weight: 600; letter-spacing: -.055em; line-height: 1.06; }
 h1 span { display: block; }
-.intro { max-width: 590px; margin: 25px auto 30px; font-size: 18px; line-height: 1.65; text-wrap: pretty; }
-.hero-install { max-width: 418px; margin-inline: auto; scroll-margin-top: 32px; }
+.hero-install { max-width: 418px; margin: 40px auto 0; scroll-margin-top: 32px; }
 .command { display: flex; align-items: center; gap: 12px; border: 1px solid var(--line); background: var(--surface); border-radius: 7px; padding: 9px 10px 9px 16px; min-width: 0; text-align: left; }
 .command code { flex: 1; min-width: 0; color: var(--ink); font-size: 11px; line-height: 1.8; overflow-wrap: anywhere; }
 .primary-command { padding-left: 19px; box-shadow: 0 2px 3px #00000004; }
@@ -132,7 +131,7 @@ kbd { border: 1px solid var(--line); border-radius: 4px; padding: 2px 5px; backg
   .hero { padding-block: 55px 36px; }
   .eyebrow { font-size: 11px; letter-spacing: .035em; }
   h1 { font-size: clamp(34px, 7.7vw, 52px); letter-spacing: -.045em; line-height: 1.12; }
-  .intro { margin-block: 21px 25px; font-size: 16px; }
+  .hero-install { margin-top: 30px; }
   .primary-command { gap: 9px; padding-left: 12px; }
   .primary-command code { font-size: 10px; }
   .copy { min-width: 58px; padding-inline: 7px; }
