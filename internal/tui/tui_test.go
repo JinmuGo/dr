@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"image/color"
 	"path"
+	"path/filepath"
 	"slices"
 	"strings"
 	"testing"
@@ -855,6 +856,38 @@ func TestStatusRoom(t *testing.T) {
 		if strings.Contains(status, part) {
 			t.Errorf("status line %q has a part of what does not fit, %q", status, part)
 		}
+	}
+}
+
+func TestPathOnOneRow(t *testing.T) {
+	// git allows a line break and a tab in a file name. dr writes them as \n and \t, as git
+	// quotes such a path, so the name keeps to its row in the file tree, the file header, the
+	// status line and a notice of an error that names it, and what follows a line break
+	// cannot pass for a row of its own.
+	const name, shown = "d\ne/a\nb\tc.go", `d\ne/a\nb\tc.go`
+	lines := origin.Blame("", "x\n", nil)
+	lines[0].Edit = claude1
+	files := []review.File{{Path: name, Status: 'A', Lines: lines}}
+	root := writeTree(t, files)
+	f := &fakeAsk{answer: agent.Answer{Fork: "fork-1", Text: `{"fixes":[{"comment":1,"new_lines":["y"]}]}`}}
+	m := fixScreen(files, Load(t.TempDir()), f, root, fixClock())
+	// screen checks that the screen has as many lines as the terminal, each as wide as it.
+	s := screen(t, m)
+	// The directory and the file in the tree, then the file header.
+	for _, want := range []string{`▾ d\ne`, `+ a\nb\tc.go`, "▾ " + shown} {
+		if !strings.Contains(s, want) {
+			t.Errorf("the screen has no %q:\n%s", want, s)
+		}
+	}
+	if status := strings.Split(s, "\n")[m.diffHeight()]; !strings.Contains(status, shown) {
+		t.Errorf("status line %q has no %q", status, shown)
+	}
+	// The file changes after its fix came, so y refuses with an error that names the file.
+	run(m, typeAndKeep(m, "2jcmake it y<enter>:submit<enter>"))
+	writeFile(t, filepath.Join(root, filepath.FromSlash(name)), "z\n")
+	typeAll(m, "y")
+	if got := noticeText(t, m); !strings.HasPrefix(got, "✗ Didn't apply: "+shown+": ") {
+		t.Errorf("y on the changed file: notice %q, want it to name %q", got, shown)
 	}
 }
 

@@ -336,7 +336,7 @@ func (m *model) answered(msg answeredMsg) {
 	case q.file < 0: // its file left the diff, so the answer has nowhere to show
 		m.notice = &notice{
 			tone: toneAnswer,
-			text: slices.Concat([]chunk{{text: "Answer from ", color: t.fg}}, from, []chunk{{text: review.Visible(q.Path), color: t.strong}}),
+			text: slices.Concat([]chunk{{text: "Answer from ", color: t.fg}}, from, []chunk{{text: review.VisibleLine(q.Path), color: t.strong}}),
 			hint: m.quiet("Its file left the diff."),
 		}
 	case msg.answer.Error != "":

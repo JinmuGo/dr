@@ -215,7 +215,7 @@ func (m *model) reloaded(msg reloadedMsg) {
 	}
 	var problems []string
 	if msg.err != nil {
-		problems = append(problems, "could not read the diff again: "+review.Visible(msg.err.Error()))
+		problems = append(problems, "could not read the diff again: "+review.VisibleLine(msg.err.Error()))
 	} else {
 		m.rebuild(msg.files, msg.problems)
 	}

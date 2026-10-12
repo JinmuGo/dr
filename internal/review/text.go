@@ -75,11 +75,26 @@ func Summary(prompt string) string {
 // characters that reorder text, written as escapes such as \x1b and \u202e. Text from the
 // file or a session log then cannot drive the terminal or hide what it shows.
 func Visible(s string) string {
+	return escape(s, true)
+}
+
+// VisibleLine returns s as Visible does, with its tabs and newlines written as \t and \n
+// too, as git quotes a path. It is for text drawn on one row whose tabs and line breaks are
+// part of what it says: a path, which git lets hold both, or an error that may name one.
+// Such text could otherwise break its row and pass for rows of its own. Code keeps its tabs
+// through Visible.
+func VisibleLine(s string) string {
+	return escape(s, false)
+}
+
+// escape returns s with its control characters, but tabs and newlines when lines is set,
+// and the characters that reorder text written as escapes.
+func escape(s string, lines bool) string {
 	var b strings.Builder
 	start := 0 // start of the text not yet written to b
 	for i, r := range s {
 		switch {
-		case r == '\t' || r == '\n':
+		case lines && (r == '\t' || r == '\n'):
 		case unicode.IsControl(r) || unicode.Is(unicode.Bidi_Control, r):
 			b.WriteString(s[start:i])
 			q := strconv.QuoteRune(r)

@@ -159,7 +159,7 @@ func (m *model) newRequest(who session, pick string, comments []pendingComment) 
 	for _, p := range comments {
 		t, s, why := m.check(who, p)
 		if why != "" {
-			left = append(left, review.Visible(p.path)+":"+lineRange(p.first, p.last)+" not sent: "+why)
+			left = append(left, review.VisibleLine(p.path)+":"+lineRange(p.first, p.last)+" not sent: "+why)
 			continue
 		}
 		s.fix.N = len(sent) + 1
@@ -215,7 +215,7 @@ func (m *model) check(who session, p pendingComment) (review.Target, sentComment
 	}
 	data, hash, err := fix.Read(m.asker.Root, p.path)
 	if err != nil {
-		return t, sentComment{}, review.Visible(err.Error())
+		return t, sentComment{}, review.VisibleLine(err.Error())
 	}
 	file := diff.Lines(string(data))
 	if p.last > len(file) || !slices.Equal(file[p.first-1:p.last], p.current) {
@@ -379,7 +379,7 @@ func (m *model) fixesNotice(r *request, fixes int) *notice {
 		{text: what, color: t.fg},
 		{text: review.Visible(review.Who(r.Agent, r.Session, m.short)), color: m.whoColor(r.Agent, r.Session), bold: true},
 		{text: " on ", color: t.fg},
-		{text: review.Visible(first.Path) + ":" + lineRange(first.First, first.First+len(first.Lines)-1), color: t.strong},
+		{text: review.VisibleLine(first.Path) + ":" + lineRange(first.First, first.First+len(first.Lines)-1), color: t.strong},
 	}
 	if more := len(r.sent) - 1; more > 0 {
 		n.text = append(n.text, chunk{text: " and " + strconv.Itoa(more) + " more", color: t.fg})
@@ -464,7 +464,7 @@ func (m *model) apply() tea.Cmd {
 	c.fix = nil
 	m.resolved = append(m.resolved, c)
 	m.listWidth = m.treeWidth()
-	done := m.did("Applied the fix for ", review.Visible(a.Path)+":"+lineSpan(a.First, len(a.Old)), []chunk{
+	done := m.did("Applied the fix for ", review.VisibleLine(a.Path)+":"+lineSpan(a.First, len(a.Old)), []chunk{
 		{text: ":undo", color: m.theme.strong, bold: true}, {text: " reverts it", color: m.theme.muted},
 	})
 	return m.reloadCmd(done, write(m.log, a))
@@ -552,7 +552,7 @@ func (m *model) undo() tea.Cmd {
 		m.listWidth = m.treeWidth()
 		hint = m.quiet("The comment is pending again.")
 	}
-	done := m.did("Reverted the fix for ", review.Visible(a.Path)+":"+lineSpan(a.First, len(a.Old)), hint)
+	done := m.did("Reverted the fix for ", review.VisibleLine(a.Path)+":"+lineSpan(a.First, len(a.Old)), hint)
 	return m.reloadCmd(done, write(m.log, u))
 }
 
@@ -566,7 +566,7 @@ func (m *model) did(what, where string, hint []chunk) *notice {
 // err in the error color, and that no file changed.
 func (m *model) failed(what string, err error) *notice {
 	return &notice{
-		tone: toneErr, text: []chunk{{text: what, color: m.theme.fg}, {text: review.Visible(err.Error()), color: m.theme.del}},
+		tone: toneErr, text: []chunk{{text: what, color: m.theme.fg}, {text: review.VisibleLine(err.Error()), color: m.theme.del}},
 		hint: m.quiet("Nothing was written."),
 	}
 }

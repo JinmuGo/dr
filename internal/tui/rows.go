@@ -54,7 +54,7 @@ func (r row) main() int {
 
 // file is what the screen keeps of a changed file besides its rows.
 type file struct {
-	path           string // made visible
+	path           string // made visible on one row, as review.VisibleLine writes it
 	key            string // the path as review gives it, which the viewed files are kept by
 	hash           string // review.File.Hash of the diff the screen shows
 	noDiff         string // why the file has no line diff, "" when it has one
@@ -87,7 +87,7 @@ func (m *model) build(files []review.File) {
 	m.files = make([]file, len(files))
 	for i, f := range files {
 		info := file{
-			path: review.Visible(f.Path), key: f.Path, hash: f.Hash(contextLines), status: f.Status, noDiff: f.NoDiff,
+			path: review.VisibleLine(f.Path), key: f.Path, hash: f.Hash(contextLines), status: f.Status, noDiff: f.NoDiff,
 			diff: f.Lines, requests: review.Requests(f.Lines),
 		}
 		last := 0
