@@ -98,10 +98,43 @@ const (
 // symlink reads as the path it points to, and a path under a symlink or a file is not in
 // the worktree.
 func (r *Repo) File(path string) (File, error) {
-	baseType, err := git.Type(r.Root, r.Base, path)
+	files, err := r.Files([]string{path})
 	if err != nil {
 		return File{}, err
 	}
+	return files[0], nil
+}
+
+// Files returns File of each of paths. It reads what Base has at all of them with two git
+// commands, where File of each would start two of its own.
+func (r *Repo) Files(paths []string) ([]File, error) {
+	entries, err := git.Entries(r.Root, r.Base, paths)
+	if err != nil {
+		return nil, err
+	}
+	var objects []string
+	for _, path := range paths {
+		if e := entries[path]; e.Type == "blob" {
+			objects = append(objects, e.Object)
+		}
+	}
+	blobs, err := git.Blobs(r.Root, objects)
+	if err != nil {
+		return nil, err
+	}
+	files := make([]File, len(paths))
+	for i, path := range paths {
+		e := entries[path]
+		if files[i], err = r.file(path, e.Type, blobs[e.Object]); err != nil {
+			return nil, err
+		}
+	}
+	return files, nil
+}
+
+// file returns File of path, which is of baseType in Base and holds before there when it
+// is a blob.
+func (r *Repo) file(path, baseType, before string) (File, error) {
 	full := filepath.Join(r.Root, filepath.FromSlash(path))
 	info, err := lstat(r.Root, full)
 	deleted := errors.Is(err, fs.ErrNotExist) && (baseType == "blob" || baseType == "commit")
@@ -119,23 +152,19 @@ func (r *Repo) File(path string) (File, error) {
 		f.NoDiff = Directory
 		return f, nil
 	}
-	var before, after string
-	if baseType == "blob" {
-		if before, err = git.Show(r.Root, r.Base, path); err != nil {
-			return File{}, err
-		}
-	}
+	var after string
+	var readErr error // err holds why lstat found nothing when the file is deleted
 	switch {
 	case deleted:
 	case info.Mode()&fs.ModeSymlink != 0:
-		after, err = os.Readlink(full)
+		after, readErr = os.Readlink(full)
 	default:
 		var data []byte
-		data, err = os.ReadFile(full)
+		data, readErr = os.ReadFile(full)
 		after = string(data)
 	}
-	if err != nil {
-		return File{}, err
+	if readErr != nil {
+		return File{}, readErr
 	}
 	if strings.IndexByte(before, 0) >= 0 || strings.IndexByte(after, 0) >= 0 {
 		f.NoDiff = Binary

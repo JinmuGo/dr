@@ -203,13 +203,8 @@ func repoScreen(t *testing.T, repo, home string, f *fakeAsk, now func() time.Tim
 		if err != nil {
 			return nil, nil, err
 		}
-		files := make([]review.File, len(paths))
-		for i, path := range paths {
-			if files[i], err = r.File(path); err != nil {
-				return nil, nil, err
-			}
-		}
-		return files, r.Problems, nil
+		files, err := r.Files(paths)
+		return files, r.Problems, err
 	}
 	files, _, err := read()
 	if err != nil {

@@ -211,11 +211,9 @@ func changes(dir, home, ref string) (*review.Repo, []review.File, error) {
 	if err != nil {
 		return nil, nil, err
 	}
-	files := make([]review.File, len(paths))
-	for i, path := range paths {
-		if files[i], err = repo.File(path); err != nil {
-			return nil, nil, err
-		}
+	files, err := repo.Files(paths)
+	if err != nil {
+		return nil, nil, err
 	}
 	return repo, files, nil
 }

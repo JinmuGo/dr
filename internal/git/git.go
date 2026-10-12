@@ -151,26 +151,75 @@ func isPrunable(line string) bool {
 	return line == "prunable" || strings.HasPrefix(line, "prunable ")
 }
 
-// Type returns what path is in commit: "blob" for a file or a symlink, "tree" for a
-// directory, "commit" for a submodule, or "" when commit does not have path.
-func Type(root, commit, path string) (string, error) {
-	out, err := run(root, "--literal-pathspecs", "ls-tree", "-z", commit, "--", path)
-	if err != nil || out == "" {
-		return "", err
-	}
-	// The entry is "<mode> <type> <object>\t<path>\x00".
-	meta, _, _ := strings.Cut(out, "\t")
-	fields := strings.Fields(meta)
-	if len(fields) != 3 {
-		return "", fmt.Errorf("git ls-tree: parse entry: %q", out)
-	}
-	return fields[1], nil
+// Entry is what a path is in a commit: Type is "blob" for a file or a symlink, "tree" for
+// a directory and "commit" for a submodule, and Object is its object name.
+type Entry struct {
+	Type, Object string
 }
 
-// Show returns the blob at path in commit: the content of a file, or the path a symlink
-// points to.
-func Show(root, commit, path string) (string, error) {
-	return run(root, "show", commit+":"+path)
+// pathsPerCall bounds the paths one git ls-tree is given, to stay under the length limit
+// of a command line.
+const pathsPerCall = 500
+
+// Entries returns what each of paths, slash-separated and relative to root, is in commit.
+// A path commit does not have is left out.
+func Entries(root, commit string, paths []string) (map[string]Entry, error) {
+	entries := make(map[string]Entry, len(paths))
+	for chunk := range slices.Chunk(paths, pathsPerCall) {
+		// -r -t lists each path itself, a directory included, along with what is above
+		// and under it, which the lookup by path leaves aside.
+		args := append([]string{"--literal-pathspecs", "ls-tree", "-r", "-t", "-z", commit, "--"}, chunk...)
+		out, err := run(root, args...)
+		if err != nil {
+			return nil, err
+		}
+		for _, entry := range strings.Split(out, "\x00") {
+			if entry == "" {
+				continue
+			}
+			// The entry is "<mode> <type> <object>\t<path>".
+			meta, path, ok := strings.Cut(entry, "\t")
+			fields := strings.Fields(meta)
+			if !ok || len(fields) != 3 {
+				return nil, fmt.Errorf("git ls-tree: parse entry: %q", entry)
+			}
+			entries[path] = Entry{Type: fields[1], Object: fields[2]}
+		}
+	}
+	return entries, nil
+}
+
+// Blobs returns the content of each of objects, blobs of the repository at root: the
+// content of a file, or the path a symlink points to. It reads them all through one git
+// cat-file --batch.
+func Blobs(root string, objects []string) (map[string]string, error) {
+	blobs := make(map[string]string, len(objects))
+	if len(objects) == 0 {
+		return blobs, nil
+	}
+	cmd := exec.Command("git", "-C", root, "cat-file", "--batch")
+	cmd.Stdin = strings.NewReader(strings.Join(objects, "\n") + "\n")
+	var stderr bytes.Buffer
+	cmd.Stderr = &stderr
+	out, err := cmd.Output()
+	if err != nil {
+		return nil, fmt.Errorf("git cat-file --batch: %w: %s", err, strings.TrimSpace(stderr.String()))
+	}
+	for _, object := range objects {
+		// Each object is "<object> <type> <size>\n<content>\n", or "<object> missing\n".
+		header, rest, ok := bytes.Cut(out, []byte("\n"))
+		fields := strings.Fields(string(header))
+		if !ok || len(fields) != 3 || fields[0] != object {
+			return nil, fmt.Errorf("git cat-file --batch: %s: %q", object, header)
+		}
+		size, err := strconv.Atoi(fields[2])
+		if err != nil || size+1 > len(rest) {
+			return nil, fmt.Errorf("git cat-file --batch: %s: %q", object, header)
+		}
+		blobs[object] = string(rest[:size])
+		out = rest[size+1:]
+	}
+	return blobs, nil
 }
 
 // Changed returns the paths that differ between base and the worktree, untracked files

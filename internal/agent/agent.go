@@ -12,8 +12,10 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"runtime"
 	"sort"
 	"strings"
+	"sync"
 	"time"
 )
 
@@ -115,47 +117,82 @@ func named(name string) (agent, bool) {
 }
 
 // Load reads the session logs under home that mention one of roots and returns the edits
-// made at or after since, in the order they happened.
+// made at or after since, in the order they happened. It reads the logs in parallel, one
+// per CPU at a time, and gives the same result as reading them one by one.
 func Load(home string, since time.Time, roots []string) ([]Edit, []Problem) {
 	rootBytes := make([][]byte, len(roots))
 	for i, root := range roots {
 		rootBytes[i] = []byte(root)
 	}
-	var edits []Edit
-	var problems []Problem
+	var logs []sessionLog
 	for _, a := range agents {
 		// The walk skips what it cannot read, so it returns no error.
 		_ = filepath.WalkDir(filepath.Join(home, a.logs), func(path string, d fs.DirEntry, err error) error {
 			if err != nil || d.IsDir() || !strings.HasSuffix(path, ".jsonl") {
 				return nil // a missing log directory just means the agent is not used
 			}
-			if info, err := d.Info(); err != nil || info.ModTime().Before(since) {
-				return nil
-			}
-			data, err := os.ReadFile(path)
-			if err != nil {
-				problems = append(problems, Problem{Agent: a.name, Path: path})
-				return nil
-			}
-			if !mentions(data, rootBytes) {
-				return nil
-			}
-			records, bad := split(data)
-			if bad > 0 {
-				problems = append(problems, Problem{Agent: a.name, Path: path, Bad: bad})
-			}
-			for _, e := range a.parse(records) {
-				if !e.Time.Before(since) {
-					e.Log = path
-					edits = append(edits, e)
-				}
+			if info, err := d.Info(); err == nil && !info.ModTime().Before(since) {
+				logs = append(logs, sessionLog{agent: a, path: path})
 			}
 			return nil
 		})
 	}
+	next := make(chan int)
+	var wg sync.WaitGroup
+	for range min(runtime.GOMAXPROCS(0), len(logs)) {
+		wg.Go(func() {
+			for i := range next {
+				logs[i].read(since, rootBytes)
+			}
+		})
+	}
+	for i := range logs {
+		next <- i
+	}
+	close(next)
+	wg.Wait()
+	var edits []Edit
+	var problems []Problem
+	for _, l := range logs {
+		edits = append(edits, l.edits...)
+		if l.problem != nil {
+			problems = append(problems, *l.problem)
+		}
+	}
 	edits = dropCopies(edits)
 	sort.SliceStable(edits, func(i, j int) bool { return edits[i].Time.Before(edits[j].Time) })
 	return edits, problems
+}
+
+// sessionLog is a session log Load reads, and what it read there.
+type sessionLog struct {
+	agent agent
+	path  string
+
+	edits   []Edit   // the edits made at or after the time Load was given
+	problem *Problem // why the log could not be fully read, nil when it could
+}
+
+// read reads the edits made at or after since from l when it mentions one of roots.
+func (l *sessionLog) read(since time.Time, roots [][]byte) {
+	data, err := os.ReadFile(l.path)
+	if err != nil {
+		l.problem = &Problem{Agent: l.agent.name, Path: l.path}
+		return
+	}
+	if !mentions(data, roots) {
+		return
+	}
+	records, bad := split(data)
+	if bad > 0 {
+		l.problem = &Problem{Agent: l.agent.name, Path: l.path, Bad: bad}
+	}
+	for _, e := range l.agent.parse(records) {
+		if !e.Time.Before(since) {
+			e.Log = l.path
+			l.edits = append(l.edits, e)
+		}
+	}
 }
 
 func mentions(data []byte, roots [][]byte) bool {
