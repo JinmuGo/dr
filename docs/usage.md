@@ -5,11 +5,14 @@ Run dr in a git repository after an agent has finished its work.
 ```sh
 dr              # changes since the merge-base with the default branch
 dr <ref>        # changes since the merge-base of HEAD and <ref>
+dr <branch>     # the worktree that has <branch> checked out, against the default branch
 dr blame <path> # the origins of one file, as text
 dr --version
 ```
 
 dr compares the merge-base with the files in your working tree, so uncommitted changes are included. The default branch is `origin/HEAD`, else `main` or `master`. `dr blame` always uses the default branch.
+
+When `<branch>` is checked out in another worktree, such as one an agent works in, `dr <branch>` opens that worktree as if you ran `dr` there: questions, comments and fixes go to its files. The default branch and the branch of the worktree you are in stay refs to compare with. To compare with a branch checked out elsewhere, name it in full: `dr refs/heads/<branch>`.
 
 ## Reading the diff
 

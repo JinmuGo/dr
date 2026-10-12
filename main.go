@@ -2,7 +2,9 @@
 //
 // dr [<ref>] opens the files changed since the merge-base of HEAD and ref, the default
 // branch when ref is left out, in a diff screen that shows the agent session and the
-// request behind each changed line. dr blame <path> writes the same for one file.
+// request behind each changed line. When ref is a branch checked out in another worktree,
+// dr opens that worktree instead, compared with the default branch. dr blame <path> writes
+// the same for one file.
 package main
 
 import (
@@ -98,7 +100,8 @@ func versionOf(ldflags string, info *debug.BuildInfo) string {
 	return "devel (" + revision + ")"
 }
 
-// browse opens the diff screen on the files changed since the merge-base of HEAD and ref.
+// browse opens the diff screen on the files changed since the merge-base of HEAD and ref,
+// or on the worktree ref names, as reviewed says.
 // The files marked viewed, the questions asked, the comments and fixes and, when an agent
 // lets dr choose where, the sessions dr starts to ask them are kept in the worktree's git
 // directory. The screen holds the lock on the worktree while it is open, so only one dr
@@ -106,7 +109,11 @@ func versionOf(ldflags string, info *debug.BuildInfo) string {
 // fixes. With no changed file, it opens only when fixes dr applied are still in place, and
 // otherwise says so on stdout. The agents' session logs are read under home.
 func browse(stdout io.Writer, home, ref string) (err error) {
-	repo, files, err := changes(".", home, ref)
+	worktree, ref, err := reviewed(".", ref)
+	if err != nil {
+		return err
+	}
+	repo, files, err := changes(worktree, home, ref)
 	if err != nil {
 		return err
 	}
@@ -152,6 +159,32 @@ func browse(stdout io.Writer, home, ref string) (err error) {
 // screen can revert.
 func opens(files []review.File, log state.Records) bool {
 	return len(files) > 0 || len(log.InPlace()) > 0
+}
+
+// reviewed returns the directory of the worktree dr opens for ref given in dir, and the ref
+// it compares that worktree with. When ref is a branch checked out in another worktree and
+// not the default branch, that is the other worktree and the default branch; refs/heads/
+// before the branch name keeps the branch a ref to compare with. Otherwise it is dir and ref.
+func reviewed(dir, ref string) (string, string, error) {
+	if ref == "" {
+		return dir, ref, nil
+	}
+	root, err := git.Root(dir)
+	if err != nil {
+		return "", "", err
+	}
+	other, err := git.Checkout(root, ref)
+	if err != nil || other == "" || other == root || ref == shortName(git.DefaultBranch(root)) {
+		return dir, ref, err
+	}
+	return other, "", nil
+}
+
+// shortName returns the branch name of ref, a ref DefaultBranch returns: main for
+// refs/heads/main, origin/main and refs/remotes/origin/main.
+func shortName(ref string) string {
+	ref = strings.TrimPrefix(strings.TrimPrefix(ref, "refs/remotes/"), "refs/heads/")
+	return strings.TrimPrefix(ref, "origin/")
 }
 
 // compared returns what the diff of the worktree at root compares it with, base: ref, or

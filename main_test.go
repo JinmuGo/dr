@@ -213,3 +213,44 @@ func TestCompared(t *testing.T) {
 		}
 	}
 }
+
+func TestReviewed(t *testing.T) {
+	// dr <branch> opens the worktree that has the branch checked out when that is another
+	// worktree, and otherwise keeps the branch as the ref to compare with, as before.
+	for k, v := range map[string]string{
+		"GIT_CONFIG_GLOBAL": os.DevNull, "GIT_CONFIG_NOSYSTEM": "1",
+		"GIT_AUTHOR_NAME": "t", "GIT_AUTHOR_EMAIL": "t@t", "GIT_COMMITTER_NAME": "t", "GIT_COMMITTER_EMAIL": "t@t",
+	} {
+		t.Setenv(k, v)
+	}
+	tmp, err := filepath.EvalSymlinks(t.TempDir()) // git reports paths with symlinks resolved
+	if err != nil {
+		t.Fatal(err)
+	}
+	repo, feature, gone := filepath.Join(tmp, "repo"), filepath.Join(tmp, "feature"), filepath.Join(tmp, "gone")
+	runGit(t, tmp, "init", "-q", "-b", "main", repo)
+	runGit(t, repo, "commit", "-q", "--allow-empty", "-m", "one")
+	runGit(t, repo, "branch", "loose")
+	runGit(t, repo, "worktree", "add", "-q", "-b", "feature", feature)
+	runGit(t, repo, "worktree", "add", "-q", "-b", "deleted", gone)
+	if err := os.RemoveAll(gone); err != nil {
+		t.Fatal(err)
+	}
+	for _, tc := range []struct {
+		name, in, ref string
+		dir, want     string
+	}{
+		{"no ref", repo, "", repo, ""},
+		{"a branch checked out in another worktree", repo, "feature", feature, ""},
+		{"the default branch, checked out in another worktree", feature, "main", feature, "main"},
+		{"the branch of this worktree", feature, "feature", feature, "feature"},
+		{"a branch no worktree has", repo, "loose", repo, "loose"},
+		{"a branch named in full", repo, "refs/heads/feature", repo, "refs/heads/feature"},
+		{"a branch whose worktree is gone", repo, "deleted", repo, "deleted"},
+	} {
+		dir, ref, err := reviewed(tc.in, tc.ref)
+		if err != nil || dir != tc.dir || ref != tc.want {
+			t.Errorf("%s: reviewed(%q, %q) = %q, %q, %v; want %q, %q", tc.name, tc.in, tc.ref, dir, ref, err, tc.dir, tc.want)
+		}
+	}
+}

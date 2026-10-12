@@ -128,6 +128,29 @@ func Worktrees(root string) ([]string, error) {
 	return dirs, nil
 }
 
+// Checkout returns the top directory of the worktree that has branch checked out, or ""
+// when none has. A worktree whose directory is gone does not count.
+func Checkout(root, branch string) (string, error) {
+	out, err := run(root, "worktree", "list", "--porcelain")
+	if err != nil {
+		return "", err
+	}
+	for _, block := range strings.Split(out, "\n\n") {
+		lines := strings.Split(block, "\n")
+		dir, ok := strings.CutPrefix(lines[0], "worktree ")
+		if ok && slices.Contains(lines, "branch refs/heads/"+branch) && !slices.ContainsFunc(lines, isPrunable) {
+			return dir, nil
+		}
+	}
+	return "", nil
+}
+
+// isPrunable reports whether line of git worktree list --porcelain marks a worktree whose
+// directory is gone.
+func isPrunable(line string) bool {
+	return line == "prunable" || strings.HasPrefix(line, "prunable ")
+}
+
 // Type returns what path is in commit: "blob" for a file or a symlink, "tree" for a
 // directory, "commit" for a submodule, or "" when commit does not have path.
 func Type(root, commit, path string) (string, error) {
