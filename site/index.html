@@ -1,133 +1,123 @@
 <!doctype html>
 <html lang="en">
 <head>
-<meta charset="utf-8">
-<meta name="viewport" content="width=device-width, initial-scale=1">
-<title>dr: diff review with the AI that wrote it</title>
-<meta name="description" content="dr shows which AI agent session wrote each changed line in a git diff. Ask that session why, leave review comments, and get fixes back. Claude Code, Codex and OMP.">
-<meta name="theme-color" content="#fbfbfc" media="(prefers-color-scheme: light)">
-<meta name="theme-color" content="#0d1015" media="(prefers-color-scheme: dark)">
-<meta property="og:type" content="website">
-<meta property="og:url" content="https://dr.jinmugo.com/">
-<meta property="og:title" content="dr: diff review with the AI that wrote it">
-<meta property="og:description" content="See which agent session wrote each changed line, ask it why, and get fixes back.">
-<link rel="icon" href="logo.svg" type="image/svg+xml" media="(prefers-color-scheme: light)">
-<link rel="icon" href="logo-dark.svg" type="image/svg+xml" media="(prefers-color-scheme: dark)">
-<link rel="preload" href="fonts/MartianMono.woff2" as="font" type="font/woff2" crossorigin>
-<link rel="stylesheet" href="style.css">
-<noscript><link rel="stylesheet" href="nojs.css"></noscript>
-<script src="main.js" defer></script>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>dr: diff review with the AI that wrote it</title>
+  <meta name="description" content="dr shows which AI agent session wrote each changed line in a git diff. Ask that session why, leave review comments, and get fixes back. Claude Code, Codex and OMP.">
+  <meta name="theme-color" content="#fbfbfc" media="(prefers-color-scheme: light)">
+  <meta name="theme-color" content="#0d1015" media="(prefers-color-scheme: dark)">
+  <meta property="og:type" content="website">
+  <meta property="og:url" content="https://dr.jinmugo.com/">
+  <meta property="og:title" content="dr: diff review with the AI that wrote it">
+  <meta property="og:description" content="See which agent session wrote each changed line, ask it why, and get fixes back.">
+  <link rel="icon" href="logo.svg" type="image/svg+xml" media="(prefers-color-scheme: light)">
+  <link rel="icon" href="logo-dark.svg" type="image/svg+xml" media="(prefers-color-scheme: dark)">
+  <link rel="stylesheet" href="style.css">
+  <script src="main.js" defer></script>
 </head>
 <body>
-<header class="status" aria-label="Status">
-  <span class="pill" id="mode">NORMAL</span>
-  <span class="path">dr.jinmugo.com</span>
-  <span class="status-right">macOS · Linux · MIT</span>
-</header>
-
-<main>
-  <section class="hero">
-    <picture class="logo">
-      <source srcset="logo-dark.svg" media="(prefers-color-scheme: dark)">
-      <img src="logo.svg" alt="dr" width="88" height="88">
-    </picture>
-    <h1>Diff review with the AI&nbsp;that&nbsp;wrote&nbsp;it.</h1>
-    <p class="lede">dr shows which agent session wrote each changed line and what you asked it. Ask that session why, leave review comments, and get fixes back from it. For Claude Code, Codex and OMP, in your terminal.</p>
-
-    <div class="get" data-tabs>
-      <div class="tabs" role="tablist" aria-label="Install with">
-        <button role="tab" id="tab-script" aria-controls="cmd-script" aria-selected="true"><kbd>1</kbd> script</button>
-        <button role="tab" id="tab-brew" aria-controls="cmd-brew" aria-selected="false"><kbd>2</kbd> brew</button>
-        <button role="tab" id="tab-nix" aria-controls="cmd-nix" aria-selected="false"><kbd>3</kbd> nix</button>
-        <button role="tab" id="tab-go" aria-controls="cmd-go" aria-selected="false"><kbd>4</kbd> go</button>
+  <a class="skip" href="#main">Skip to content</a>
+  <header class="header wrap">
+    <a class="brand" href="#" aria-label="dr home">
+      <picture>
+        <source srcset="logo-dark.svg" media="(prefers-color-scheme: dark)">
+        <img src="logo.svg" alt="dr" width="40" height="40">
+      </picture>
+    </a>
+    <nav aria-label="Main navigation">
+      <a href="https://github.com/JinmuGo/dr/blob/main/docs/usage.md">Usage</a>
+      <a href="https://github.com/JinmuGo/dr">GitHub <span aria-hidden="true">↗</span></a>
+      <a class="nav-install" href="#install">Install dr <span aria-hidden="true">↓</span></a>
+    </nav>
+  </header>
+  <main id="main">
+    <section class="hero wrap" aria-labelledby="headline">
+      <p class="eyebrow">A code review tool for your terminal</p>
+      <h1 id="headline"><span>Diff review with</span> <span>the AI that wrote it.</span></h1>
+      <p class="intro">See which agent session wrote each changed line in your git diff and what you asked it. Ask why. Leave review comments. Get fixes from the session that wrote the lines.</p>
+      <div class="hero-install" id="homebrew">
+        <div class="command primary-command">
+          <span class="prompt" aria-hidden="true">$</span>
+          <code>brew install jinmugo/tap/dr</code>
+          <button class="copy" type="button" aria-label="Copy Homebrew command" hidden>Copy</button>
+        </div>
+        <p class="install-meta">macOS &amp; Linux <span aria-hidden="true">/</span> <a href="#install">Other install options <span aria-hidden="true">↓</span></a></p>
       </div>
-      <div class="cmd" role="tabpanel" id="cmd-script" aria-labelledby="tab-script"><span class="prompt" aria-hidden="true">$</span><code>curl -fsSL https://dr.jinmugo.com/install.sh | sh</code><button class="copy" type="button">copy</button></div>
-      <div class="cmd" role="tabpanel" id="cmd-brew" aria-labelledby="tab-brew" hidden><span class="prompt" aria-hidden="true">$</span><code>brew install jinmugo/tap/dr</code><button class="copy" type="button">copy</button></div>
-      <div class="cmd" role="tabpanel" id="cmd-nix" aria-labelledby="tab-nix" hidden><span class="prompt" aria-hidden="true">$</span><code>nix profile install github:JinmuGo/dr</code><button class="copy" type="button">copy</button></div>
-      <div class="cmd" role="tabpanel" id="cmd-go" aria-labelledby="tab-go" hidden><span class="prompt" aria-hidden="true">$</span><code>go install github.com/JinmuGo/dr@latest</code><button class="copy" type="button">copy</button></div>
-    </div>
+    </section>
 
-    <p class="links"><a href="https://github.com/JinmuGo/dr">GitHub</a><a href="#install">All install options</a></p>
-  </section>
+    <figure class="demo wrap">
+      <div class="demo-frame">
+        <img src="demo.gif" width="1200" height="720" alt="dr reviewing a Go diff in the terminal. Colored rails identify the agent sessions. An origin card shows the original request and a comment box accepts review feedback.">
+      </div>
+      <figcaption><span>The diff. The request. The session behind it.</span><span>Claude Code <span aria-hidden="true">/</span> Codex <span aria-hidden="true">/</span> OMP</span></figcaption>
+    </figure>
 
-  <figure class="term">
-    <figcaption class="term-bar">
-      <span>dr · ratelimit</span>
-      <span class="chips" aria-label="Sessions in this review"><span class="chip s1">claude</span><span class="chip s2">codex</span><span class="chip s3">omp</span></span>
-    </figcaption>
-    <img src="demo.gif" width="1200" height="720" alt="dr in a terminal: each changed line of a Go repository carries the agent session that wrote it, an origin card shows the request, the agent's note and its reply, and a comment box takes a review comment.">
-  </figure>
+    <section class="features wrap" aria-labelledby="review-title">
+      <div class="section-heading">
+        <div><p class="eyebrow">From changed lines to answers</p><h2 id="review-title">Review with the context.</h2></div>
+        <a class="text-link" href="https://github.com/JinmuGo/dr/blob/main/docs/usage.md">Read the usage guide <span aria-hidden="true">↗</span></a>
+      </div>
+      <div class="feature-grid">
+        <article>
+          <div class="feature-cue"><kbd>Enter</kbd><span>Trace a line</span></div>
+          <h3>See who wrote each line.</h3>
+          <p><code>git blame</code> names you because you committed. dr names the agent session and the request you gave it.</p>
+        </article>
+        <article>
+          <div class="feature-cue"><kbd>a</kbd><span>Ask why</span></div>
+          <h3>Ask the author.</h3>
+          <p>Ask the session that wrote a line why it wrote it that way. dr asks a fork. Your original conversation stays as it was.</p>
+        </article>
+        <article>
+          <div class="feature-cue"><kbd>c</kbd><span>Leave a comment</span></div>
+          <h3>Get fixes from the author.</h3>
+          <p>Leave comments and <code>:submit</code>. Each session fixes only its own lines. <kbd>y</kbd> applies a fix. <kbd>x</kbd> drops it.</p>
+        </article>
+      </div>
+      <div class="details-grid">
+        <article>
+          <h3>Three agents, one diff.</h3>
+          <p>Claude Code, Codex and OMP sit side by side. Each session has its own color.</p>
+        </article>
+        <article>
+          <h3>Local and exact.</h3>
+          <p>Origins come from local session logs with no model calls. Unexplained lines stay unknown. No server, account or telemetry.</p>
+        </article>
+      </div>
+    </section>
 
-  <section class="why" aria-labelledby="why">
-    <h2 id="why" class="hunk">@@ why dr @@</h2>
-    <ol class="rows">
-      <li class="row r-session">
-        <span class="num">1</span><span class="sign">+</span>
-        <p><b>See who wrote each line.</b> <code>git blame</code> names you, because you committed. dr names the agent session that wrote the line and the request you gave it.</p>
-        <span class="label"><i class="dot s1"></i>claude c1a0 #2</span>
-      </li>
-      <li class="row r-ask">
-        <span class="num">2</span><span class="sign">+</span>
-        <p><b>Ask the author.</b> Press <kbd>a</kbd> on a line to ask the session that wrote it why. dr asks a fork, so your conversation stays as it was.</p>
-        <span class="label ask">a ask</span>
-      </li>
-      <li class="row r-fix">
-        <span class="num">3</span><span class="sign">+</span>
-        <p><b>Get fixes from the author.</b> Leave comments as in a pull request review, then <kbd>:submit</kbd>. Each session fixes only the lines it wrote; <kbd>y</kbd> applies a fix and <kbd>x</kbd> drops it.</p>
-        <span class="label fix">c comment → y apply</span>
-      </li>
-      <li class="row r-three">
-        <span class="num">4</span><span class="sign">+</span>
-        <p><b>Three agents, one diff.</b> Each session gets its own color, so lines from Claude Code, Codex and OMP sit side by side in one review.</p>
-        <span class="label"><i class="dot s1"></i><i class="dot s2"></i><i class="dot s3"></i>three sessions</span>
-      </li>
-      <li class="row r-unknown">
-        <span class="num">5</span><span class="sign">+</span>
-        <p><b>Local and exact.</b> Origins come from the session logs on your machine, with no model calls. Lines dr cannot explain stay unknown. No server, no account, no telemetry.</p>
-        <span class="label unknown">┆ unknown</span>
-      </li>
-    </ol>
-  </section>
-
-  <section class="install" id="install" aria-labelledby="install-title" tabindex="-1">
-    <h2 id="install-title">Install</h2>
-    <div class="cards">
-      <article class="card">
-        <h3>Script</h3>
-        <div class="cmd"><span class="prompt" aria-hidden="true">$</span><code>curl -fsSL https://dr.jinmugo.com/install.sh | sh</code><button class="copy" type="button">copy</button></div>
-        <p>macOS and Linux. Downloads the latest release, checks its checksum and puts <code>dr</code> in <code>~/.local/bin</code>. Pick a release or a directory with <code>sh -s -- --version 0.1.0 --dir /usr/local/bin</code>.</p>
-      </article>
-      <article class="card">
-        <h3>Homebrew</h3>
-        <div class="cmd"><span class="prompt" aria-hidden="true">$</span><code>brew install jinmugo/tap/dr</code><button class="copy" type="button">copy</button></div>
-        <p>macOS and Linux. <code>brew upgrade</code> keeps it current.</p>
-      </article>
-      <article class="card">
-        <h3>Nix</h3>
-        <div class="cmd"><span class="prompt" aria-hidden="true">$</span><code>nix profile install github:JinmuGo/dr</code><button class="copy" type="button">copy</button></div>
-        <p>Or try it once with <code>nix run github:JinmuGo/dr</code>. The flake builds from source.</p>
-      </article>
-      <article class="card">
-        <h3>Go</h3>
-        <div class="cmd"><span class="prompt" aria-hidden="true">$</span><code>go install github.com/JinmuGo/dr@latest</code><button class="copy" type="button">copy</button></div>
-        <p>Go 1.26 or later.</p>
-      </article>
-    </div>
-    <p class="needs">dr needs git. Asking and fixing run the CLI of the agent that wrote the lines: <code>claude</code>, <code>codex</code> or <code>omp</code>. More in <a href="https://github.com/JinmuGo/dr/blob/main/docs/install.md">the install guide</a>.</p>
-  </section>
-</main>
-
-<footer class="foot">
-  <p><a href="https://github.com/JinmuGo/dr">GitHub</a><a href="https://github.com/JinmuGo/dr/blob/main/docs/usage.md">Usage</a><a href="https://github.com/JinmuGo/dr/blob/main/docs/install.md">Install guide</a><a href="https://github.com/JinmuGo/dr/blob/main/LICENSE">MIT</a></p>
-  <p class="quiet">This page sets no cookies and loads nothing from other sites.</p>
-</footer>
-
-<nav class="keys" aria-label="Keys">
-  <span><kbd>i</kbd>install</span>
-  <span><kbd>y</kbd>copy</span>
-  <span><kbd>1</kbd>–<kbd>4</kbd>method</span>
-  <span><kbd>g</kbd>github</span>
-</nav>
-<p class="sr-only" id="announce" aria-live="polite"></p>
+    <section class="install wrap" id="install" aria-labelledby="install-title">
+      <div class="install-heading">
+        <p class="eyebrow">Start in your repository</p>
+        <h2 id="install-title">Install. Run <code>dr</code>.<br>Read your diff.</h2>
+        <p>After your agent finishes its work, run <code>dr</code> in your git repository.</p>
+        <p>dr needs git. Asking and fixing run the agent’s own CLI: <code>claude</code>, <code>codex</code> or <code>omp</code>.</p>
+        <a class="text-link" href="https://github.com/JinmuGo/dr/blob/main/docs/install.md">Full install guide <span aria-hidden="true">↗</span></a>
+      </div>
+      <div class="install-methods">
+        <div class="method-heading"><h3>Choose your install method</h3><a href="#homebrew">Homebrew above <span aria-hidden="true">↑</span></a></div>
+        <article class="method">
+          <h4>Script <span>macOS &amp; Linux</span></h4>
+          <div class="command"><code>curl -fsSL https://dr.jinmugo.com/install.sh | sh</code><button class="copy" type="button" aria-label="Copy script command" hidden>Copy</button></div>
+          <p>Checks SHA-256. Installs to <code>~/.local/bin</code>.<br>Options: <code>sh -s -- --version 0.1.0 --dir /usr/local/bin</code></p>
+        </article>
+        <article class="method">
+          <h4>Nix <span>Builds from source</span></h4>
+          <div class="command"><code>nix profile install github:JinmuGo/dr</code><button class="copy" type="button" aria-label="Copy Nix command" hidden>Copy</button></div>
+          <p>Or try <code>nix run github:JinmuGo/dr</code>.</p>
+        </article>
+        <article class="method">
+          <h4>Go <span>Go 1.26 or later</span></h4>
+          <div class="command"><code>go install github.com/JinmuGo/dr@latest</code><button class="copy" type="button" aria-label="Copy Go command" hidden>Copy</button></div>
+        </article>
+      </div>
+    </section>
+  </main>
+  <footer class="footer wrap">
+    <div class="footer-top"><p>dr <span>Diff review with the AI that wrote it.</span></p><nav aria-label="Footer navigation"><a href="https://github.com/JinmuGo/dr">GitHub</a><a href="https://github.com/JinmuGo/dr/blob/main/docs/usage.md">Usage</a><a href="https://github.com/JinmuGo/dr/blob/main/docs/install.md">Install guide</a><a href="https://github.com/JinmuGo/dr/blob/main/LICENSE">MIT</a></nav></div>
+    <p class="privacy">This page sets no cookies and loads nothing from other sites.</p>
+  </footer>
+  <p class="copy-status" role="status" aria-live="polite" aria-atomic="true"></p>
 </body>
 </html>
