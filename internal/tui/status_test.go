@@ -1,7 +1,9 @@
 package tui
 
 import (
+	"crypto/sha256"
 	"fmt"
+	"path/filepath"
 	"slices"
 	"strings"
 	"testing"
@@ -292,21 +294,31 @@ func TestVisualStatus(t *testing.T) {
 
 func TestEmptyScreen(t *testing.T) {
 	// With no changed file the screen says so in the middle, then what the diff compared
-	// and, while a fix dr applied is in place, why dr opened here. The key row has the keys
+	// and, while :undo can revert the last fix dr applied, why dr opened here: not when its
+	// file changed since, as when the fix was reverted outside dr. The key row has the keys
 	// that work there.
-	applied := state.Records{Applied: []state.Applied{{ID: "f1", Path: "a.go", First: 1, Old: []string{"a"}, New: []string{"b"}}}}
+	fixed := state.Records{Applied: []state.Applied{{
+		ID: "f1", Path: "a.go", First: 1, Old: []string{"a"}, New: []string{"b"}, After: fmt.Sprintf("%x", sha256.Sum256([]byte("b\n"))),
+	}}}
 	for _, tc := range []struct {
 		name  string
 		saved Saved
+		file  string // what a.go holds
 		want  string
 		undo  bool
 	}{
-		{"the default branch", Saved{Base: Base{Ref: "main", Commit: "1a2b3c4d5e6f", MergeBase: true}},
+		{"the default branch", Saved{Base: Base{Ref: "main", Commit: "1a2b3c4d5e6f", MergeBase: true}}, "",
 			"The merge-base with main (1a2b3c4) and the working tree are the same.", false},
-		{"a ref and a fix in place", Saved{Base: Base{Ref: "HEAD~8", Commit: "1a2b3c4d5e6f"}, Log: applied},
+		{"a ref and a fix in place", Saved{Base: Base{Ref: "HEAD~8", Commit: "1a2b3c4d5e6f"}, Log: fixed}, "b\n",
 			"HEAD~8 (1a2b3c4) and the working tree are the same.", true},
+		{"a fix reverted outside dr", Saved{Base: Base{Ref: "HEAD~8", Commit: "1a2b3c4d5e6f"}, Log: fixed}, "a\n",
+			"HEAD~8 (1a2b3c4) and the working tree are the same.", false},
 	} {
-		m := newModel(nil, nil, tc.saved, Asker{})
+		root := t.TempDir()
+		if tc.file != "" {
+			writeFile(t, filepath.Join(root, "a.go"), tc.file)
+		}
+		m := newModel(nil, nil, tc.saved, Asker{Root: root})
 		m.Update(tea.WindowSizeMsg{Width: 120, Height: 24})
 		th := &m.theme
 		lines := strings.Split(screen(t, m), "\n")

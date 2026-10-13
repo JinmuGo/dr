@@ -556,6 +556,19 @@ func (m *model) undo() tea.Cmd {
 	return m.reloadCmd(done, write(m.log, u))
 }
 
+// Undoable reports whether :undo can revert the last fix dr applied in the worktree at root,
+// as log has the fixes: its file is still as the fix left it. A fix whose file changed since,
+// as when it was reverted outside dr, cannot be, and :undo refuses it.
+func Undoable(root string, log state.Records) bool {
+	fixes := log.InPlace()
+	if len(fixes) == 0 {
+		return false
+	}
+	last := fixes[len(fixes)-1]
+	_, hash, err := fix.Read(root, last.Path)
+	return err == nil && hash == last.After
+}
+
 // did returns the notice of something done: what, then where in the strong color, and hint
 // under them.
 func (m *model) did(what, where string, hint []chunk) *notice {

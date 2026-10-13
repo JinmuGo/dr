@@ -1,7 +1,9 @@
 package main
 
 import (
+	"crypto/sha256"
 	"errors"
+	"fmt"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -126,9 +128,16 @@ func TestShowNotes(t *testing.T) {
 }
 
 func TestOpens(t *testing.T) {
-	// With no changed file, the screen opens only when a fix dr applied is still in place,
-	// for :undo to revert.
-	applied := []state.Applied{{ID: "f1", Path: "a.go", First: 1, Old: []string{"a"}, New: []string{"b"}}}
+	// With no changed file, the screen opens only when :undo can revert the last fix dr
+	// applied: its file is still as the fix left it. Not when that fix was undone, or its
+	// file was reverted outside dr, even with an older fix in place, as :undo reverts only
+	// the last.
+	root := t.TempDir()
+	writeFile(t, filepath.Join(root, "a.go"), "b\n") // as the fix left it
+	writeFile(t, filepath.Join(root, "r.go"), "a\n") // reverted outside dr
+	after := fmt.Sprintf("%x", sha256.Sum256([]byte("b\n")))
+	inPlace := state.Applied{ID: "f1", Path: "a.go", First: 1, Old: []string{"a"}, New: []string{"b"}, After: after}
+	reverted := state.Applied{ID: "f2", Path: "r.go", First: 1, Old: []string{"a"}, New: []string{"b"}, After: after}
 	for _, tc := range []struct {
 		name  string
 		files []review.File
@@ -137,11 +146,14 @@ func TestOpens(t *testing.T) {
 	}{
 		{"changed files", []review.File{{Path: "a.go"}}, state.Records{}, true},
 		{"nothing", nil, state.Records{}, false},
-		{"a fix in place", nil, state.Records{Applied: applied}, true},
-		{"a fix undone", nil, state.Records{Applied: applied, Undone: []state.Undone{{Applied: "f1"}}}, false},
+		{"a fix in place", nil, state.Records{Applied: []state.Applied{inPlace}}, true},
+		{"a fix undone", nil, state.Records{Applied: []state.Applied{inPlace}, Undone: []state.Undone{{Applied: "f1"}}}, false},
+		{"a fix reverted outside dr", nil, state.Records{Applied: []state.Applied{reverted}}, false},
+		{"the last fix reverted, an older one in place", nil, state.Records{Applied: []state.Applied{inPlace, reverted}}, false},
+		{"the last fix in place, an older one reverted", nil, state.Records{Applied: []state.Applied{reverted, inPlace}}, true},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
-			if got := opens(tc.files, tc.log); got != tc.want {
+			if got := opens(root, tc.files, tc.log); got != tc.want {
 				t.Errorf("opens(%d files, %d applied, %d undone) = %t, want %t", len(tc.files), len(tc.log.Applied), len(tc.log.Undone), got, tc.want)
 			}
 		})

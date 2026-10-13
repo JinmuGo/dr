@@ -113,8 +113,8 @@ func (m *model) mainLines(h int) []string {
 
 // emptyLines returns the h lines of the screen above the status line when no changed file
 // is left, under the bands. In the middle of the diff, which takes the whole width, come a
-// faint rule, noChanges, what the diff compared, and, while fixes dr applied are in place,
-// why dr opened on this screen.
+// faint rule, noChanges, what the diff compared, and, while :undo can revert the last fix dr
+// applied, why dr opened on this screen.
 func (m *model) emptyLines(h int) []string {
 	t := &m.theme
 	lines := make([]string, h)
@@ -134,7 +134,7 @@ func (m *model) emptyLines(h int) []string {
 	put(y, strings.Repeat("─", emptyRule), t.paint(t.faint, nil))
 	put(y+2, noChanges, t.paint(t.strong, nil).Bold(true))
 	put(y+3, m.base.same(), t.paint(t.muted, nil))
-	if len(m.records.InPlace()) > 0 {
+	if m.undoable {
 		put(y+5, undoHere, t.paint(t.subtle, nil))
 	}
 	copy(lines, m.bandRows(m.width))

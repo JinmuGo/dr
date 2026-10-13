@@ -106,8 +106,8 @@ func versionOf(ldflags string, info *debug.BuildInfo) string {
 // lets dr choose where, the sessions dr starts to ask them are kept in the worktree's git
 // directory. The screen holds the lock on the worktree while it is open, so only one dr
 // applies fixes to it; when it cannot take the lock, the screen opens without applying
-// fixes. With no changed file, it opens only when fixes dr applied are still in place, and
-// otherwise says so on stdout. The agents' session logs are read under home.
+// fixes. With no changed file, it opens only when :undo can revert the last fix dr applied,
+// and otherwise says so on stdout. The agents' session logs are read under home.
 func browse(stdout io.Writer, home, ref string) (err error) {
 	worktree, ref, err := reviewed(".", ref)
 	if err != nil {
@@ -122,7 +122,7 @@ func browse(stdout io.Writer, home, ref string) (err error) {
 		return err
 	}
 	saved := tui.Load(dir)
-	if !opens(files, saved.Log) {
+	if !opens(repo.Root, files, saved.Log) {
 		_, _ = fmt.Fprintln(stdout, "No changed files")
 		return nil
 	}
@@ -154,11 +154,11 @@ func browse(stdout io.Writer, home, ref string) (err error) {
 	return tui.Run(files, repo.Problems, saved, asker)
 }
 
-// opens reports whether browse opens the screen on files: when a file changed, or when none
-// did but log holds fixes dr applied that are still in place, which :undo on the empty
-// screen can revert.
-func opens(files []review.File, log state.Records) bool {
-	return len(files) > 0 || len(log.InPlace()) > 0
+// opens reports whether browse opens the screen on files in the worktree at root: when a
+// file changed, or when none did but :undo on the empty screen can revert the last fix dr
+// applied, as log has the fixes.
+func opens(root string, files []review.File, log state.Records) bool {
+	return len(files) > 0 || tui.Undoable(root, log)
 }
 
 // reviewed returns the directory of the worktree dr opens for ref given in dir, and the ref

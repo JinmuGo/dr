@@ -90,6 +90,7 @@ type model struct {
 	records  state.Records           // what the log holds: what it held when the screen opened, and the fix records of this run
 	requests map[string]*request     // the fix requests in flight, by ID
 	lockErr  error                   // why this dr does not hold the lock on the worktree, so y and :undo write no file; nil when it does
+	undoable bool                    // no changed file is left and :undo can revert the last fix dr applied, as Undoable tells
 	base     Base                    // what the diff compares the working tree with
 	reloads  int                     // how many times the changed files were asked to be read again; reloaded rebuilds from the last only
 
@@ -198,7 +199,8 @@ func newModel(files []review.File, problems []agent.Problem, saved Saved, asker 
 // setFiles builds everything the screen keeps of files, when it opens and when it rebuilds
 // the diff: the lines and rows of both views, which files are viewed, the newest edit of
 // each session, the file tree, short session ids, the colors of the sessions, where the
-// comments go with the fixes under them, who a asks and where the questions go.
+// comments go with the fixes under them, who a asks and where the questions go, and, with no
+// file left, whether :undo can revert the last fix dr applied.
 func (m *model) setFiles(files []review.File) {
 	m.lines, m.labeled = nil, nil
 	m.build(files)
@@ -233,6 +235,7 @@ func (m *model) setFiles(files []review.File) {
 	}
 	m.asked = make([][]*question, len(m.lines))
 	m.placeQuestions()
+	m.undoable = len(files) == 0 && Undoable(m.asker.Root, m.records)
 }
 
 // Run shows the diff screen for files until the user quits. Then it stops the questions in
