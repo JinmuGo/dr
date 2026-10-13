@@ -194,8 +194,9 @@ func repoScreen(t *testing.T, repo, home string, f *fakeAsk, now func() time.Tim
 	if err != nil {
 		t.Fatal(err)
 	}
+	var loader agent.Loader
 	read := func() ([]review.File, []agent.Problem, error) {
-		r, err := review.Open(repo, home, "")
+		r, err := review.Open(repo, home, "", &loader)
 		if err != nil {
 			return nil, nil, err
 		}

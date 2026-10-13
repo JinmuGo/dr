@@ -9,6 +9,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/JinmuGo/dr/internal/agent"
 	"github.com/JinmuGo/dr/internal/origin"
 	"github.com/JinmuGo/dr/internal/review"
 	"github.com/JinmuGo/dr/internal/state"
@@ -144,7 +145,7 @@ func TestRepo(t *testing.T) {
 		writeFile(t, filepath.Join(home, dest), strings.ReplaceAll(log, spike, repo))
 	}
 
-	r, err := review.Open(repo, home, "")
+	r, err := review.Open(repo, home, "", &agent.Loader{})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -298,7 +299,7 @@ func TestStatus(t *testing.T) {
 	writeFile(t, filepath.Join(repo, "new-empty"), "")
 	writeFile(t, filepath.Join(repo, "new.bin"), "\x00\x01")
 
-	r, err := review.Open(repo, t.TempDir(), "") // a home without session logs
+	r, err := review.Open(repo, t.TempDir(), "", &agent.Loader{}) // a home without session logs
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -345,7 +346,7 @@ func TestRepoLazyLogs(t *testing.T) {
 	writeFile(t, fixLog, "not json\n")
 	log := filepath.Join(home, ".codex/sessions/bad.jsonl")
 	writeFile(t, log, "not json, from "+root+"\n")
-	r, err := review.Open(repo, home, "")
+	r, err := review.Open(repo, home, "", &agent.Loader{})
 	if err != nil {
 		t.Fatal(err)
 	}

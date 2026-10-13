@@ -56,7 +56,8 @@ func TestLoad(t *testing.T) {
 		".omp/agent/sessions/spike/01a1f000-1/0-Task.jsonl":                  fixture(t, "omp-01a1f000-0000-7000-8000-000000000002.jsonl"),
 		".omp/agent/sessions/elsewhere/2026-10-09T12-00-00-000Z_other.jsonl": `{"type":"session","id":"other","cwd":"/elsewhere"}`,
 	})
-	edits, problems := Load(home, since, []string{spike})
+	var loader Loader
+	edits, problems := loader.Load(home, since, []string{spike})
 	if len(problems) > 0 {
 		t.Fatalf("problems: %+v", problems)
 	}
@@ -148,7 +149,7 @@ func TestLoad(t *testing.T) {
 		})
 	}
 
-	later, _ := Load(home, time.Date(2026, 10, 9, 12, 20, 50, 0, time.UTC), []string{spike + "/claude"})
+	later, _ := loader.Load(home, time.Date(2026, 10, 9, 12, 20, 50, 0, time.UTC), []string{spike + "/claude"})
 	if len(later) != 2 {
 		t.Errorf("Load since 12:20:50 got %d edits, want the 2 Claude edits after it", len(later))
 	}
@@ -162,7 +163,7 @@ func TestModels(t *testing.T) {
 		".codex/sessions/2026/10/09/rollout-01a1209b.jsonl": fixture(t, "codex-01a1209b-a5af-7992-ba5a-c5fdd6a39255.jsonl"),
 		".omp/agent/sessions/spike/01a1f000-1.jsonl":        fixture(t, "omp-01a1f000-0000-7000-8000-000000000001.jsonl"),
 	})
-	edits, _ := Load(home, since, []string{spike})
+	edits, _ := new(Loader).Load(home, since, []string{spike})
 	want := map[string][2]string{
 		"claude": {"claude-opus-5-5", ""}, "codex": {"gpt-6-astra", "medium"}, "omp": {"anthropic/claude-opus-5-5", "medium"},
 	}
@@ -245,7 +246,7 @@ func TestLoadLogs(t *testing.T) {
 		logs["01a1f000-0000-7000-8000-000000000001"]: fixture(t, "omp-01a1f000-0000-7000-8000-000000000001.jsonl"),
 		logs["01a1f000-0000-7000-8000-000000000002"]: fixture(t, "omp-01a1f000-0000-7000-8000-000000000002.jsonl"),
 	})
-	edits, _ := Load(home, since, []string{spike})
+	edits, _ := new(Loader).Load(home, since, []string{spike})
 	seen := make(map[string]bool)
 	for _, e := range edits {
 		seen[e.Session] = true
@@ -309,7 +310,7 @@ func TestLoadForks(t *testing.T) {
 			for name, data := range tc.logs {
 				logs[".claude/projects/spike/"+name] = data
 			}
-			edits, _ := Load(fakeHome(t, logs), since, []string{spike})
+			edits, _ := new(Loader).Load(fakeHome(t, logs), since, []string{spike})
 			got := make([]string, 0, len(edits))
 			for _, e := range edits {
 				got = append(got, e.Session)
@@ -458,7 +459,7 @@ func TestClaudeSubagent(t *testing.T) {
 		".claude/projects/e2e/" + parent + ".jsonl": fixture(t, "claude-"+parent+".jsonl"),
 		subagentLog: fixture(t, "claude-"+subagent+".jsonl"),
 	})
-	edits, problems := Load(home, since, []string{dir})
+	edits, problems := new(Loader).Load(home, since, []string{dir})
 	if len(problems) > 0 {
 		t.Fatalf("problems: %+v", problems)
 	}

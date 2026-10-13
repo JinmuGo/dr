@@ -113,7 +113,8 @@ func browse(stdout io.Writer, home, ref string) (err error) {
 	if err != nil {
 		return err
 	}
-	repo, files, err := changes(worktree, home, ref)
+	var loader agent.Loader
+	repo, files, err := changes(worktree, home, ref, &loader)
 	if err != nil {
 		return err
 	}
@@ -145,7 +146,7 @@ func browse(stdout io.Writer, home, ref string) (err error) {
 		defer func() { err = errors.Join(err, unlock()) }()
 	}
 	saved.Reload = func() ([]review.File, []agent.Problem, error) {
-		again, files, err := changes(repo.Root, home, ref)
+		again, files, err := changes(repo.Root, home, ref, &loader)
 		if err != nil {
 			return nil, nil, err
 		}
@@ -201,9 +202,10 @@ func compared(root, ref, base string) tui.Base {
 
 // changes opens the worktree that holds dir and returns it with the files changed since
 // the merge-base of HEAD and ref, each with the agent edit behind each changed line.
-// It reads session logs under home only when files changed.
-func changes(dir, home, ref string) (*review.Repo, []review.File, error) {
-	repo, err := review.Open(dir, home, ref)
+// It reads session logs under home only when files changed, using loader to reuse unchanged
+// logs across calls while git state and dr's fixes are read anew.
+func changes(dir, home, ref string, loader *agent.Loader) (*review.Repo, []review.File, error) {
+	repo, err := review.Open(dir, home, ref, loader)
 	if err != nil {
 		return nil, nil, err
 	}

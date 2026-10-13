@@ -8,11 +8,13 @@ import (
 	"context"
 	"crypto/sha256"
 	"encoding/json"
+	"io"
 	"io/fs"
 	"os"
 	"os/exec"
 	"path/filepath"
 	"runtime"
+	"slices"
 	"sort"
 	"strings"
 	"sync"
@@ -116,10 +118,42 @@ func named(name string) (agent, bool) {
 	return agent{}, false
 }
 
+// Loader reuses unchanged session logs between loads. Its zero value is ready to use.
+// A Loader must not be copied after its first use.
+type Loader struct {
+	mu         sync.Mutex
+	home       string
+	since      time.Time
+	roots      []string
+	generation uint64
+	entries    map[string]*cachedLog
+}
+
+type cachedLog struct {
+	stamp   logStamp
+	edits   []Edit
+	problem *Problem
+}
+
+type logStamp struct {
+	info   os.FileInfo
+	change time.Time
+	digest [sha256.Size]byte
+}
+
 // Load reads the session logs under home that mention one of roots and returns the edits
 // made at or after since, in the order they happened. It reads the logs in parallel, one
 // per CPU at a time, and gives the same result as reading them one by one.
-func Load(home string, since time.Time, roots []string) ([]Edit, []Problem) {
+func (l *Loader) Load(home string, since time.Time, roots []string) ([]Edit, []Problem) {
+	l.mu.Lock()
+	if l.home != home || !l.since.Equal(since) || !slices.Equal(l.roots, roots) {
+		l.home, l.since, l.roots = home, since, slices.Clone(roots)
+		l.entries = nil
+	}
+	l.generation++
+	generation, entries := l.generation, l.entries
+	l.mu.Unlock()
+
 	rootBytes := make([][]byte, len(roots))
 	for i, root := range roots {
 		rootBytes[i] = []byte(root)
@@ -132,7 +166,7 @@ func Load(home string, since time.Time, roots []string) ([]Edit, []Problem) {
 				return nil // a missing log directory just means the agent is not used
 			}
 			if info, err := d.Info(); err == nil && !info.ModTime().Before(since) {
-				logs = append(logs, sessionLog{agent: a, path: path})
+				logs = append(logs, sessionLog{agent: a, path: path, cached: entries[path]})
 			}
 			return nil
 		})
@@ -151,6 +185,18 @@ func Load(home string, since time.Time, roots []string) ([]Edit, []Problem) {
 	}
 	close(next)
 	wg.Wait()
+	// Publish one immutable snapshot. A newer overlapping load owns the next snapshot.
+	updated := make(map[string]*cachedLog, len(logs))
+	for _, log := range logs {
+		if log.cached != nil {
+			updated[log.path] = log.cached
+		}
+	}
+	l.mu.Lock()
+	if l.generation == generation {
+		l.entries = updated
+	}
+	l.mu.Unlock()
 	var edits []Edit
 	var problems []Problem
 	for _, l := range logs {
@@ -160,14 +206,21 @@ func Load(home string, since time.Time, roots []string) ([]Edit, []Problem) {
 		}
 	}
 	edits = dropCopies(edits)
+	// The caller owns the aggregate, including the optional mutable values.
+	for i := range edits {
+		if edits[i].Before != nil {
+			edits[i].Before = new(*edits[i].Before)
+		}
+	}
 	sort.SliceStable(edits, func(i, j int) bool { return edits[i].Time.Before(edits[j].Time) })
 	return edits, problems
 }
 
 // sessionLog is a session log Load reads, and what it read there.
 type sessionLog struct {
-	agent agent
-	path  string
+	agent  agent
+	path   string
+	cached *cachedLog
 
 	edits   []Edit   // the edits made at or after the time Load was given
 	problem *Problem // why the log could not be fully read, nil when it could
@@ -175,11 +228,33 @@ type sessionLog struct {
 
 // read reads the edits made at or after since from l when it mentions one of roots.
 func (l *sessionLog) read(since time.Time, roots [][]byte) {
-	data, err := os.ReadFile(l.path)
+	cached := l.cached
+	l.cached = nil
+	file, err := os.Open(l.path)
 	if err != nil {
 		l.problem = &Problem{Agent: l.agent.name, Path: l.path}
 		return
 	}
+	defer func() { _ = file.Close() }()
+	before, err := stampLog(file)
+	if err != nil {
+		l.problem = &Problem{Agent: l.agent.name, Path: l.path}
+		return
+	}
+	if cached != nil && before.equal(cached.stamp) && logUnchanged(file, l.path, before) {
+		l.edits, l.problem, l.cached = cached.edits, cached.problem, cached
+		return
+	}
+	data, err := io.ReadAll(file)
+	if err != nil {
+		l.problem = &Problem{Agent: l.agent.name, Path: l.path}
+		return
+	}
+	defer func() {
+		if logUnchanged(file, l.path, before) {
+			l.cached = &cachedLog{stamp: before, edits: l.edits, problem: l.problem}
+		}
+	}()
 	if !mentions(data, roots) {
 		return
 	}
@@ -193,6 +268,49 @@ func (l *sessionLog) read(since time.Time, roots [][]byte) {
 			l.edits = append(l.edits, e)
 		}
 	}
+}
+
+func logUnchanged(file *os.File, path string, before logStamp) bool {
+	after, err := stampLog(file)
+	if err != nil || !before.equal(after) {
+		return false
+	}
+	current, err := os.Stat(path)
+	return err == nil && after.matches(current)
+}
+
+// stampLog checks the opened file, not the path that may have been replaced.
+// Platforms without a change time hash the content and rewind the same descriptor.
+func stampLog(file *os.File) (logStamp, error) {
+	info, err := file.Stat()
+	if err != nil {
+		return logStamp{}, err
+	}
+	stamp := logStamp{info: info, change: logChangeTime(info)}
+	if stamp.change.IsZero() {
+		if _, err := file.Seek(0, io.SeekStart); err != nil {
+			return logStamp{}, err
+		}
+		hash := sha256.New()
+		if _, err := io.Copy(hash, file); err != nil {
+			return logStamp{}, err
+		}
+		copy(stamp.digest[:], hash.Sum(nil))
+		if _, err := file.Seek(0, io.SeekStart); err != nil {
+			return logStamp{}, err
+		}
+	}
+	return stamp, nil
+}
+
+func (s logStamp) matches(info os.FileInfo) bool {
+	return os.SameFile(s.info, info) && s.info.Size() == info.Size() &&
+		s.info.Mode() == info.Mode() && s.info.ModTime().Equal(info.ModTime()) &&
+		s.change.Equal(logChangeTime(info))
+}
+
+func (s logStamp) equal(other logStamp) bool {
+	return s.matches(other.info) && s.digest == other.digest
 }
 
 func mentions(data []byte, roots [][]byte) bool {

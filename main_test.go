@@ -193,7 +193,7 @@ func TestChangesEmptyWithUndo(t *testing.T) {
 					t.Fatal(err)
 				}
 			}
-			r, files, err := changes(root, home, "")
+			r, files, err := changes(root, home, "", &agent.Loader{})
 			if err != nil {
 				t.Fatal(err)
 			}

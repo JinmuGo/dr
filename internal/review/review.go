@@ -30,14 +30,17 @@ type Repo struct {
 	edits    []agent.Edit // fixes until loadOnce adds the agent edits
 	home     string
 	since    time.Time
+	loader   *agent.Loader
 	loadOnce sync.Once
 }
 
 // Open opens the worktree that holds dir and reads the fixes dr applied in it from dr's log.
-// Agent session logs under home are read only when File or nonempty Files is called.
+// Agent session logs under home are read through loader only when File or nonempty Files
+// is called. The caller must supply a non-nil loader and may reuse it across Opens to cache
+// unchanged session logs; git state and dr's fixes are read anew on every Open.
 // The base commit is the merge-base of HEAD and ref, or of HEAD and the default branch
 // when ref is "".
-func Open(dir, home, ref string) (*Repo, error) {
+func Open(dir, home, ref string, loader *agent.Loader) (*Repo, error) {
 	root, err := git.Root(dir)
 	if err != nil {
 		return nil, err
@@ -70,6 +73,7 @@ func Open(dir, home, ref string) (*Repo, error) {
 		edits:    fixed,
 		home:     home,
 		since:    since,
+		loader:   loader,
 	}, nil
 }
 
@@ -119,7 +123,7 @@ func (r *Repo) Files(paths []string) ([]File, error) {
 		return nil, nil
 	}
 	r.loadOnce.Do(func() {
-		edits, problems := agent.Load(r.home, r.since, r.origin.Worktrees)
+		edits, problems := r.loader.Load(r.home, r.since, r.origin.Worktrees)
 		r.edits = withFixes(edits, r.edits)
 		r.Problems = append(problems, r.Problems...)
 	})

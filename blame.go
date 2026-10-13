@@ -17,7 +17,7 @@ import (
 // diff from the base commit, in the worktree that holds dir, with the agent edits read
 // from the session logs under home. It names the logs it could not fully read on stderr.
 func blame(w, stderr io.Writer, dir, home, path string) error {
-	repo, err := review.Open(dir, home, "")
+	repo, err := review.Open(dir, home, "", &agent.Loader{})
 	if err != nil {
 		return err
 	}
