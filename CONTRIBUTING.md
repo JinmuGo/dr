@@ -59,6 +59,12 @@ git diff testdata/blame
 
 ## Agent session logs
 
+`review.Open` reads the git comparison and saved fixes first. Session logs are loaded only when `File` or a nonempty `Files` call needs origins. An empty review still opens when the last saved fix can be undone.
+
+A caller-owned `agent.Loader` reuses parsed logs across editor and agent returns. Changing the home directory, worktree list or `since` discards its cache. Changed logs are parsed from the start; deleted or unreadable logs never reuse an old result. Fork copies are resolved on every load, before stable time ordering.
+
+Session parsers consume one JSONL record at a time. The reader has no fixed line-size limit; borrowed JSON belongs only to the current record. Pending tool calls retain decoded, owned values. An I/O error discards that log's partial edits. Invalid complete lines are counted, while an incomplete final line is ignored. Root matching scans the log before parsing, so edits outside the session cwd are still considered. Memory includes the largest record and cached edit data.
+
 Session log formats of Claude Code, Codex and OMP are not public APIs. They change without notice. A change to a parser in `internal/agent/` needs a fixture: a session log from a real session, trimmed to what the test needs, in `internal/agent/testdata/`.
 
 A fixture from a real session must hold nothing personal before you commit it:
@@ -76,7 +82,7 @@ Each agent is one file in `internal/agent/`, like `claude.go`, `codex.go` and `o
 1. Add `internal/agent/<name>.go` with an `agent` value:
    - `name`: what dr shows, and keeps in `Edit.Agent`.
    - `logs`: where the agent keeps its session logs, relative to the home directory.
-   - `parse`: reads the records of one session log into edits. `Load` sets `Edit.Log`.
+   - `parse`: reads the records of one session log into edits. `Loader.Load` sets `Edit.Log`.
    - `command`: the CLI, which `Installed` looks for in PATH.
    - `canFork`: returns nil when dr can fork the session behind an edit, or why it cannot.
    - `ask`: asks a `Question` through the CLI with `run`. It continues the fork in `Fork`, or forks `Session`, or starts a new session when both are empty. The session can only read files and runs no hooks. Return the answer, the model that answered, and in `Answer.Fork` what to continue next time. Report errors with `notInstalled`, `failed` and `cut`, like the other agents.
@@ -84,7 +90,7 @@ Each agent is one file in `internal/agent/`, like `claude.go`, `codex.go` and `o
    - `open`: the arguments that open a fork of `Question.Session` interactively for `ga`, with the session's model and effort when known. This is the user's own working session, so give it none of the read-only flags `ask` uses, and let the CLI store it with the user's other sessions.
 2. Add the value to `agents` in `internal/agent/agent.go`. When no session can be asked about a line and the review has no edits, a new session of the first installed agent in that list is asked.
 3. Add tests:
-   - a fixture in `internal/agent/testdata/`: a session log from a real session, trimmed to what the test needs, and a test of the edits `Load` reads from it;
+   - a fixture in `internal/agent/testdata/`: a session log from a real session, trimmed to what the test needs, and a test of the edits `Loader.Load` reads from it;
    - cases in `internal/agent/ask_test.go` with the fake CLI, which `fakeAgents` puts in PATH for every agent: the arguments, stdin and directory for a fork, a continued fork and a new session, the answer and model it reads, and its errors.
 
 ## Releasing

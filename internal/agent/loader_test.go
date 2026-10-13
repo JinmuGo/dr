@@ -162,7 +162,7 @@ func TestLoaderForkChanges(t *testing.T) {
 func TestSessionLogMutation(t *testing.T) {
 	home := fakeHome(t, map[string]string{"a.jsonl": "{}\n"})
 	path := filepath.Join(home, "a.jsonl")
-	log := sessionLog{path: path, agent: agent{name: "test", parse: func([][]byte) []Edit {
+	log := sessionLog{path: path, agent: agent{name: "test", parse: func(*recordReader) []Edit {
 		if err := os.WriteFile(path, []byte("{}\n{}\n"), 0o644); err != nil {
 			t.Fatal(err)
 		}

@@ -46,14 +46,14 @@ type ompRecord struct {
 	Model         string `json:"model"`         // of a model_change, as provider/model
 	ThinkingLevel string `json:"thinkingLevel"` // of a thinking_level_change
 	Message       struct {
-		Role        string          `json:"role"`
-		Content     json.RawMessage `json:"content"`
-		Attribution string          `json:"attribution"` // "user", or "agent" for text an agent sent
-		Steering    bool            `json:"steering"`    // sent while the agent was working
-		ToolCallID  string          `json:"toolCallId"`
-		ToolName    string          `json:"toolName"`
-		IsError     bool            `json:"isError"`
-		Details     json.RawMessage `json:"details"`
+		Role        string       `json:"role"`
+		Content     borrowedJSON `json:"content"`
+		Attribution string       `json:"attribution"` // "user", or "agent" for text an agent sent
+		Steering    bool         `json:"steering"`    // sent while the agent was working
+		ToolCallID  string       `json:"toolCallId"`
+		ToolName    string       `json:"toolName"`
+		IsError     bool         `json:"isError"`
+		Details     borrowedJSON `json:"details"`
 	} `json:"message"`
 }
 
@@ -76,7 +76,7 @@ type ompWrite struct {
 
 // parseOMP reads an OMP session log. A subagent has a log of its own. An edit was made with
 // the model and the thinking level the log last changed to before it.
-func parseOMP(records [][]byte) []Edit {
+func parseOMP(records *recordReader) []Edit {
 	var edits []Edit
 	var turns []turn
 	var session, parent, cwd string
@@ -85,9 +85,9 @@ func parseOMP(records [][]byte) []Edit {
 	var start time.Time
 	writes := make(map[string]ompWrite) // by tool call id
 	notes := make(map[string]string)    // by tool call id
-	for _, raw := range records {
+	for records.next() {
 		var record ompRecord
-		if json.Unmarshal(raw, &record) != nil {
+		if json.Unmarshal(records.line, &record) != nil {
 			continue
 		}
 		if record.Type == "session" && session == "" {
@@ -122,7 +122,7 @@ func parseOMP(records [][]byte) []Edit {
 			}
 			var blocks []struct {
 				Type, ID, Name, Text, Intent string
-				Arguments                    json.RawMessage
+				Arguments                    borrowedJSON
 			}
 			_ = json.Unmarshal(message.Content, &blocks) // content that is a string has no blocks
 			for _, b := range blocks {

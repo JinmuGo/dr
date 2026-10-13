@@ -4,7 +4,6 @@
 package agent
 
 import (
-	"bytes"
 	"context"
 	"crypto/sha256"
 	"encoding/json"
@@ -62,10 +61,10 @@ type Problem struct {
 // and how to ask it and open its sessions through its CLI. The file of each agent makes one,
 // and agents lists it.
 type agent struct {
-	name    string                        // as Edit.Agent has it
-	logs    string                        // where it keeps its session logs, relative to the home directory
-	parse   func(records [][]byte) []Edit // reads the records of one session log
-	command string                        // its CLI, which Installed looks for in PATH
+	name    string                             // as Edit.Agent has it
+	logs    string                             // where it keeps its session logs, relative to the home directory
+	parse   func(records *recordReader) []Edit // reads the records of one session log
+	command string                             // its CLI, which Installed looks for in PATH
 	// canFork returns nil when the agent can fork the session that made e, or why it cannot.
 	canFork func(e *Edit) error
 	// ask asks q through the CLI, as Ask says, and gives up when ctx ends.
@@ -245,29 +244,44 @@ func (l *sessionLog) read(since time.Time, roots [][]byte) {
 		l.edits, l.problem, l.cached = cached.edits, cached.problem, cached
 		return
 	}
-	data, err := io.ReadAll(file)
+	matched, err := mentions(file, roots)
 	if err != nil {
 		l.problem = &Problem{Agent: l.agent.name, Path: l.path}
 		return
 	}
-	defer func() {
-		if logUnchanged(file, l.path, before) {
-			l.cached = &cachedLog{stamp: before, edits: l.edits, problem: l.problem}
+	if matched {
+		if _, err := file.Seek(0, io.SeekStart); err != nil {
+			l.problem = &Problem{Agent: l.agent.name, Path: l.path}
+			return
 		}
-	}()
-	if !mentions(data, roots) {
-		return
+		if !l.readRecords(file, since) {
+			return
+		}
 	}
-	records, bad := split(data)
-	if bad > 0 {
-		l.problem = &Problem{Agent: l.agent.name, Path: l.path, Bad: bad}
+	if logUnchanged(file, l.path, before) {
+		l.cached = &cachedLog{stamp: before, edits: l.edits, problem: l.problem}
 	}
-	for _, e := range l.agent.parse(records) {
+}
+
+// readRecords discards all edits on I/O failure, but retains edits around malformed lines.
+func (l *sessionLog) readRecords(reader io.Reader, since time.Time) bool {
+	records := newRecordReader(reader)
+	edits := l.agent.parse(records)
+	if records.err != nil {
+		l.edits = nil
+		l.problem = &Problem{Agent: l.agent.name, Path: l.path}
+		return false
+	}
+	if records.bad > 0 {
+		l.problem = &Problem{Agent: l.agent.name, Path: l.path, Bad: records.bad}
+	}
+	for _, e := range edits {
 		if !e.Time.Before(since) {
 			e.Log = l.path
 			l.edits = append(l.edits, e)
 		}
 	}
+	return true
 }
 
 func logUnchanged(file *os.File, path string, before logStamp) bool {
@@ -311,34 +325,6 @@ func (s logStamp) matches(info os.FileInfo) bool {
 
 func (s logStamp) equal(other logStamp) bool {
 	return s.matches(other.info) && s.digest == other.digest
-}
-
-func mentions(data []byte, roots [][]byte) bool {
-	for _, root := range roots {
-		if bytes.Contains(data, root) {
-			return true
-		}
-	}
-	return false
-}
-
-// split returns the JSON lines of a log and how many complete lines are not JSON.
-// An agent may be writing the last line right now, so an unfinished last line is skipped.
-func split(data []byte) (records [][]byte, bad int) {
-	lines := bytes.Split(data, []byte("\n"))
-	if n := len(lines) - 1; n >= 0 && !json.Valid(lines[n]) {
-		lines = lines[:n]
-	}
-	for _, l := range lines {
-		switch {
-		case len(bytes.TrimSpace(l)) == 0:
-		case json.Valid(l):
-			records = append(records, l)
-		default:
-			bad++
-		}
-	}
-	return records, bad
 }
 
 // dropCopies keeps one copy of each edit. A forked session carries the records of the
@@ -392,7 +378,7 @@ func parseTime(s string) time.Time {
 
 // text returns the text of a message: a string, or the text blocks of a list of blocks.
 // Codex calls a text block "Text" in agent messages and "text" in user messages.
-func text(raw json.RawMessage) string {
+func text(raw []byte) string {
 	var s string
 	if json.Unmarshal(raw, &s) == nil {
 		return strings.TrimSpace(s)

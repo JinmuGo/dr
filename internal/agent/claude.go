@@ -31,21 +31,21 @@ var claude = agent{
 }
 
 type claudeRecord struct {
-	Type                      string          `json:"type"`
-	SessionID                 string          `json:"sessionId"`
-	AgentID                   string          `json:"agentId"`
-	IsSidechain               bool            `json:"isSidechain"`
-	IsMeta                    bool            `json:"isMeta"`
-	IsCompactSummary          bool            `json:"isCompactSummary"`
-	IsVisibleInTranscriptOnly bool            `json:"isVisibleInTranscriptOnly"`
-	Timestamp                 string          `json:"timestamp"`
-	Cwd                       string          `json:"cwd"`
-	GitBranch                 string          `json:"gitBranch"`
-	ToolUseResult             json.RawMessage `json:"toolUseResult"`
+	Type                      string       `json:"type"`
+	SessionID                 string       `json:"sessionId"`
+	AgentID                   string       `json:"agentId"`
+	IsSidechain               bool         `json:"isSidechain"`
+	IsMeta                    bool         `json:"isMeta"`
+	IsCompactSummary          bool         `json:"isCompactSummary"`
+	IsVisibleInTranscriptOnly bool         `json:"isVisibleInTranscriptOnly"`
+	Timestamp                 string       `json:"timestamp"`
+	Cwd                       string       `json:"cwd"`
+	GitBranch                 string       `json:"gitBranch"`
+	ToolUseResult             borrowedJSON `json:"toolUseResult"`
 	Message                   struct {
-		ID      string          `json:"id"` // of the response, the same on every record of it
-		Model   string          `json:"model"`
-		Content json.RawMessage `json:"content"`
+		ID      string       `json:"id"` // of the response, the same on every record of it
+		Model   string       `json:"model"`
+		Content borrowedJSON `json:"content"`
 	} `json:"message"`
 	PermissionDecision struct {
 		Decision string `json:"decision"` // "accept" when the tool was allowed to run
@@ -54,13 +54,13 @@ type claudeRecord struct {
 
 // claudeBlock is a block of the content of a message.
 type claudeBlock struct {
-	Type      string          `json:"type"`
-	Text      string          `json:"text"`
-	ID        string          `json:"id"`          // of a tool_use
-	Name      string          `json:"name"`        // of the tool a tool_use calls
-	Input     json.RawMessage `json:"input"`       // of a tool_use
-	ToolUseID string          `json:"tool_use_id"` // of a tool_result
-	IsError   bool            `json:"is_error"`    // of a tool_result
+	Type      string       `json:"type"`
+	Text      string       `json:"text"`
+	ID        string       `json:"id"`          // of a tool_use
+	Name      string       `json:"name"`        // of the tool a tool_use calls
+	Input     borrowedJSON `json:"input"`       // of a tool_use
+	ToolUseID string       `json:"tool_use_id"` // of a tool_result
+	IsError   bool         `json:"is_error"`    // of a tool_result
 }
 
 // claudeResult is what Claude Code logs for a Write or an Edit. Its structuredPatch turns
@@ -86,21 +86,21 @@ type claudeInput struct {
 
 // parseClaude reads a Claude Code session log. A subagent logs to its own file, or in older
 // versions to its parent's file with its records marked, and counts its own requests.
-func parseClaude(records [][]byte) []Edit {
+func parseClaude(records *recordReader) []Edit {
 	var edits []Edit
 	turns := make(map[string][]turn)
 	// Claude Code logs each block of a response as a record of its own and runs a tool as
 	// soon as its block is logged, so the result of one tool call can come before the next
 	// block of the same response. What the agent said before a tool call is therefore what
 	// that response said before it.
-	said := make(map[string]string)       // by message id
-	notes := make(map[string]string)      // by tool_use id
-	models := make(map[string]string)     // by tool_use id
-	calls := make(map[string]claudeBlock) // Write and Edit calls not answered yet, by tool_use id
+	said := make(map[string]string)        // by message id
+	notes := make(map[string]string)       // by tool_use id
+	models := make(map[string]string)      // by tool_use id
+	calls := make(map[string]claudeResult) // owned Write and Edit arguments, by tool_use id
 	var start time.Time
-	for _, raw := range records {
+	for records.next() {
 		var record claudeRecord
-		if json.Unmarshal(raw, &record) != nil {
+		if json.Unmarshal(records.line, &record) != nil {
 			continue
 		}
 		t := parseTime(record.Timestamp)
@@ -129,7 +129,7 @@ func parseClaude(records [][]byte) []Edit {
 						models[b.ID] = model
 					}
 					if b.Name == "Write" || b.Name == "Edit" {
-						calls[b.ID] = b
+						calls[b.ID] = claudeCallResult(b)
 					}
 				}
 			}
@@ -155,7 +155,7 @@ func parseClaude(records [][]byte) []Edit {
 				if !ok || hasResult || b.IsError || record.PermissionDecision.Decision != "accept" {
 					continue
 				}
-				if edit, ok := claudeEdit(e, claudeCallResult(call)); ok {
+				if edit, ok := claudeEdit(e, call); ok {
 					edits = append(edits, edit)
 				}
 			}

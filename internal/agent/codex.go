@@ -32,9 +32,9 @@ var codex = agent{
 }
 
 type codexRecord struct {
-	Timestamp string          `json:"timestamp"`
-	Type      string          `json:"type"`
-	Payload   json.RawMessage `json:"payload"`
+	Timestamp string       `json:"timestamp"`
+	Type      string       `json:"type"`
+	Payload   borrowedJSON `json:"payload"`
 }
 
 type codexMeta struct {
@@ -62,7 +62,7 @@ type codexEvent struct {
 		Type    string                 `json:"type"`
 		Status  string                 `json:"status"`
 		Phase   string                 `json:"phase"`
-		Content json.RawMessage        `json:"content"`
+		Content borrowedJSON           `json:"content"`
 		Changes map[string]codexChange `json:"changes"`
 	} `json:"item"`
 }
@@ -76,16 +76,16 @@ type codexChange struct {
 
 // parseCodex reads a Codex rollout. A fork copies the conversation but not the file
 // changes, so its changes are all its own.
-func parseCodex(records [][]byte) []Edit {
+func parseCodex(records *recordReader) []Edit {
 	var edits []Edit
 	var turns []turn
 	var said string // what the agent said since the last request or file change
 	var meta codexMeta
 	var model, effort string // of the turn going on
 	final := false           // whether the last request has its final answer
-	for _, raw := range records {
+	for records.next() {
 		var record codexRecord
-		if json.Unmarshal(raw, &record) != nil {
+		if json.Unmarshal(records.line, &record) != nil {
 			continue
 		}
 		switch record.Type {
@@ -280,18 +280,22 @@ func codexModel(home, thread string) string {
 	if path == "" {
 		return ""
 	}
-	data, err := os.ReadFile(path)
+	file, err := os.Open(path)
 	if err != nil {
 		return ""
 	}
-	records, _ := split(data)
+	defer func() { _ = file.Close() }()
+	records := newRecordReader(file)
 	model := ""
-	for _, raw := range records {
+	for records.next() {
 		var record codexRecord
 		var turn codexTurn
-		if json.Unmarshal(raw, &record) == nil && record.Type == "turn_context" && json.Unmarshal(record.Payload, &turn) == nil {
+		if json.Unmarshal(records.line, &record) == nil && record.Type == "turn_context" && json.Unmarshal(record.Payload, &turn) == nil {
 			model = turn.Model
 		}
+	}
+	if records.err != nil {
+		return ""
 	}
 	return model
 }
