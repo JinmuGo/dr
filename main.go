@@ -199,9 +199,9 @@ func compared(root, ref, base string) tui.Base {
 	return tui.Base{Ref: ref, Commit: base, MergeBase: err != nil || commit != base} // an unknown commit is not claimed
 }
 
-// changes opens the worktree that holds dir, reading the agent edits from the session logs
-// under home again, and returns it with the files changed since the merge-base of HEAD and
-// ref, each with the agent edit behind each changed line.
+// changes opens the worktree that holds dir and returns it with the files changed since
+// the merge-base of HEAD and ref, each with the agent edit behind each changed line.
+// It reads session logs under home only when files changed.
 func changes(dir, home, ref string) (*review.Repo, []review.File, error) {
 	repo, err := review.Open(dir, home, ref)
 	if err != nil {

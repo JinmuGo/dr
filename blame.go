@@ -25,10 +25,10 @@ func blame(w, stderr io.Writer, dir, home, path string) error {
 	if err != nil {
 		return err
 	}
+	f, err := repo.File(relativePath)
 	for _, p := range repo.Problems {
 		_, _ = fmt.Fprintf(stderr, "dr: some %s records could not be read: %s\n", p.Agent, p.Path)
 	}
-	f, err := repo.File(relativePath)
 	if err != nil {
 		return err
 	}

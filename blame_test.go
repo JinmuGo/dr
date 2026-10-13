@@ -180,5 +180,16 @@ func TestBlame(t *testing.T) {
 		if want := readFile(t, filepath.Join(goldenDir, "omp.golden")); string(got) != want {
 			t.Errorf("stdout: got\n%s\nwant\n%s", got, want)
 		}
+		out.Reset()
+		stderr.Reset()
+		if err := blame(&out, &stderr, ".", home, "missing.md"); !os.IsNotExist(err) {
+			t.Errorf("missing file: got %v, want a not-exist error", err)
+		}
+		if out.Len() != 0 {
+			t.Errorf("missing file stdout: got %q, want none", out.String())
+		}
+		if want := "dr: some codex records could not be read: " + bad + "\n"; stderr.String() != want {
+			t.Errorf("missing file stderr: got %q, want %q", stderr.String(), want)
+		}
 	})
 }

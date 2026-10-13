@@ -160,6 +160,57 @@ func TestOpens(t *testing.T) {
 	}
 }
 
+func TestChangesEmptyWithUndo(t *testing.T) {
+	repo, home := t.TempDir(), t.TempDir()
+	for k, v := range map[string]string{
+		"GIT_CONFIG_GLOBAL": os.DevNull, "GIT_CONFIG_NOSYSTEM": "1",
+		"GIT_AUTHOR_NAME": "t", "GIT_AUTHOR_EMAIL": "t@t", "GIT_COMMITTER_NAME": "t", "GIT_COMMITTER_EMAIL": "t@t",
+		"GIT_AUTHOR_DATE": "2026-10-09T12:00:00Z", "GIT_COMMITTER_DATE": "2026-10-09T12:00:00Z",
+	} {
+		t.Setenv(k, v)
+	}
+	writeFile(t, filepath.Join(repo, "a.md"), "b\n")
+	runGit(t, repo, "init", "-q", "-b", "main")
+	runGit(t, repo, "add", ".")
+	runGit(t, repo, "commit", "-q", "-m", "base")
+	root, err := filepath.EvalSymlinks(repo)
+	if err != nil {
+		t.Fatal(err)
+	}
+	writeFile(t, filepath.Join(home, ".codex/sessions/bad.jsonl"), "not json, from "+root+"\n")
+	dir := filepath.Join(root, ".git", state.DirName)
+	for _, undoable := range []bool{false, true} {
+		t.Run(fmt.Sprintf("undoable=%t", undoable), func(t *testing.T) {
+			// An unreadable fix record must survive the fast path even with no changed files.
+			writeFile(t, state.LogPath(dir), "not json\n")
+			if undoable {
+				applied := state.Applied{
+					Time: time.Date(2026, 10, 9, 13, 0, 0, 0, time.UTC),
+					ID:   "fix", Agent: "codex", Session: "session", Path: "a.md", First: 1, Old: []string{"a"}, New: []string{"b"},
+					After: fmt.Sprintf("%x", sha256.Sum256([]byte("b\n"))),
+				}
+				if err := state.NewLog(state.LogPath(dir)).Append(applied); err != nil {
+					t.Fatal(err)
+				}
+			}
+			r, files, err := changes(root, home, "")
+			if err != nil {
+				t.Fatal(err)
+			}
+			if len(files) != 0 {
+				t.Fatalf("changes: got %+v, want no files", files)
+			}
+			if len(r.Problems) != 1 || r.Problems[0].Agent != review.FixAgent {
+				t.Errorf("problems: got %+v, want only the dr log problem", r.Problems)
+			}
+			saved := tui.Load(dir)
+			if got := opens(r.Root, files, saved.Log); got != undoable {
+				t.Errorf("opens: got %t, want %t", got, undoable)
+			}
+		})
+	}
+}
+
 func TestVersion(t *testing.T) {
 	vcs := func(revision, modified string) *debug.BuildInfo {
 		return &debug.BuildInfo{Main: debug.Module{Version: "v0.0.0-20261011123635-abc1234def56+dirty"}, Settings: []debug.BuildSetting{
