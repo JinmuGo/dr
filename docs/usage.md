@@ -30,6 +30,19 @@ Use `/dr <branch>` to open a worktree directly without the filtered picker. Othe
 
 For local development, run `omp plugin link /path/to/dr` with the repository root or an extracted release archive. Keep that directory in place while linked. To remove the plugin, run `omp plugin uninstall dr-omp` and restart OMP.
 
+To keep a local build after its development worktree is removed, install a commit-addressed archive instead of linking the checkout:
+
+```sh
+package_dir="${XDG_DATA_HOME:-$HOME/.local/share}/dr/omp-plugins"
+mkdir -p "$package_dir"
+archive="$package_dir/dr-omp-$(git rev-parse HEAD).tgz"
+git archive --format=tar.gz --prefix=package/ --output="$archive" HEAD \
+  package.json integrations/omp/index.ts LICENSE
+omp plugin install "dr-omp@file:$archive"
+```
+
+The archive contains committed files only. Keep it in place: the package manager records its path as a `file:` dependency. Restart OMP after installation.
+
 ## Reading the diff
 
 A session is one conversation with an agent, and a request is one message you sent in it. A line's origin is the session and request whose edit last changed it. A line that no recorded edit explains is unknown: you changed it, or a shell command did. dr does not guess.

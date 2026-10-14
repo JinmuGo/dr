@@ -25,6 +25,14 @@ Test data:
 - `internal/agent/testdata/`: trimmed session logs from real sessions.
 - `internal/review/testdata/`: files those sessions wrote.
 
+## Branch lifecycle
+
+After a PR is merged, start follow-up work on a new branch from the current main. Do not reuse the merged PR's branch name: its recorded head commit does not include later work.
+
+Before removing a worktree, check its uncommitted and unpublished work, running sessions, and installed integrations. A plugin linked to that directory stops working when the directory is removed. Use a released plugin or a commit-addressed archive outside the worktree for an installation you intend to keep.
+
+A merged PR alone is not proof that a local branch can be deleted. Its head SHA must still match, or the local HEAD must already be an ancestor of the current remote default branch. Keep backup branches separately.
+
 ## Checks
 
 Run these before opening a pull request. CI runs the same set.
