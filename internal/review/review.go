@@ -12,6 +12,8 @@ import (
 	"path/filepath"
 	"slices"
 	"strings"
+	"sync"
+	"time"
 
 	"github.com/JinmuGo/dr/internal/agent"
 	"github.com/JinmuGo/dr/internal/git"
@@ -22,16 +24,23 @@ import (
 type Repo struct {
 	Root     string          // top directory of the worktree
 	Base     string          // base commit
-	Problems []agent.Problem // session logs dr could not fully read
+	Problems []agent.Problem // fixes dr could not fully read, plus session logs after Files or File
 
-	origin origin.Repo
-	edits  []agent.Edit
+	origin   origin.Repo
+	edits    []agent.Edit // fixes until loadOnce adds the agent edits
+	home     string
+	since    time.Time
+	loader   *agent.Loader
+	loadOnce sync.Once
 }
 
-// Open opens the worktree that holds dir and reads the agent edits made in it from the
-// session logs under home, and the fixes dr applied in it from dr's log. The base commit is
-// the merge-base of HEAD and ref, or of HEAD and the default branch when ref is "".
-func Open(dir, home, ref string) (*Repo, error) {
+// Open opens the worktree that holds dir and reads the fixes dr applied in it from dr's log.
+// Agent session logs under home are read through loader only when File or nonempty Files
+// is called. The caller must supply a non-nil loader and may reuse it across Opens to cache
+// unchanged session logs; git state and dr's fixes are read anew on every Open.
+// The base commit is the merge-base of HEAD and ref, or of HEAD and the default branch
+// when ref is "".
+func Open(dir, home, ref string, loader *agent.Loader) (*Repo, error) {
 	root, err := git.Root(dir)
 	if err != nil {
 		return nil, err
@@ -52,18 +61,19 @@ func Open(dir, home, ref string) (*Repo, error) {
 	if err != nil {
 		return nil, err
 	}
-	edits, problems := agent.Load(home, since, worktrees)
 	fixed, fixProblems, err := fixes(root, since)
 	if err != nil {
 		return nil, err
 	}
-	edits, problems = withFixes(edits, fixed), append(problems, fixProblems...)
 	return &Repo{
 		Root:     root,
 		Base:     base,
-		Problems: problems,
+		Problems: fixProblems,
 		origin:   origin.Repo{Root: root, Worktrees: worktrees, Branch: branch},
-		edits:    edits,
+		edits:    fixed,
+		home:     home,
+		since:    since,
+		loader:   loader,
 	}, nil
 }
 
@@ -106,8 +116,17 @@ func (r *Repo) File(path string) (File, error) {
 }
 
 // Files returns File of each of paths. It reads what Base has at all of them with two git
-// commands, where File of each would start two of its own.
+// commands, where File of each would start two of its own. With no paths, it reads no
+// session logs. Otherwise, the first call loads the agent edits and their Problems.
 func (r *Repo) Files(paths []string) ([]File, error) {
+	if len(paths) == 0 {
+		return nil, nil
+	}
+	r.loadOnce.Do(func() {
+		edits, problems := r.loader.Load(r.home, r.since, r.origin.Worktrees)
+		r.edits = withFixes(edits, r.edits)
+		r.Problems = append(problems, r.Problems...)
+	})
 	entries, err := git.Entries(r.Root, r.Base, paths)
 	if err != nil {
 		return nil, err

@@ -9,8 +9,10 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/JinmuGo/dr/internal/agent"
 	"github.com/JinmuGo/dr/internal/origin"
 	"github.com/JinmuGo/dr/internal/review"
+	"github.com/JinmuGo/dr/internal/state"
 )
 
 // spike is where the sessions in agent/testdata worked. The test moves them to a new repo.
@@ -143,7 +145,7 @@ func TestRepo(t *testing.T) {
 		writeFile(t, filepath.Join(home, dest), strings.ReplaceAll(log, spike, repo))
 	}
 
-	r, err := review.Open(repo, home, "")
+	r, err := review.Open(repo, home, "", &agent.Loader{})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -297,7 +299,7 @@ func TestStatus(t *testing.T) {
 	writeFile(t, filepath.Join(repo, "new-empty"), "")
 	writeFile(t, filepath.Join(repo, "new.bin"), "\x00\x01")
 
-	r, err := review.Open(repo, t.TempDir(), "") // a home without session logs
+	r, err := review.Open(repo, t.TempDir(), "", &agent.Loader{}) // a home without session logs
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -319,6 +321,60 @@ func TestStatus(t *testing.T) {
 		}
 		if f.Status != tc.status {
 			t.Errorf("%s: got status %q, want %q", tc.path, f.Status, tc.status)
+		}
+	}
+}
+
+func TestRepoLazyLogs(t *testing.T) {
+	repo, home := t.TempDir(), t.TempDir()
+	for k, v := range map[string]string{
+		"GIT_CONFIG_GLOBAL": os.DevNull, "GIT_CONFIG_NOSYSTEM": "1",
+		"GIT_AUTHOR_NAME": "t", "GIT_AUTHOR_EMAIL": "t@t", "GIT_COMMITTER_NAME": "t", "GIT_COMMITTER_EMAIL": "t@t",
+	} {
+		t.Setenv(k, v)
+	}
+	writeFile(t, filepath.Join(repo, "a.md"), "a\n")
+	git(t, repo, "init", "-q", "-b", "main")
+	git(t, repo, "add", ".")
+	git(t, repo, "commit", "-q", "-m", "base")
+	root, err := filepath.EvalSymlinks(repo)
+	if err != nil {
+		t.Fatal(err)
+	}
+	// A broken dr record is available immediately; agent problems wait for a file request.
+	fixLog := state.LogPath(filepath.Join(root, ".git", state.DirName))
+	writeFile(t, fixLog, "not json\n")
+	log := filepath.Join(home, ".codex/sessions/bad.jsonl")
+	writeFile(t, log, "not json, from "+root+"\n")
+	r, err := review.Open(repo, home, "", &agent.Loader{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	checkFixProblem := func() {
+		t.Helper()
+		if len(r.Problems) != 1 || r.Problems[0].Agent != review.FixAgent || r.Problems[0].Path != fixLog {
+			t.Fatalf("problems before file request: got %+v, want only %s", r.Problems, fixLog)
+		}
+	}
+	checkFixProblem()
+	paths, err := r.Changed()
+	if err != nil || len(paths) != 0 {
+		t.Fatalf("Changed: got %q, %v, want no paths or error", paths, err)
+	}
+	for _, empty := range [][]string{nil, {}} {
+		files, err := r.Files(empty)
+		if err != nil || len(files) != 0 {
+			t.Fatalf("Files(%q): got %+v, %v, want no files or error", empty, files, err)
+		}
+		checkFixProblem()
+	}
+	for range 2 {
+		if _, err := r.File("a.md"); err != nil {
+			t.Fatal(err)
+		}
+		if len(r.Problems) != 2 || r.Problems[0].Agent != "codex" || r.Problems[0].Path != log ||
+			r.Problems[1].Agent != review.FixAgent {
+			t.Fatalf("problems after file request: got %+v, want codex then dr without duplicates", r.Problems)
 		}
 	}
 }

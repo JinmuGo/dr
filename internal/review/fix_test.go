@@ -51,9 +51,10 @@ func TestRepoFixes(t *testing.T) {
 	log := readFile(t, filepath.Join("../agent/testdata", "omp-"+session+".jsonl"))
 	writeFile(t, filepath.Join(home, ".omp/agent/sessions/spike/1.jsonl"), strings.ReplaceAll(log, spike, repo))
 
+	var loader agent.Loader
 	open := func(t *testing.T) *review.Repo {
 		t.Helper()
-		r, err := review.Open(repo, home, "")
+		r, err := review.Open(repo, home, "", &loader)
 		if err != nil {
 			t.Fatal(err)
 		}

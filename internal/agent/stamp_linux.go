@@ -1,0 +1,14 @@
+package agent
+
+import (
+	"os"
+	"syscall"
+	"time"
+)
+
+func logChangeTime(info os.FileInfo) time.Time {
+	if stat, ok := info.Sys().(*syscall.Stat_t); ok {
+		return time.Unix(int64(stat.Ctim.Sec), int64(stat.Ctim.Nsec))
+	}
+	return time.Time{}
+}

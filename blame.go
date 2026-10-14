@@ -17,7 +17,7 @@ import (
 // diff from the base commit, in the worktree that holds dir, with the agent edits read
 // from the session logs under home. It names the logs it could not fully read on stderr.
 func blame(w, stderr io.Writer, dir, home, path string) error {
-	repo, err := review.Open(dir, home, "")
+	repo, err := review.Open(dir, home, "", &agent.Loader{})
 	if err != nil {
 		return err
 	}
@@ -25,10 +25,10 @@ func blame(w, stderr io.Writer, dir, home, path string) error {
 	if err != nil {
 		return err
 	}
+	f, err := repo.File(relativePath)
 	for _, p := range repo.Problems {
 		_, _ = fmt.Fprintf(stderr, "dr: some %s records could not be read: %s\n", p.Agent, p.Path)
 	}
-	f, err := repo.File(relativePath)
 	if err != nil {
 		return err
 	}

@@ -4,15 +4,16 @@
 package agent
 
 import (
-	"bytes"
 	"context"
 	"crypto/sha256"
 	"encoding/json"
+	"io"
 	"io/fs"
 	"os"
 	"os/exec"
 	"path/filepath"
 	"runtime"
+	"slices"
 	"sort"
 	"strings"
 	"sync"
@@ -60,10 +61,10 @@ type Problem struct {
 // and how to ask it and open its sessions through its CLI. The file of each agent makes one,
 // and agents lists it.
 type agent struct {
-	name    string                        // as Edit.Agent has it
-	logs    string                        // where it keeps its session logs, relative to the home directory
-	parse   func(records [][]byte) []Edit // reads the records of one session log
-	command string                        // its CLI, which Installed looks for in PATH
+	name    string                             // as Edit.Agent has it
+	logs    string                             // where it keeps its session logs, relative to the home directory
+	parse   func(records *recordReader) []Edit // reads the records of one session log
+	command string                             // its CLI, which Installed looks for in PATH
 	// canFork returns nil when the agent can fork the session that made e, or why it cannot.
 	canFork func(e *Edit) error
 	// ask asks q through the CLI, as Ask says, and gives up when ctx ends.
@@ -116,10 +117,42 @@ func named(name string) (agent, bool) {
 	return agent{}, false
 }
 
+// Loader reuses unchanged session logs between loads. Its zero value is ready to use.
+// A Loader must not be copied after its first use.
+type Loader struct {
+	mu         sync.Mutex
+	home       string
+	since      time.Time
+	roots      []string
+	generation uint64
+	entries    map[string]*cachedLog
+}
+
+type cachedLog struct {
+	stamp   logStamp
+	edits   []Edit
+	problem *Problem
+}
+
+type logStamp struct {
+	info   os.FileInfo
+	change time.Time
+	digest [sha256.Size]byte
+}
+
 // Load reads the session logs under home that mention one of roots and returns the edits
 // made at or after since, in the order they happened. It reads the logs in parallel, one
 // per CPU at a time, and gives the same result as reading them one by one.
-func Load(home string, since time.Time, roots []string) ([]Edit, []Problem) {
+func (l *Loader) Load(home string, since time.Time, roots []string) ([]Edit, []Problem) {
+	l.mu.Lock()
+	if l.home != home || !l.since.Equal(since) || !slices.Equal(l.roots, roots) {
+		l.home, l.since, l.roots = home, since, slices.Clone(roots)
+		l.entries = nil
+	}
+	l.generation++
+	generation, entries := l.generation, l.entries
+	l.mu.Unlock()
+
 	rootBytes := make([][]byte, len(roots))
 	for i, root := range roots {
 		rootBytes[i] = []byte(root)
@@ -132,7 +165,7 @@ func Load(home string, since time.Time, roots []string) ([]Edit, []Problem) {
 				return nil // a missing log directory just means the agent is not used
 			}
 			if info, err := d.Info(); err == nil && !info.ModTime().Before(since) {
-				logs = append(logs, sessionLog{agent: a, path: path})
+				logs = append(logs, sessionLog{agent: a, path: path, cached: entries[path]})
 			}
 			return nil
 		})
@@ -151,6 +184,18 @@ func Load(home string, since time.Time, roots []string) ([]Edit, []Problem) {
 	}
 	close(next)
 	wg.Wait()
+	// Publish one immutable snapshot. A newer overlapping load owns the next snapshot.
+	updated := make(map[string]*cachedLog, len(logs))
+	for _, log := range logs {
+		if log.cached != nil {
+			updated[log.path] = log.cached
+		}
+	}
+	l.mu.Lock()
+	if l.generation == generation {
+		l.entries = updated
+	}
+	l.mu.Unlock()
 	var edits []Edit
 	var problems []Problem
 	for _, l := range logs {
@@ -160,14 +205,21 @@ func Load(home string, since time.Time, roots []string) ([]Edit, []Problem) {
 		}
 	}
 	edits = dropCopies(edits)
+	// The caller owns the aggregate, including the optional mutable values.
+	for i := range edits {
+		if edits[i].Before != nil {
+			edits[i].Before = new(*edits[i].Before)
+		}
+	}
 	sort.SliceStable(edits, func(i, j int) bool { return edits[i].Time.Before(edits[j].Time) })
 	return edits, problems
 }
 
 // sessionLog is a session log Load reads, and what it read there.
 type sessionLog struct {
-	agent agent
-	path  string
+	agent  agent
+	path   string
+	cached *cachedLog
 
 	edits   []Edit   // the edits made at or after the time Load was given
 	problem *Problem // why the log could not be fully read, nil when it could
@@ -175,52 +227,104 @@ type sessionLog struct {
 
 // read reads the edits made at or after since from l when it mentions one of roots.
 func (l *sessionLog) read(since time.Time, roots [][]byte) {
-	data, err := os.ReadFile(l.path)
+	cached := l.cached
+	l.cached = nil
+	file, err := os.Open(l.path)
 	if err != nil {
 		l.problem = &Problem{Agent: l.agent.name, Path: l.path}
 		return
 	}
-	if !mentions(data, roots) {
+	defer func() { _ = file.Close() }()
+	before, err := stampLog(file)
+	if err != nil {
+		l.problem = &Problem{Agent: l.agent.name, Path: l.path}
 		return
 	}
-	records, bad := split(data)
-	if bad > 0 {
-		l.problem = &Problem{Agent: l.agent.name, Path: l.path, Bad: bad}
+	if cached != nil && before.equal(cached.stamp) && logUnchanged(file, l.path, before) {
+		l.edits, l.problem, l.cached = cached.edits, cached.problem, cached
+		return
 	}
-	for _, e := range l.agent.parse(records) {
+	matched, err := mentions(file, roots)
+	if err != nil {
+		l.problem = &Problem{Agent: l.agent.name, Path: l.path}
+		return
+	}
+	if matched {
+		if _, err := file.Seek(0, io.SeekStart); err != nil {
+			l.problem = &Problem{Agent: l.agent.name, Path: l.path}
+			return
+		}
+		if !l.readRecords(file, since) {
+			return
+		}
+	}
+	if logUnchanged(file, l.path, before) {
+		l.cached = &cachedLog{stamp: before, edits: l.edits, problem: l.problem}
+	}
+}
+
+// readRecords discards all edits on I/O failure, but retains edits around malformed lines.
+func (l *sessionLog) readRecords(reader io.Reader, since time.Time) bool {
+	records := newRecordReader(reader)
+	edits := l.agent.parse(records)
+	if records.err != nil {
+		l.edits = nil
+		l.problem = &Problem{Agent: l.agent.name, Path: l.path}
+		return false
+	}
+	if records.bad > 0 {
+		l.problem = &Problem{Agent: l.agent.name, Path: l.path, Bad: records.bad}
+	}
+	for _, e := range edits {
 		if !e.Time.Before(since) {
 			e.Log = l.path
 			l.edits = append(l.edits, e)
 		}
 	}
+	return true
 }
 
-func mentions(data []byte, roots [][]byte) bool {
-	for _, root := range roots {
-		if bytes.Contains(data, root) {
-			return true
-		}
+func logUnchanged(file *os.File, path string, before logStamp) bool {
+	after, err := stampLog(file)
+	if err != nil || !before.equal(after) {
+		return false
 	}
-	return false
+	current, err := os.Stat(path)
+	return err == nil && after.matches(current)
 }
 
-// split returns the JSON lines of a log and how many complete lines are not JSON.
-// An agent may be writing the last line right now, so an unfinished last line is skipped.
-func split(data []byte) (records [][]byte, bad int) {
-	lines := bytes.Split(data, []byte("\n"))
-	if n := len(lines) - 1; n >= 0 && !json.Valid(lines[n]) {
-		lines = lines[:n]
+// stampLog checks the opened file, not the path that may have been replaced.
+// Platforms without a change time hash the content and rewind the same descriptor.
+func stampLog(file *os.File) (logStamp, error) {
+	info, err := file.Stat()
+	if err != nil {
+		return logStamp{}, err
 	}
-	for _, l := range lines {
-		switch {
-		case len(bytes.TrimSpace(l)) == 0:
-		case json.Valid(l):
-			records = append(records, l)
-		default:
-			bad++
+	stamp := logStamp{info: info, change: logChangeTime(info)}
+	if stamp.change.IsZero() {
+		if _, err := file.Seek(0, io.SeekStart); err != nil {
+			return logStamp{}, err
+		}
+		hash := sha256.New()
+		if _, err := io.Copy(hash, file); err != nil {
+			return logStamp{}, err
+		}
+		copy(stamp.digest[:], hash.Sum(nil))
+		if _, err := file.Seek(0, io.SeekStart); err != nil {
+			return logStamp{}, err
 		}
 	}
-	return records, bad
+	return stamp, nil
+}
+
+func (s logStamp) matches(info os.FileInfo) bool {
+	return os.SameFile(s.info, info) && s.info.Size() == info.Size() &&
+		s.info.Mode() == info.Mode() && s.info.ModTime().Equal(info.ModTime()) &&
+		s.change.Equal(logChangeTime(info))
+}
+
+func (s logStamp) equal(other logStamp) bool {
+	return s.matches(other.info) && s.digest == other.digest
 }
 
 // dropCopies keeps one copy of each edit. A forked session carries the records of the
@@ -274,7 +378,7 @@ func parseTime(s string) time.Time {
 
 // text returns the text of a message: a string, or the text blocks of a list of blocks.
 // Codex calls a text block "Text" in agent messages and "text" in user messages.
-func text(raw json.RawMessage) string {
+func text(raw []byte) string {
 	var s string
 	if json.Unmarshal(raw, &s) == nil {
 		return strings.TrimSpace(s)
