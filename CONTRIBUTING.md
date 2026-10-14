@@ -97,6 +97,15 @@ Each agent is one file in `internal/agent/`, like `claude.go`, `codex.go` and `o
 
 Pushing a `v*` tag, such as `v0.1.0`, runs `.github/workflows/release.yml`. GoReleaser builds the archives for macOS and Linux, attaches them and `checksums.txt` to the GitHub release, and pushes the cask to [JinmuGo/homebrew-tap](https://github.com/JinmuGo/homebrew-tap). The install script and the Homebrew cask pick up the new release from there.
 
+From a clean checkout at the current remote `main`, use mise and an authenticated GitHub CLI:
+
+```sh
+mise release v0.1.2 --dry-run
+mise release v0.1.2
+```
+
+Choose a stable `vMAJOR.MINOR.PATCH` tag newer than every existing stable tag. The task requires `origin`'s push URL to point to `JinmuGo/dr` on GitHub and the latest push CI run for that commit to have succeeded. The remote checks and push use that same URL. It pushes only the tag, without creating a local tag. The existing release workflow then publishes the archives and cask; a successful push does not mean publication has finished. If the push loses its connection, check the remote tag and workflow before trying again.
+
 - The `HOMEBREW_TAP_TOKEN` secret must hold a token that can push to the tap.
 - `goreleaser release --snapshot --clean` builds the same archives locally into `dist/` without publishing anything.
 
