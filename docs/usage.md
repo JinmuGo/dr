@@ -22,7 +22,7 @@ Install dr on `PATH`, then install the OMP plugin:
 omp plugin install github:JinmuGo/dr#v0.1.3
 ```
 
-Restart OMP after installing or updating the plugin. When the agent has finished its turn, run `/dr`. Only worktrees with changes against the default branch's merge-base are offered. Committed, staged, unstaged and untracked changes count; ignored files do not. If only one worktree has changes, it opens directly. If none do, OMP shows "No changes to review" without leaving the session.
+Restart OMP after installing or updating the plugin. When the agent has finished its turn, run `/dr`. Only worktrees with changes against the default branch's merge-base are offered. Committed, staged, unstaged and untracked changes count; ignored files do not. If only one worktree has changes, it opens directly. If none do, OMP shows a "No changes to review" dialog without launching dr. Press Enter or Esc to dismiss it.
 
 The diff opens in the same terminal. Press `q` in dr to return to the same OMP session and continue typing. The picker is repository-wide, not filtered to the current AI session.
 

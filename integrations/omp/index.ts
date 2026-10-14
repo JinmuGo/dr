@@ -71,7 +71,7 @@ export default function (pi: ExtensionAPI) {
             if (await hasChanges(worktree.path, base)) candidates.push(worktree);
           }
           if (candidates.length === 0) {
-            ctx.ui.notify("No changes to review in this repository's worktrees.", "info");
+            await ctx.ui.select("No changes to review in this repository's worktrees.", ["Return to session"]);
             return;
           }
           cwd = candidates[0].path;
@@ -80,7 +80,7 @@ export default function (pi: ExtensionAPI) {
             if (selected === undefined) return;
             cwd = candidates.find(worktree => worktree.label === selected)!.path;
             if (!(await hasChanges(cwd, base))) {
-              ctx.ui.notify("This worktree no longer has changes to review.", "info");
+              await ctx.ui.select("This worktree no longer has changes to review.", ["Return to session"]);
               return;
             }
           }
