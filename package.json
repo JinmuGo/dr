@@ -1,9 +1,9 @@
 {
   "name": "dr-omp",
-  "version": "0.0.0",
+  "version": "0.1.3",
   "private": true,
   "description": "Open dr in OMP's terminal and return to the same session.",
   "omp": {
-    "extensions": ["./index.ts"]
+    "extensions": ["./integrations/omp/index.ts"]
   }
 }
