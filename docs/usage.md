@@ -14,6 +14,20 @@ dr compares the merge-base with the files in your working tree, so uncommitted c
 
 When `<branch>` is checked out in another worktree, such as one an agent works in, `dr <branch>` opens that worktree as if you ran `dr` there: questions, comments and fixes go to its files. The default branch and the branch of the worktree you are in stay refs to compare with. To compare with a branch checked out elsewhere, name it in full: `dr refs/heads/<branch>`.
 
+## Opening from OMP
+
+Install dr on `PATH`. From a local checkout of this repository, link the OMP plugin once:
+
+```sh
+omp plugin link ./integrations/omp
+```
+
+Restart OMP. When the agent has finished its turn, run `/dr`. The diff opens in the same terminal. Press `q` in dr to return to the same OMP session and continue typing.
+
+The command reviews OMP's current working directory against the default branch. It includes other sessions' changes in that worktree. Start OMP in the worktree you want to review. If there are no changes, dr returns immediately.
+
+Keep the linked checkout in place. To remove the plugin, run `omp plugin uninstall dr-omp` and restart OMP.
+
 ## Reading the diff
 
 A session is one conversation with an agent, and a request is one message you sent in it. A line's origin is the session and request whose edit last changed it. A line that no recorded edit explains is unknown: you changed it, or a shell command did. dr does not guess.
