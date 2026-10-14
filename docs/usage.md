@@ -22,9 +22,9 @@ Install dr on `PATH`. From a local checkout of this repository, link the OMP plu
 omp plugin link ./integrations/omp
 ```
 
-Restart OMP. When the agent has finished its turn, run `/dr`. The diff opens in the same terminal. Press `q` in dr to return to the same OMP session and continue typing.
+Restart OMP after installing or updating the plugin. When the agent has finished its turn, run `/dr`. If the repository has multiple worktrees, choose the one to review. The diff opens in the same terminal. Press `q` in dr to return to the same OMP session and continue typing.
 
-The command reviews OMP's current working directory against the default branch. It includes other sessions' changes in that worktree. Start OMP in the worktree you want to review. If there are no changes, dr returns immediately.
+Use `/dr <branch>` to open a worktree directly without the picker. Other refs follow `dr <ref>` comparison rules. With one worktree, `/dr` reviews OMP's current working directory against the default branch. The diff includes other sessions' changes in the chosen worktree. If there are no changes, dr returns immediately.
 
 Keep the linked checkout in place. To remove the plugin, run `omp plugin uninstall dr-omp` and restart OMP.
 
