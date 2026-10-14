@@ -1,0 +1,66 @@
+#!/usr/bin/env bash
+#MISE description="Publish a version through the existing GitHub release workflow"
+#USAGE arg "<version>" help="Release tag, such as v0.1.2"
+#USAGE flag "--dry-run" help="Check release prerequisites without pushing a tag"
+
+set -euo pipefail
+
+version="${usage_version:?}"
+version_pattern='^v(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)$'
+if [[ ! "$version" =~ $version_pattern ]]; then
+  echo "Use a stable release tag such as v0.1.2." >&2
+  exit 1
+fi
+
+cd "$(git -C "$(dirname "$0")" rev-parse --show-toplevel)"
+status="$(git status --porcelain)"
+if [[ -n "$status" ]]; then
+  echo "Commit or preserve working tree changes before releasing." >&2
+  exit 1
+fi
+
+remote="$(git remote get-url --push origin)"
+remote_name="$(printf '%s' "$remote" | tr '[:upper:]' '[:lower:]')"
+if [[ ! "$remote_name" =~ ^(git@github\.com:|https://github\.com/|ssh://git@github\.com/)jinmugo/dr(\.git)?$ ]]; then
+  echo "Origin's push URL must point to JinmuGo/dr on github.com." >&2
+  exit 1
+fi
+
+head="$(git rev-parse HEAD)"
+remote_main="$(git ls-remote --exit-code "$remote" refs/heads/main)"
+if [[ "${remote_main%%$'\t'*}" != "$head" ]]; then
+  echo "HEAD must match origin's current main commit." >&2
+  exit 1
+fi
+tags="$(git ls-remote --tags --refs --sort=-version:refname "$remote" 'refs/tags/v*')"
+latest=""
+while read -r _ tag; do
+  tag="${tag#refs/tags/}"
+  if [[ "$tag" =~ $version_pattern ]]; then
+    latest="$tag"
+    break
+  fi
+done <<< "$tags"
+if [[ -n "$latest" ]]; then
+  sorted="$(printf '%s\n' "$latest" "$version" | sort -V)"
+  if [[ "$version" == "$latest" || "${sorted##*$'\n'}" != "$version" ]]; then
+    echo "Choose a version newer than $latest." >&2
+    exit 1
+  fi
+fi
+
+ci="$(gh run list --repo JinmuGo/dr --workflow ci.yml --branch main --event push \
+  --commit "$head" --limit 1 --json conclusion --jq '.[0].conclusion // ""')"
+if [[ "$ci" != success ]]; then
+  echo "The latest main CI run for $head must succeed before releasing." >&2
+  exit 1
+fi
+
+printf 'Release %s from %s through origin.\n' "$version" "$head"
+printf 'Previous stable release: %s\n' "${latest:-none}"
+if [[ "${usage_dry_run:-false}" == true ]]; then
+  exit 0
+fi
+
+git push "$remote" "$head:refs/tags/$version"
+printf 'Follow the release workflow: https://github.com/JinmuGo/dr/actions/workflows/release.yml\n'
