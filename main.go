@@ -16,6 +16,8 @@ import (
 	"runtime/debug"
 	"strings"
 
+	"github.com/charmbracelet/x/term"
+
 	"github.com/JinmuGo/dr/internal/agent"
 	"github.com/JinmuGo/dr/internal/git"
 	"github.com/JinmuGo/dr/internal/review"
@@ -106,8 +108,8 @@ func versionOf(ldflags string, info *debug.BuildInfo) string {
 // lets dr choose where, the sessions dr starts to ask them are kept in the worktree's git
 // directory. The screen holds the lock on the worktree while it is open, so only one dr
 // applies fixes to it; when it cannot take the lock, the screen opens without applying
-// fixes. With no changed file, it opens only when :undo can revert the last fix dr applied,
-// and otherwise says so on stdout. The agents' session logs are read under home.
+// fixes. A terminal keeps the empty screen visible until the user quits. Without a terminal,
+// it reports no changes on stdout unless :undo can revert a fix. Agent logs are read under home.
 func browse(stdout io.Writer, home, ref string) (err error) {
 	worktree, ref, err := reviewed(".", ref)
 	if err != nil {
@@ -123,7 +125,9 @@ func browse(stdout io.Writer, home, ref string) (err error) {
 		return err
 	}
 	saved := tui.Load(dir)
-	if !opens(repo.Root, files, saved.Log) {
+	output, ok := stdout.(*os.File)
+	interactive := ok && term.IsTerminal(output.Fd())
+	if !interactive && !opens(repo.Root, files, saved.Log) {
 		_, _ = fmt.Fprintln(stdout, "No changed files")
 		return nil
 	}
@@ -155,9 +159,8 @@ func browse(stdout io.Writer, home, ref string) (err error) {
 	return tui.Run(files, repo.Problems, saved, asker)
 }
 
-// opens reports whether browse opens the screen on files in the worktree at root: when a
-// file changed, or when none did but :undo on the empty screen can revert the last fix dr
-// applied, as log has the fixes.
+// opens reports whether browse has changed files or a fix to undo in the worktree at root.
+// Without either, only an interactive terminal opens the screen.
 func opens(root string, files []review.File, log state.Records) bool {
 	return len(files) > 0 || tui.Undoable(root, log)
 }

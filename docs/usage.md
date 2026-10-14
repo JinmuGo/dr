@@ -12,6 +12,8 @@ dr --version
 
 dr compares the merge-base with the files in your working tree, so uncommitted changes are included. The default branch is `origin/HEAD`, else `main` or `master`. `dr blame` always uses the default branch.
 
+When there are no changes, the terminal shows "No changed files" and the comparison base until you press `q`. This also applies when opening from OMP. With stdout redirected, dr prints the message and exits instead, unless a saved fix can still be undone.
+
 When `<branch>` is checked out in another worktree, such as one an agent works in, `dr <branch>` opens that worktree as if you ran `dr` there: questions, comments and fixes go to its files. The default branch and the branch of the worktree you are in stay refs to compare with. To compare with a branch checked out elsewhere, name it in full: `dr refs/heads/<branch>`.
 
 ## Opening from OMP
@@ -24,7 +26,7 @@ omp plugin install github:JinmuGo/dr#v0.1.3
 
 Restart OMP after installing or updating the plugin. When the agent has finished its turn, run `/dr`. If the repository has multiple worktrees, choose the one to review. The diff opens in the same terminal. Press `q` in dr to return to the same OMP session and continue typing.
 
-Use `/dr <branch>` to open a worktree directly without the picker. Other refs follow `dr <ref>` comparison rules. With one worktree, `/dr` reviews OMP's current working directory against the default branch. The diff includes other sessions' changes in the chosen worktree. If there are no changes, dr returns immediately.
+Use `/dr <branch>` to open a worktree directly without the picker. Other refs follow `dr <ref>` comparison rules. With one worktree, `/dr` reviews OMP's current working directory against the default branch. The diff includes other sessions' changes in the chosen worktree.
 
 For local development, run `omp plugin link /path/to/dr` with the repository root or an extracted release archive. Keep that directory in place while linked. To remove the plugin, run `omp plugin uninstall dr-omp` and restart OMP.
 
