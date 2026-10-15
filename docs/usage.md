@@ -19,7 +19,7 @@ When `<branch>` is checked out in another worktree, such as one an agent works i
 Install dr on `PATH`, then install the OMP plugin:
 
 ```sh
-omp plugin install github:JinmuGo/dr#v0.1.3
+omp plugin install github:JinmuGo/dr#v0.1.4
 ```
 
 Restart OMP after installing or updating the plugin. When the agent has finished its turn, run `/dr`. If the repository has multiple worktrees, choose the one to review. The diff opens in the same terminal. Press `q` in dr to return to the same OMP session and continue typing.
