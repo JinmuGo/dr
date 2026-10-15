@@ -35,14 +35,14 @@ A session is one conversation with an agent, and a request is one message you se
 - Each session has a color. The rail next to a changed line has the color of its session, dotted when the origin is unknown and teal for a fix dr applied.
 - The first line a request changed in each hunk carries a label such as `claude c1a0 #2`: the agent, the end of the session id and the request number.
 - The status line shows the mode and the origin of the line under the cursor, and on the right the questions in flight, fixes ready and pending comments. The row under it lists the keys of the mode.
-- `Enter` opens the origin card under the line: the session, your request, the note the agent wrote right before the edit, and the reply that ended the request.
+- `Enter` opens the origin card under the line. A line with questions shows its ask thread. Otherwise it shows the session, your request, the note before the edit, and the final reply.
 - `v` marks a file viewed, like the Viewed box on GitHub, and folds it. If the file's diff changes later, the mark is cleared.
 
 ## Asking with `a`
 
 `a` opens a box under the line. Type a question, or press `Enter` to ask "Why did you write this line this way?". Select lines with `V` first to ask about all of them.
 
-dr sends the question to a fork of the session that wrote the line. The fork can only read files, and your conversation is not changed. The answer arrives in a few seconds at the top of the origin card, with a badge for where the reason comes from: `decided` with you, `chose` by the agent, or a `guess`. `a` in the origin card asks a follow-up. Each question resends the session's conversation to its model, so it costs what a new message in that session would.
+dr sends the question to a fork of the session that wrote the line. The fork can only read files, and your conversation is not changed. The origin card shows only this line's questions and answers, without the original request, note or reply. This also applies when you reopen a saved thread. Answers carry a badge for where the reason comes from: `decided` with you, `chose` by the agent, or a `guess`. `a` in the origin card asks a follow-up. Each question resends the session's conversation to its model, so it costs what a new message in that session would.
 
 When the author cannot be asked, dr asks the closest session that can and says so:
 

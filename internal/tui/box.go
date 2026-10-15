@@ -68,9 +68,9 @@ func (m *model) originCard(w int) card {
 	return c
 }
 
-// originRows returns the body of the origin card, its text wrapped to width: the questions
-// asked about the cursor row, as a thread, over a rule, then the origin of the row. A row of
-// the split view whose deleted and added lines have different origins tells both, under
+// originRows returns the body of the origin card, its text wrapped to width: only the
+// questions asked about the cursor row when it has a thread, otherwise its origin. A row
+// of the split view whose deleted and added lines have different origins tells both, under
 // DELETED LINE and ADDED LINE, each with the tag of its origin. A file header lists the
 // requests that changed the file.
 func (m *model) originRows(width int) []cardRow {
@@ -78,16 +78,15 @@ func (m *model) originRows(width int) []cardRow {
 	if r.kind != lineRow {
 		return m.fileRows(m.files[r.file], width)
 	}
-	var thread []cardRow
 	if qs := m.questionsAt(m.cursor); len(qs) > 0 {
-		thread = append(m.threadRows(qs, width), cardRow{rule: true})
+		return m.threadRows(qs, width)
 	}
 	if r.isChange() && r.left >= 0 && r.right >= 0 && !sameOrigin(m.lines[r.left].Edit, m.lines[r.right].Edit) {
-		return joinGroups(thread,
+		return joinGroups(
 			m.sideHead("DELETED LINE", m.lines[r.left].Edit), m.lineOrigin(m.lines[r.left], width),
 			m.sideHead("ADDED LINE", m.lines[r.right].Edit), m.lineOrigin(m.lines[r.right], width))
 	}
-	return joinGroups(thread, m.lineOrigin(m.lines[r.main()], width))
+	return m.lineOrigin(m.lines[r.main()], width)
 }
 
 // sideHead returns the head of a side of a split row in the origin card: its label, title,

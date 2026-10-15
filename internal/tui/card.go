@@ -19,12 +19,11 @@ type card struct {
 }
 
 // cardRow is a row of a card: chunks at the left, and chunks at the right edge that show only
-// when they fit two cells after the left ones. A rule row is a dashed line across the card,
-// and a row with a sign is a line of a small diff: its sign and its code on the background of
-// its kind of line, or, for the rest of a line too long for one row, its code alone.
+// when they fit two cells after the left ones. A row with a sign is a line of a small diff:
+// its sign and its code on the background of its kind of line, or, for the rest of a line
+// too long for one row, its code alone.
 type cardRow struct {
 	left, right []chunk
-	rule        bool
 	sign        byte    // '+' or '-' on a line of a small diff, 0 on other rows
 	code        []piece // the code of a line of a small diff
 	more        bool    // the code goes on from the row above, without the sign
@@ -43,7 +42,6 @@ type chunk struct {
 // Parts of a card row and the glyphs of a card.
 const (
 	cardBand  = "▎" // the band at the left edge of every row
-	cardRule  = "╌" // the rule between a thread and the rest of an origin card
 	cardThumb = "┃" // the thumb of a card's scroll bar
 	cardTrack = "│" // the track of a card's scroll bar
 	keyGap    = "   "
@@ -179,10 +177,7 @@ func scrollThumb(top, shown, total int) (start, size int) {
 func (m *model) drawCardRow(r cardRow, w int, bg color.Color, head bool) string {
 	t := &m.theme
 	fill := t.paint(nil, bg)
-	switch {
-	case r.rule:
-		return t.paint(t.line, bg).Render(strings.Repeat(cardRule, w))
-	case r.sign != 0:
+	if r.sign != 0 {
 		return m.drawDiffRow(r, w)
 	}
 	right := r.right

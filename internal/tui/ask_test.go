@@ -93,14 +93,11 @@ func cardText(m *model) string {
 }
 
 // rowsText returns the text of rows, a row a line: its chunks at the left, then two spaces
-// and those at the right edge; a rule as "╌", and a line of a small diff as its sign and its
-// code.
+// and those at the right edge, and a line of a small diff as its sign and its code.
 func rowsText(rows []cardRow) string {
 	texts := make([]string, len(rows))
 	for i, r := range rows {
 		switch {
-		case r.rule:
-			texts[i] = "╌"
 		case r.sign != 0:
 			texts[i] = string(r.sign) + " " + join(r.code)
 		default:
@@ -353,13 +350,10 @@ func TestAskOthers(t *testing.T) {
 		if got := f.asked(); len(got) != 1 || got[0] != want {
 			t.Errorf("%s: asked\n%+v\nwant\n%+v", tc.name, got, want)
 		}
-		thread := "THREAD · 1\nyou  just now\n" + tc.placeholder + "\n● " + tc.who + "  decided  " + tc.note + "\n"
-		if tc.relation != "" {
-			thread += "↳ " + tc.relation + "\n"
-		}
-		thread += "토큰 버킷이라 float64로 했어요.\n╌\n"
-		if text := boxText(m); !strings.HasPrefix(text, thread) {
-			t.Errorf("%s: the box\n%s\nwant it to start with\n%s", tc.name, text, thread)
+		for _, want := range []string{tc.placeholder, tc.who, tc.note, tc.relation, "토큰 버킷이라 float64로 했어요."} {
+			if text := boxText(m); !strings.Contains(text, want) {
+				t.Errorf("%s: the box has no %q:\n%s", tc.name, want, text)
+			}
 		}
 	}
 }
@@ -376,9 +370,11 @@ func TestAskNewSession(t *testing.T) {
 	}
 	// A new session has no model of its own that another could answer in place of. The model
 	// shows without its provider.
-	const thread = "Why gone?\n● omp, new session  guess  claude-opus-5-5 · 1s\n↳ new session, without this code's history\n추측이에요.\n╌\n"
-	if text := boxText(m); !strings.Contains(text, thread) {
-		t.Errorf("the box:\n%s\nwant the question, who was asked, the answer and its model", text)
+	thread := []string{"Why gone?", "omp, new session", "guess", "claude-opus-5-5", "추측이에요."}
+	for _, want := range thread {
+		if text := boxText(m); !strings.Contains(text, want) {
+			t.Errorf("the box has no %q:\n%s", want, text)
+		}
 	}
 	records, bad, err := state.NewLog(state.LogPath(dir)).Read()
 	if err != nil || bad != 0 {
@@ -397,8 +393,10 @@ func TestAskNewSession(t *testing.T) {
 	f = &fakeAsk{answer: answer, installed: []string{"omp"}}
 	m = askScreen(askFiles(), Load(dir), f)
 	typeKeys(m, "39G<enter>")
-	if text := boxText(m); !strings.Contains(text, thread) {
-		t.Errorf("the box of the earlier question:\n%s", text)
+	for _, want := range thread {
+		if text := boxText(m); !strings.Contains(text, want) {
+			t.Errorf("the box of the earlier question has no %q:\n%s", want, text)
+		}
 	}
 	typeKeys(m, "<esc>40Ga<enter>")
 	if got := f.asked(); len(got) != 1 || got[0].Fork != "new-1" {
@@ -429,19 +427,33 @@ func TestAskBusy(t *testing.T) {
 
 func TestAskAnswer(t *testing.T) {
 	// The question goes to a new fork of the session, in its directory, with the model that
-	// wrote the line. The origin box opens under the line with the thread first: the
-	// question, waiting for its answer, and then the answer with the badge of its tag, which
-	// the box does not show. A rule parts the thread from the origin of the line. The log
-	// keeps the question, the fork and the answer as the agent sent it.
+	// wrote the line. The origin box shows only the question while waiting, then its answer.
+	// The original request, note and reply stay hidden, including after reopening the card.
+	// The log keeps the question, the fork and the answer as the agent sent it.
 	dir := t.TempDir()
 	f := &fakeAsk{answer: answer}
 	m := askScreen(testFiles(), Saved{Dir: dir}, f)
 	m.now = func() time.Time { return start }
 	cmd := typeAndKeep(m, "4ja<enter>")
-	waiting := "THREAD · 1\nyou  just now\n" + whyAdded + "\n● claude c1a0  " + askingFor(0) + "\n╌\n\nREQUEST · #1\n"
-	if text := boxText(m); !m.originBox.open || m.cursor != 4 || !strings.HasPrefix(text, waiting) {
-		t.Fatalf("after Enter: box open %t at row %d with\n%s\nwant it open at row 4, starting with\n%s", m.originBox.open, m.cursor, text, waiting)
+	checkThread := func() {
+		t.Helper()
+		text := boxText(m)
+		for _, original := range []string{claude1.Prompt, claude1.Note, claude1.Reply} {
+			if original == "" {
+				t.Fatal("the fixture must have an original request, note and reply")
+			}
+			if strings.Contains(text, original) {
+				t.Errorf("ask thread contains original session text %q:\n%s", original, text)
+			}
+		}
+		if !strings.Contains(text, whyAdded) {
+			t.Errorf("ask thread lost its question:\n%s", text)
+		}
 	}
+	if !m.originBox.open || m.cursor != 4 {
+		t.Fatalf("after Enter: box open %t at row %d; want row 4", m.originBox.open, m.cursor)
+	}
+	checkThread()
 	if s := screen(t, m); !strings.Contains(s, "asking… 0s") {
 		t.Errorf("the screen has no asking… 0s:\n%s", s)
 	}
@@ -453,14 +465,13 @@ func TestAskAnswer(t *testing.T) {
 	if got := f.asked(); len(got) != 1 || got[0] != want {
 		t.Errorf("asked %+v, want %+v", got, want)
 	}
-	answered := "THREAD · 1\nyou  just now\n" + whyAdded + "\n● claude c1a0  decided  claude-opus-5-5 · 7s\n토큰 버킷이라 float64로 했어요.\n╌\n\nREQUEST"
-	if text := boxText(m); !strings.HasPrefix(text, answered) {
-		t.Errorf("the box:\n%s\nwant it to start with\n%s", text, answered)
-	}
 	s := screen(t, m)
 	if !strings.Contains(s, "▎ 토큰 버킷이라 float64로 했어요.") || strings.Contains(s, "[decided]") || strings.Contains(s, "asking…") || m.message != "" {
 		t.Errorf("the box shows the answer without its tag, so the status line says nothing, got %q:\n%s", m.message, s)
 	}
+	checkThread()
+	typeKeys(m, "<esc><enter>")
+	checkThread()
 
 	// A question on another line of the session goes on in the fork. The box of each line
 	// shows only its own questions. An answer without a tag has no badge.
@@ -469,7 +480,7 @@ func TestAskAnswer(t *testing.T) {
 	if got := f.asked(); len(got) != 2 || got[1].Fork != "fork-1" || !strings.Contains(got[1].Prompt, "a.go, deleted line 2 of the base file.") {
 		t.Errorf("the second question: got %+v, want it in fork-1 about the deleted line 2", got)
 	}
-	if text := boxText(m); !strings.Contains(text, "Why delete it?\n● claude c1a0  claude-opus-5-5 · 7s\n지운 줄이에요.\n") || strings.Contains(text, whyAdded) {
+	if text := boxText(m); !strings.Contains(text, "Why delete it?") || !strings.Contains(text, f.answer.Text) || strings.Contains(text, whyAdded) {
 		t.Errorf("the box of row 3:\n%s\nwant only its own question", text)
 	}
 	records, bad, err := state.NewLog(state.LogPath(dir)).Read()
@@ -629,19 +640,19 @@ func TestAskNotice(t *testing.T) {
 	}{
 		{
 			name: "box closed", keys: "<esc>G", notice: []string{"● Answer from claude c1a0 #1 on a.go:2", read},
-			answer: "● claude c1a0  decided  claude-opus-5-5 · 7s\n토큰 버킷이라 float64로 했어요.\n╌",
+			answer: "토큰 버킷이라 float64로 했어요.",
 		},
 		{
 			name: "box on another line", keys: "<esc>2j<enter>", notice: []string{"● Answer from claude c1a0 #1 on a.go:2", read},
-			answer: "● claude c1a0  decided  claude-opus-5-5 · 7s\n토큰 버킷이라 float64로 했어요.\n╌",
+			answer: "토큰 버킷이라 float64로 했어요.",
 		},
 		{
 			name: "file folded since", keys: "<esc>v", notice: []string{"● Answer from claude c1a0 #1 on a.go:2", read},
-			answer: "● claude c1a0  decided  claude-opus-5-5 · 7s\n토큰 버킷이라 float64로 했어요.\n╌",
+			answer: "토큰 버킷이라 float64로 했어요.",
 		},
 		{
 			name: "no answer", keys: "<esc>", err: errors.New("no answer in 3 minutes"), notice: []string{"✗ No answer from claude c1a0 #1 on a.go:2", read},
-			answer: "● claude c1a0  no answer\nno answer in 3 minutes\n╌",
+			answer: "no answer in 3 minutes",
 		},
 	} {
 		m := askScreen(testFiles(), Saved{Dir: t.TempDir()}, &fakeAsk{answer: answer, err: tc.err})
@@ -652,9 +663,8 @@ func TestAskNotice(t *testing.T) {
 			t.Errorf("%s: notice %q and %q on the status line, want the notice %q", tc.name, got, m.message, tc.notice)
 		}
 		typeKeys(m, "<enter>")
-		want := "THREAD · 1\nyou  just now\n" + whyAdded + "\n" + tc.answer
-		if text := boxText(m); m.cursor != 4 || !m.originBox.open || !strings.HasPrefix(text, want) || noticeLines(t, m) != nil {
-			t.Errorf("%s: Enter left the cursor at row %d with the box open %t:\n%s\nwant the box of row 4 starting with\n%s", tc.name, m.cursor, m.originBox.open, text, want)
+		if text := boxText(m); m.cursor != 4 || !m.originBox.open || !strings.Contains(text, whyAdded) || !strings.Contains(text, tc.answer) || noticeLines(t, m) != nil {
+			t.Errorf("%s: Enter left the cursor at row %d with the box open %t:\n%s\nwant the question and %q at row 4", tc.name, m.cursor, m.originBox.open, text, tc.answer)
 		}
 	}
 	// Esc only dismisses the notice; another key dismisses it and does its own work, and
@@ -693,13 +703,13 @@ func TestAskTick(t *testing.T) {
 	}
 	typeKeys(m, "4j<enter>jk<esc>")
 	cmd := typeAndKeep(m, "a<enter>")
-	if text := boxText(m); ticks != 1 || !strings.Contains(text, "\n● claude c1a0  "+askingFor(0)+"\n") {
+	if text := boxText(m); ticks != 1 || !strings.Contains(text, askingFor(0)) {
 		t.Errorf("after the question went: %d ticks, the box\n%s\nwant 1 tick and the question waiting 0s", ticks, text)
 	}
 	now = now.Add(12 * time.Second)
 	typeKeys(m, "j") // keys while the tick is on its way ask for no more
 	m.Update(tickMsg{})
-	if text := boxText(m); ticks != 2 || !strings.Contains(text, "\nyou  just now\n") || !strings.Contains(text, "\n● claude c1a0  "+askingFor(12*time.Second)+"\n") {
+	if text := boxText(m); ticks != 2 || !strings.Contains(text, "\nyou  just now\n") || !strings.Contains(text, askingFor(12*time.Second)) {
 		t.Errorf("after a tick 12s later: %d ticks, the box\n%s\nwant 2 ticks and the question waiting 12s", ticks, text)
 	}
 	send(m, cmd())
@@ -739,10 +749,9 @@ func TestAskFromBox(t *testing.T) {
 	if got := f.asked(); len(got) != 2 || got[1].Fork != "fork-1" || got[1].Prompt != review.Prompt(review.Author, "a.go", lines, "Why both?") {
 		t.Errorf("asked %+v, want the follow-up in fork-1 about the selection", got)
 	}
-	thread := "THREAD · 2\nyou  just now\n" + whyLines + "\n● claude c1a0  decided  claude-opus-5-5 · 7s\n토큰 버킷이라 float64로 했어요.\n\n" +
-		"you  just now\nWhy both?\n● claude c1a0  chose  claude-opus-5-5 · 7s\n둘 다 버킷 상태라서요.\n╌\n"
-	if text := boxText(m); !m.originBox.open || m.typing() || m.cursor != 4 || !strings.HasPrefix(text, thread) {
-		t.Errorf("box open %t at row %d:\n%s\nwant it open at row 4 starting with\n%s", m.originBox.open, m.cursor, text, thread)
+	if text := boxText(m); !m.originBox.open || m.typing() || m.cursor != 4 || len(m.questionsAt(m.cursor)) != 2 ||
+		!strings.Contains(text, whyLines) || !strings.Contains(text, "Why both?") || !strings.Contains(text, "둘 다 버킷 상태라서요.") {
+		t.Errorf("box open %t at row %d:\n%s\nwant both questions and the follow-up answer at row 4", m.originBox.open, m.cursor, text)
 	}
 	if s := screen(t, m); !strings.Contains(s, "Why both?") || !strings.Contains(s, "둘 다 버킷 상태라서요.") || strings.Contains(s, "THREAD · 2") {
 		t.Errorf("the box does not show the newest question and its answer:\n%s", s)
@@ -1006,15 +1015,15 @@ func TestEarlierQuestions(t *testing.T) {
 	}{
 		{
 			keys: "4j<enter>",
-			want: []string{"THREAD · 1\nyou\nWhy Changed?\n● claude c1a0  claude-opus-5-5 · 6s\nBecause.\n╌\n\nREQUEST"},
-			not:  []string{"Why gone?"},
+			want: []string{"Why Changed?", "Because."},
+			not:  []string{"Why gone?", claude1.Prompt, claude1.Note, claude1.Reply},
 		},
 		{
 			keys: "<esc>gg<enter>",
 			want: []string{"EARLIER QUESTIONS · 1\n>     gone line\nyou\nWhy gone?\n● claude c1a0  no answer\nno answer in 3 minutes"},
 			not:  []string{"Why Changed?"},
 		},
-		{keys: "<esc>G<enter>", want: []string{"Why x?\n● claude c1a0  no answer\ndr closed before it came\n╌"}},
+		{keys: "<esc>G<enter>", want: []string{"Why x?", "no answer", "dr closed before it came"}},
 	} {
 		typeKeys(m, tc.keys)
 		text := boxText(m)
