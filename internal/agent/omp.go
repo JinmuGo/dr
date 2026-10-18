@@ -184,9 +184,16 @@ func parseOMP(records *recordReader) []Edit {
 			switch message.ToolName {
 			case "edit":
 				var details ompEdit
+				var read []Edit
 				if json.Unmarshal(message.Details, &details) == nil {
-					edits = append(edits, ompEdits(e, details)...)
+					read = ompEdits(e, details)
 				}
+				if len(read) == 0 {
+					// A result in a shape dr does not know. The call names its file only in
+					// the patch, so the edit names no file.
+					read = []Edit{unread(e, "edit", "", cwd)}
+				}
+				edits = append(edits, read...)
 			case "write":
 				write, ok := writes[message.ToolCallID]
 				var details ompWriteDetails

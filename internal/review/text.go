@@ -19,7 +19,11 @@ func UnknownOrigin(unread []string) string {
 	if len(unread) == 0 {
 		return NoOrigin
 	}
-	return "Not in any session record dr can read. dr could not read the " + strings.Join(unread, ", ") +
+	names := make([]string, len(unread))
+	for i, u := range unread {
+		names[i] = VisibleLine(u) // a tool's name comes from a log
+	}
+	return "Not in any session record dr can read. dr could not read the " + strings.Join(names, ", ") +
 		" edits to this file, which may have written it."
 }
 

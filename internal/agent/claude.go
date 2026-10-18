@@ -134,6 +134,8 @@ func parseClaude(records *recordReader) []Edit {
 					} else if paths := fileTool(b.Name, b.Input); len(paths) > 0 {
 						// Another tool, or a Write or an Edit with arguments dr does not know.
 						others[b.ID] = claudeOther{tool: b.Name, paths: paths}
+					} else if b.Name == "Write" || b.Name == "Edit" {
+						others[b.ID] = claudeOther{tool: b.Name, paths: []string{""}} // no file dr can tell
 					}
 				}
 			}
@@ -161,8 +163,16 @@ func parseClaude(records *recordReader) []Edit {
 					delete(others, b.ToolUseID)
 					switch {
 					case b.IsError:
-					case hasResult && (other.tool == "Write" || other.tool == "Edit"):
-						told = other
+					case other.tool == "Write" || other.tool == "Edit":
+						// Like a Write or an Edit dr reads: told of by toolUseResult, or
+						// else made only when allowed.
+						if hasResult {
+							told = other
+						} else if record.PermissionDecision.Decision == "accept" {
+							for _, path := range other.paths {
+								edits = append(edits, unread(e, other.tool, path, record.Cwd))
+							}
+						}
 					default:
 						for _, path := range other.paths {
 							edits = append(edits, unread(e, other.tool, path, record.Cwd))

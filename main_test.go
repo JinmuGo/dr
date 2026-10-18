@@ -137,6 +137,14 @@ func TestShowUnread(t *testing.T) {
 	if got := b.String(); !strings.HasPrefix(got, want) {
 		t.Errorf("got\n%s\nwant it to start with\n%s", got, want)
 	}
+	// The name of a tool comes from a log, so it cannot write to the terminal.
+	b.Reset()
+	if err := show(&b, []origin.Line{{Text: "b", New: 1}}, []string{"claude mcp__edit\x1b[2J\u202e"}); err != nil {
+		t.Fatal(err)
+	}
+	if got := b.String(); strings.ContainsAny(got, "\x1b\u202e") || !strings.Contains(got, "claude mcp__edit") {
+		t.Errorf("got %q, want the tool's name without its control characters", got)
+	}
 }
 
 func TestOpens(t *testing.T) {

@@ -568,6 +568,9 @@ func TestClaudeCalls(t *testing.T) {
 			[]string{call("t1", "Edit", `{"path":"/r/f.go","old":"a\n","new":"A\n"}`), result("t1", "", accepted)},
 			[]string{"unread Edit of /r/f.go"},
 		},
+		{"arguments it does not know, denied", []string{call("t1", "Edit", `{"path":"/r/f.go"}`), result("t1", "", "")}, nil},
+		// With no file it can tell, the edit names none, and Load counts it in the log's Problem.
+		{"arguments that name no file", []string{call("t1", "Write", `{"target":"f.go"}`), result("t1", "", accepted)}, []string{"unread Write of "}},
 		{
 			"tool it does not read",
 			[]string{call("t1", "mcp__tools__edit", `{"path":"/r/f.go","edits":[]}`), result("t1", "", "")},
@@ -608,6 +611,25 @@ func TestOMPProposals(t *testing.T) {
 	}
 	if !slices.Equal(got, want) {
 		t.Errorf("got %q, want %q", got, want)
+	}
+}
+
+func TestUnreadProblem(t *testing.T) {
+	// An OMP edit result in a shape dr does not know names its file only in the patch of
+	// its call, so the log has a Problem instead of an edit.
+	log := strings.Join([]string{
+		`{"type":"session","version":3,"id":"s","timestamp":"2026-10-09T13:00:00.000Z","cwd":"` + spike + `"}`,
+		`{"type":"message","id":"a","timestamp":"2026-10-09T13:00:01.000Z","message":{"role":"user","content":[{"type":"text","text":"고쳐줘"}]}}`,
+		`{"type":"message","id":"b","timestamp":"2026-10-09T13:00:02.000Z","message":{"role":"assistant","content":` +
+			`[{"type":"toolCall","id":"t1","name":"edit","arguments":{"input":"[f.go#1A2B]\nPUT >1:\n+x"}}]}}`,
+		`{"type":"message","id":"c","timestamp":"2026-10-09T13:00:03.000Z","message":{"role":"toolResult","toolCallId":"t1","toolName":"edit",` +
+			`"content":[{"type":"text","text":"ok"}],"details":{"filePath":"` + spike + `/f.go","patch":"+x"},"isError":false}}`,
+	}, "\n")
+	home := fakeHome(t, map[string]string{".omp/agent/sessions/spike/s.jsonl": log})
+	var loader Loader
+	edits, problems := loader.Load(home, since, []string{spike})
+	if len(edits) != 0 || len(problems) != 1 || problems[0].Agent != "omp" || problems[0].Unread != 1 || problems[0].Bad != 0 {
+		t.Errorf("got %d edits and problems %+v, want one omp Problem with one unread edit", len(edits), problems)
 	}
 }
 

@@ -59,6 +59,9 @@ type Edit struct {
 type Problem struct {
 	Agent, Path string
 	Bad         int // lines that are not JSON
+	// Unread counts the edits the log records that dr could not read and that name no file
+	// dr can tell, so no file can say so.
+	Unread int
 }
 
 // agent is a coding agent dr knows: where it keeps its session logs and how to read them,
@@ -276,14 +279,19 @@ func (l *sessionLog) readRecords(reader io.Reader, since time.Time) bool {
 		l.problem = &Problem{Agent: l.agent.name, Path: l.path}
 		return false
 	}
-	if records.bad > 0 {
-		l.problem = &Problem{Agent: l.agent.name, Path: l.path, Bad: records.bad}
-	}
+	unread := 0
 	for _, e := range edits {
-		if !e.Time.Before(since) {
+		switch {
+		case e.Time.Before(since):
+		case e.Unread != "" && e.Path == "":
+			unread++
+		default:
 			e.Log = l.path
 			l.edits = append(l.edits, e)
 		}
+	}
+	if records.bad > 0 || unread > 0 {
+		l.problem = &Problem{Agent: l.agent.name, Path: l.path, Bad: records.bad, Unread: unread}
 	}
 	return true
 }
@@ -430,12 +438,16 @@ func finish(edits []Edit, turns map[string][]turn) []Edit {
 }
 
 // unread returns e as an edit of path with tool that dr cannot read. A relative path is
-// taken from the session's directory cwd.
+// taken from the session's directory cwd. With no path, Load counts the edit in the log's
+// Problem, since no file can say so.
 func unread(e Edit, tool, path, cwd string) Edit {
-	if !filepath.IsAbs(path) {
+	if path != "" && !filepath.IsAbs(path) {
 		path = filepath.Join(cwd, path)
 	}
-	e.Path, e.Unread, e.Before = filepath.Clean(path), tool, nil
+	if path != "" {
+		path = filepath.Clean(path)
+	}
+	e.Path, e.Unread, e.Before = path, tool, nil
 	e.Apply = func(string) (string, bool) { return "", false }
 	e.key = keyOf(e.Agent, e.Time, e.Path, "unread", tool)
 	return e
