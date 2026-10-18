@@ -63,6 +63,7 @@ type file struct {
 	digits         int           // width of its widest line number
 	requests       []*agent.Edit // requests behind its changed lines, in the order they were made
 	unknown        bool          // some changed line has no origin
+	unread         []string      // review.File.Unread: edits to it that dr could not read
 	sessions       []session     // the sessions behind its changed lines, in the order of their colors
 	diff           []origin.Line // the whole diff, unchanged lines outside the hunks included
 	hunks          []hunk        // its hunks
@@ -88,7 +89,7 @@ func (m *model) build(files []review.File) {
 	for i, f := range files {
 		info := file{
 			path: review.VisibleLine(f.Path), key: f.Path, hash: f.Hash(contextLines), status: f.Status, noDiff: f.NoDiff,
-			diff: f.Lines, requests: review.Requests(f.Lines),
+			diff: f.Lines, requests: review.Requests(f.Lines), unread: f.Unread,
 		}
 		last := 0
 		for _, l := range f.Lines {

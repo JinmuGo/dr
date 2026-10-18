@@ -521,6 +521,12 @@ func TestClaudeCalls(t *testing.T) {
 	// describe says what the log holds of the file before an edit and what the edit makes
 	// of that file, or of "a\nb\nb\n" when the log does not hold it.
 	describe := func(e Edit) string {
+		if e.Unread != "" {
+			if _, ok := e.Apply("a\nb\nb\n"); ok {
+				return "unread " + e.Unread + " that fits"
+			}
+			return "unread " + e.Unread + " of " + e.Path
+		}
 		before, file := "unknown", "a\nb\nb\n"
 		if e.Before != nil {
 			before, file = strconv.Quote(*e.Before), *e.Before
@@ -551,12 +557,85 @@ func TestClaudeCalls(t *testing.T) {
 				`"originalFile":"a\nc\n","structuredPatch":[],"userModified":false,"replaceAll":false}`)},
 			[]string{`"a\nc\n" before, "A\nc\n" after`},
 		},
+		// An edit dr cannot read is kept as unread, so its file can say so.
+		{
+			"toolUseResult it does not know",
+			[]string{call("t1", "Edit", editA), result("t1", "", accepted+`,"toolUseResult":{"filePath":"/r/f.go","patch":"@@ -1 +1 @@"}`)},
+			[]string{"unread Edit of /r/f.go"},
+		},
+		{
+			"arguments it does not know",
+			[]string{call("t1", "Edit", `{"path":"/r/f.go","old":"a\n","new":"A\n"}`), result("t1", "", accepted)},
+			[]string{"unread Edit of /r/f.go"},
+		},
+		{
+			"tool it does not read",
+			[]string{call("t1", "mcp__tools__edit", `{"path":"/r/f.go","edits":[]}`), result("t1", "", "")},
+			[]string{"unread mcp__tools__edit of /r/f.go"},
+		},
+		{"tool it does not read that failed", []string{call("t1", "mcp__tools__write", `{"path":"/r/f.go"}`), result("t1", `,"is_error":true`, "")}, nil},
+		{"tool that names no file", []string{call("t1", "TodoWrite", `{"todos":[]}`), result("t1", "", "")}, nil},
+		{"tool that does not edit", []string{call("t1", "Read", `{"file_path":"/r/f.go"}`), result("t1", "", "")}, nil},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			records := newRecordReader(strings.NewReader(strings.Join(tc.records, "\n")))
 			var got []string
 			for _, e := range parseClaude(records) {
 				got = append(got, describe(e))
+			}
+			if !slices.Equal(got, tc.want) {
+				t.Errorf("got %q, want %q", got, tc.want)
+			}
+		})
+	}
+}
+
+func TestOMPProposals(t *testing.T) {
+	// ast_edit stages a proposal, and a write to xd://resolve applies it. dr cannot read
+	// what it changed, so each file it names has an unread edit, at the time it was
+	// applied. A proposal that is never applied changes nothing.
+	edits := parseOMP(newRecordReader(strings.NewReader(fixture(t, "omp-01a1f000-0000-7000-8000-000000000003.jsonl"))))
+	var got []string
+	for _, e := range edits {
+		got = append(got, fmt.Sprintf("%s %s #%d %q %s", e.Unread, strings.TrimPrefix(e.Path, spike+"/"), e.Turn, e.Note, e.Time.Format(time.TimeOnly)))
+		if _, ok := e.Apply("a\nB\n"); ok {
+			t.Errorf("unread edit of %s fits a file", e.Path)
+		}
+	}
+	want := []string{
+		`ast_edit omp/lower.md #1 "B를 b로 바꾸는 제안을 적용할게요." 13:00:09`,
+		`ast_edit omp/notes.md #1 "B를 b로 바꾸는 제안을 적용할게요." 13:00:09`,
+	}
+	if !slices.Equal(got, want) {
+		t.Errorf("got %q, want %q", got, want)
+	}
+}
+
+func TestCodexUnread(t *testing.T) {
+	// A change Codex logs in a form dr cannot read is unread. A moved file's lines under its
+	// new path have no origin, so the new path has an unread edit.
+	changes := func(c string) string {
+		return `{"timestamp":"2026-10-09T12:00:01.000Z","type":"event_msg","payload":{"type":"item_completed","item":` +
+			`{"type":"FileChange","status":"completed","changes":` + c + `}}}`
+	}
+	for _, tc := range []struct {
+		name, changes string
+		want          []string
+	}{
+		{"diff it does not know", `{"/r/f.go":{"type":"update","unified_diff":"@@ bad"}}`, []string{"unread /r/f.go"}},
+		{"kind it does not know", `{"/r/f.go":{"type":"rename"}}`, []string{"unread /r/f.go"}},
+		{"update with no diff", `{"/r/f.go":{"type":"update","unified_diff":""}}`, nil},
+		{"move", `{"/r/f.go":{"type":"update","unified_diff":"","move_path":"/r/g.go"}}`, []string{"unread /r/g.go", "read /r/f.go"}},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			log := `{"timestamp":"2026-10-09T12:00:00.000Z","type":"session_meta","payload":{"id":"s","cwd":"/r"}}` + "\n" + changes(tc.changes)
+			var got []string
+			for _, e := range parseCodex(newRecordReader(strings.NewReader(log))) {
+				if e.Unread != "" {
+					got = append(got, "unread "+e.Path)
+				} else {
+					got = append(got, "read "+e.Path)
+				}
 			}
 			if !slices.Equal(got, tc.want) {
 				t.Errorf("got %q, want %q", got, tc.want)

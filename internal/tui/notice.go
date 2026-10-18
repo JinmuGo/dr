@@ -2,6 +2,7 @@ package tui
 
 import (
 	"image/color"
+	"slices"
 	"strings"
 
 	"charm.land/lipgloss/v2"
@@ -99,14 +100,23 @@ type band struct {
 	tone              color.Color
 }
 
-// bands returns the bands of the screen: one when the session logs of some agents could not
-// be read, and one when this dr does not hold the lock on the worktree.
+// bands returns the bands of the screen: one when the session logs of some agents, or
+// edits of theirs to the files, could not be read, and one when this dr does not hold the
+// lock on the worktree.
 func (m *model) bands() []band {
 	var bands []band
-	if len(m.unreadable) > 0 {
+	unreadable := slices.Clone(m.unreadable)
+	for _, f := range m.files {
+		for _, tool := range f.unread {
+			if name, _, _ := strings.Cut(tool, " "); !slices.Contains(unreadable, name) {
+				unreadable = append(unreadable, name)
+			}
+		}
+	}
+	if len(unreadable) > 0 {
 		bands = append(bands, band{
 			icon: "!", tone: m.theme.pending, right: "dr blame shows which",
-			text: "Some " + strings.Join(m.unreadable, ", ") + " records could not be read, so their lines show as unknown.",
+			text: "Some " + strings.Join(unreadable, ", ") + " records could not be read, so their lines show as unknown.",
 		})
 	}
 	if m.lockErr != nil {

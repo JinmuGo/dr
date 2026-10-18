@@ -46,6 +46,10 @@ type Edit struct {
 	// Fix is set on an edit dr made: a fix it applied for a comment. It is nil for an edit
 	// read from a session log.
 	Fix *Fix
+	// Unread names the tool of an edit the log records but dr cannot read, such as a tool
+	// dr does not know or a record in a shape it does not know. Apply of such an edit
+	// reports false, so the lines it changed have no origin. It is "" for an edit dr read.
+	Unread string
 
 	key   string    // the same in every session log that holds a copy of the edit
 	start time.Time // when the session started
@@ -423,6 +427,45 @@ func finish(edits []Edit, turns map[string][]turn) []Edit {
 		}
 	}
 	return edits
+}
+
+// unread returns e as an edit of path with tool that dr cannot read. A relative path is
+// taken from the session's directory cwd.
+func unread(e Edit, tool, path, cwd string) Edit {
+	if !filepath.IsAbs(path) {
+		path = filepath.Join(cwd, path)
+	}
+	e.Path, e.Unread, e.Before = filepath.Clean(path), tool, nil
+	e.Apply = func(string) (string, bool) { return "", false }
+	e.key = keyOf(e.Agent, e.Time, e.Path, "unread", tool)
+	return e
+}
+
+// fileTool returns the files a call of a tool dr does not read seems to change: when the
+// tool's name says it edits, writes or patches, the paths its arguments name. A tool
+// that names no file, such as a to-do list, changes none.
+func fileTool(name string, args []byte) []string {
+	lower := strings.ToLower(name)
+	if !strings.Contains(lower, "edit") && !strings.Contains(lower, "write") && !strings.Contains(lower, "patch") {
+		return nil
+	}
+	var named struct {
+		Path         string   `json:"path"`
+		FilePath     string   `json:"file_path"`
+		FilePathCase string   `json:"filePath"`
+		NotebookPath string   `json:"notebook_path"`
+		Paths        []string `json:"paths"`
+	}
+	if json.Unmarshal(args, &named) != nil {
+		return nil
+	}
+	var paths []string
+	for _, p := range append([]string{named.Path, named.FilePath, named.FilePathCase, named.NotebookPath}, named.Paths...) {
+		if p != "" && !strings.Contains(p, "://") && !slices.Contains(paths, p) {
+			paths = append(paths, p)
+		}
+	}
+	return paths
 }
 
 // whole is an edit that writes the whole file.

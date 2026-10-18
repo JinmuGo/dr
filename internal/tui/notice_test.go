@@ -439,3 +439,24 @@ func TestBands(t *testing.T) {
 		t.Errorf("without colors: want the band and the chip reversed:\n%q", strings.Split(s, "\n")[0])
 	}
 }
+
+func TestUnreadEdits(t *testing.T) {
+	// When a file has edits dr could not read, the band names their agent, and a changed
+	// line without an origin names the edits in its origin card instead of a person.
+	files := testFiles()
+	files[0].Unread = []string{"omp ast_edit"}
+	m := newModel(files, nil, Saved{}, Asker{})
+	m.tick = noTick
+	m.Update(tea.WindowSizeMsg{Width: 125, Height: 24})
+	list, _ := m.layout()
+	lines := strings.Split(screen(t, m), "\n")
+	if band := strings.TrimRight(ansi.Cut(lines[0], list+1, m.width), " "); !strings.HasPrefix(band, " ! Some omp records could not be read") {
+		t.Errorf("band %q, want one for omp", band)
+	}
+	typeKeys(m, "16j<enter>")
+	text := cardText(m)
+	if !strings.Contains(text, "UNKNOWN\nNot in any session record dr can read. dr could not read the omp ast_edit edits to this") ||
+		strings.Contains(text, "A person changed it") {
+		t.Errorf("origin card\n%s\nwant it to name the unread omp ast_edit edits", text)
+	}
+}

@@ -82,7 +82,7 @@ Each agent is one file in `internal/agent/`, like `claude.go`, `codex.go` and `o
 1. Add `internal/agent/<name>.go` with an `agent` value:
    - `name`: what dr shows, and keeps in `Edit.Agent`.
    - `logs`: where the agent keeps its session logs, relative to the home directory.
-   - `parse`: reads the records of one session log into edits. `Loader.Load` sets `Edit.Log`.
+   - `parse`: reads the records of one session log into edits. `Loader.Load` sets `Edit.Log`. An edit it cannot read, such as a tool it does not know that `fileTool` says changes files, or a record in a shape it does not know, becomes an edit made with `unread`, so its file can say so instead of passing its lines off as a person's.
    - `command`: the CLI, which `Installed` looks for in PATH.
    - `canFork`: returns nil when dr can fork the session behind an edit, or why it cannot.
    - `ask`: asks a `Question` through the CLI with `run`. It continues the fork in `Fork`, or forks `Session`, or starts a new session when both are empty. The session can only read files and runs no hooks. Return the answer, the model that answered, and in `Answer.Fork` what to continue next time. Report errors with `notInstalled`, `failed` and `cut`, like the other agents.

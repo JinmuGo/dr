@@ -141,14 +141,19 @@ func parseCodex(records *recordReader) []Edit {
 					e.Before = &change.Content
 					e.Apply = whole("")
 				case change.Type != "update":
+					edits = append(edits, unread(e, "FileChange", path, meta.Cwd))
 					continue
 				case change.MovePath != nil && *change.MovePath != "" && *change.MovePath != path:
 					// The file moved. dr does not follow it, so its lines under the new
 					// path have no origin.
+					edits = append(edits, unread(e, "FileChange", *change.MovePath, meta.Cwd))
 					e.Apply = whole("")
+				case change.UnifiedDiff == "":
+					continue // an update that changed no line
 				default:
 					hunks, ok := unifiedHunks(change.UnifiedDiff)
 					if !ok {
+						edits = append(edits, unread(e, "FileChange", path, meta.Cwd))
 						continue
 					}
 					e.Apply = patch(hunks)

@@ -13,6 +13,16 @@ import (
 // NoOrigin explains a changed line that has no origin.
 const NoOrigin = "Not in any session record. A person changed it, or a tool that leaves no record, like a shell command."
 
+// UnknownOrigin explains a changed line that has no origin in a file that the edits unread,
+// File.Unread, changed: one of them may have written it.
+func UnknownOrigin(unread []string) string {
+	if len(unread) == 0 {
+		return NoOrigin
+	}
+	return "Not in any session record dr can read. dr could not read the " + strings.Join(unread, ", ") +
+		" edits to this file, which may have written it."
+}
+
 // Tag names the request behind e the way dr shows it, "claude c1a0 #2", or "claude c1a0
 // fix" for a fix dr applied. short holds the short session ids from ShortIDs.
 func Tag(e *agent.Edit, short map[string]string) string {

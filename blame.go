@@ -36,7 +36,7 @@ func blame(w, stderr io.Writer, dir, home, path string) error {
 		_, err = fmt.Fprintln(w, f.NoDiff)
 		return err
 	}
-	return show(w, f.Lines)
+	return show(w, f.Lines, f.Unread)
 }
 
 // locate returns path relative to the worktree root, slash-separated.
@@ -57,8 +57,8 @@ func locate(root, path string) (string, error) {
 }
 
 // show writes the requests behind the changed lines, then the file as a diff with the
-// origin of each changed line.
-func show(w io.Writer, lines []origin.Line) error {
+// origin of each changed line. unread names the edits to the file dr could not read.
+func show(w io.Writer, lines []origin.Line, unread []string) error {
 	ew := &errWriter{w: w}
 	requests := review.Requests(lines)
 	notes := notesByRequest(lines)
@@ -103,7 +103,7 @@ func show(w io.Writer, lines []origin.Line) error {
 		}
 	}
 	if unknown {
-		ew.printf("unknown  %s\n", review.NoOrigin)
+		ew.printf("unknown  %s\n", review.UnknownOrigin(unread))
 	}
 	if len(requests) > 0 || unknown {
 		ew.printf("\n")

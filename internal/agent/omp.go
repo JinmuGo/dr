@@ -69,6 +69,24 @@ type ompEdit struct {
 	PerFileResults []ompEdit `json:"perFileResults"`
 }
 
+// ompWriteDetails is what OMP logs of a write: where it wrote, or for a write to
+// xd://resolve or xd://reject, which proposal it applied or rejected.
+type ompWriteDetails struct {
+	ResolvedPath string
+	Xdev         struct {
+		Inner struct {
+			Action         string // "apply" or "reject"
+			SourceToolName string // the tool that made the proposal
+		}
+	}
+}
+
+// ompStaged is a proposal of a tool OMP stages, such as ast_edit, and the files it changes.
+type ompStaged struct {
+	tool  string
+	paths []string
+}
+
 type ompWrite struct {
 	Path    string  `json:"path"`
 	Content *string `json:"content"` // OMP drops it from older writes too
@@ -85,6 +103,8 @@ func parseOMP(records *recordReader) []Edit {
 	var start time.Time
 	writes := make(map[string]ompWrite) // by tool call id
 	notes := make(map[string]string)    // by tool call id
+	others := make(map[string][]string) // the files a call of another tool seems to change, by tool call id
+	var staged ompStaged                // the last proposal not yet applied or rejected
 	for records.next() {
 		var record ompRecord
 		if json.Unmarshal(records.line, &record) != nil {
@@ -140,8 +160,15 @@ func parseOMP(records *recordReader) []Edit {
 					}
 					notes[b.ID] = strings.TrimSpace(note)
 					var write ompWrite
-					if b.Name == "write" && json.Unmarshal(b.Arguments, &write) == nil {
-						writes[b.ID] = write
+					switch {
+					case b.Name == "write":
+						if json.Unmarshal(b.Arguments, &write) == nil {
+							writes[b.ID] = write
+						}
+					case b.Name != "edit":
+						if paths := fileTool(b.Name, b.Arguments); len(paths) > 0 {
+							others[b.ID] = paths
+						}
 					}
 				}
 			}
@@ -162,22 +189,49 @@ func parseOMP(records *recordReader) []Edit {
 				}
 			case "write":
 				write, ok := writes[message.ToolCallID]
-				var details struct{ ResolvedPath string }
+				var details ompWriteDetails
 				_ = json.Unmarshal(message.Details, &details)
+				switch resolved := details.Xdev.Inner; {
+				case resolved.Action == "apply" && resolved.SourceToolName == staged.tool:
+					for _, path := range staged.paths {
+						edits = append(edits, unread(e, staged.tool, path, cwd))
+					}
+					staged = ompStaged{}
+					continue
+				case resolved.Action != "":
+					staged = ompStaged{} // rejected
+					continue
+				}
 				switch {
-				case !ok || write.Content == nil:
+				case !ok:
+					continue
 				case details.ResolvedPath != "":
 					write.Path = details.ResolvedPath
-				case strings.Contains(write.Path, "://"):
-					write.Content = nil // a write to an OMP device, not a file
+				case write.Path == "" || strings.Contains(write.Path, "://"):
+					continue // a write to an OMP device, not a file
 				case !filepath.IsAbs(write.Path):
 					write.Path = filepath.Join(cwd, write.Path)
 				}
-				if write.Content != nil {
-					e.Path = filepath.Clean(write.Path)
-					e.Apply = whole(*write.Content)
-					e.key = keyOf(e.Agent, e.Time, e.Path, *write.Content)
-					edits = append(edits, e)
+				if write.Content == nil {
+					edits = append(edits, unread(e, "write", write.Path, cwd))
+					continue
+				}
+				e.Path = filepath.Clean(write.Path)
+				e.Apply = whole(*write.Content)
+				e.key = keyOf(e.Agent, e.Time, e.Path, *write.Content)
+				edits = append(edits, e)
+			default:
+				paths, ok := others[message.ToolCallID]
+				delete(others, message.ToolCallID) // a call is answered once
+				var details struct{ Applied *bool }
+				_ = json.Unmarshal(message.Details, &details)
+				if ok && details.Applied != nil && !*details.Applied {
+					// A proposal, which changes the files once a write to xd://resolve applies it.
+					staged = ompStaged{tool: message.ToolName, paths: paths}
+					continue
+				}
+				for _, path := range paths {
+					edits = append(edits, unread(e, message.ToolName, path, cwd))
 				}
 			}
 		}
@@ -213,11 +267,11 @@ func ompEdits(e Edit, details ompEdit) []Edit {
 		}
 		e.Apply = whole(*details.NewText)
 	case moved:
-		return nil // the diff is against the old path
+		return []Edit{unread(e, "edit", e.Path, "")} // the diff is against the old path
 	default:
 		hunks, ok := numberedHunks(details.Diff)
 		if !ok {
-			return nil
+			return []Edit{unread(e, "edit", e.Path, "")}
 		}
 		e.Apply = patch(hunks)
 	}
