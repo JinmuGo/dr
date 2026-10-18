@@ -508,6 +508,37 @@ func TestQuit(t *testing.T) {
 	}
 }
 
+func TestEditedAt(t *testing.T) {
+	// The time of day for an edit of the same day, then the date, then the year, in the
+	// time zone of now.
+	seoul := time.FixedZone("KST", 9*60*60)
+	now := time.Date(2026, 10, 9, 23, 30, 0, 0, seoul)
+	for _, tc := range []struct {
+		edit time.Time
+		want string
+	}{
+		{time.Date(2026, 10, 9, 13, 1, 0, 0, time.UTC), "22:01"},
+		{time.Date(2026, 10, 9, 15, 1, 0, 0, time.UTC), "Oct 10 00:01"}, // the next day where now is
+		{time.Date(2026, 10, 8, 13, 1, 0, 0, seoul), "Oct 8 13:01"},
+		{time.Date(2025, 12, 31, 13, 1, 0, 0, seoul), "2025-12-31 13:01"},
+	} {
+		if got := editedAt(tc.edit, now); got != tc.want {
+			t.Errorf("editedAt(%s): got %q, want %q", tc.edit, got, tc.want)
+		}
+	}
+}
+
+func TestOriginTime(t *testing.T) {
+	// The session row of the origin card starts with when the edit was made.
+	m := newModel(testFiles(), nil, Saved{}, Asker{})
+	m.now = func() time.Time { return start.Add(time.Hour) }
+	m.Update(tea.WindowSizeMsg{Width: 125, Height: 24})
+	typeKeys(m, "4j<enter>")
+	if text := cardText(m); !strings.Contains(text, "12:01 · session "+claudeSession) {
+		t.Errorf("origin card\n%s\nhas no session row that starts with 12:01", text)
+	}
+}
+
 func TestOriginText(t *testing.T) {
 	for _, tc := range []struct {
 		name, keys string

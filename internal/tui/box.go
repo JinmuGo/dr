@@ -140,12 +140,16 @@ func (m *model) editRows(l origin.Line, width int) []cardRow {
 	)
 }
 
-// sessionRows returns the quiet last rows of the origin of a line e wrote or deleted: the
-// session, the fork when fork is not "", and the model, then the session that started it
-// when it is a subagent.
+// sessionRows returns the quiet last rows of the origin of a line e wrote or deleted: when
+// the edit was made, the session, the fork when fork is not "", and the model, then the
+// session that started it when it is a subagent.
 func (m *model) sessionRows(e *agent.Edit, fork string) []cardRow {
 	t := &m.theme
 	text := "session " + review.Visible(e.Session)
+	if !e.Time.IsZero() {
+		// First, since a narrow card cuts the end of the row.
+		text = editedAt(e.Time, m.now()) + " · " + text
+	}
 	if fork != "" {
 		text += " · fork " + review.Visible(fork)
 	}
@@ -386,6 +390,19 @@ func (m *model) pickedNote(model, picked string, took time.Duration) chunk {
 // "claude-opus-5-5" for "anthropic/claude-opus-5-5".
 func modelName(model string) string {
 	return review.Visible(model[strings.LastIndex(model, "/")+1:])
+}
+
+// editedAt says when an edit made at t was, in the time zone of now: the time of day for an
+// edit of the same day, with the date for an older one, and the year for one of another year.
+func editedAt(t, now time.Time) string {
+	t = t.In(now.Location())
+	switch {
+	case t.Year() != now.Year():
+		return t.Format("2006-01-02 15:04")
+	case t.YearDay() != now.YearDay():
+		return t.Format("Jan 2 15:04")
+	}
+	return t.Format("15:04")
 }
 
 // ago says how long ago something was that happened d ago, the short way GitHub does:
