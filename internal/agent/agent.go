@@ -461,6 +461,12 @@ func fileTool(name string, args []byte) []string {
 	if !strings.Contains(lower, "edit") && !strings.Contains(lower, "write") && !strings.Contains(lower, "patch") {
 		return nil
 	}
+	return namedPaths(args)
+}
+
+// namedPaths returns the files a JSON object names in a field for a path, such as path,
+// file_path, filePath or paths, leaving out device paths such as xd://resolve.
+func namedPaths(object []byte) []string {
 	var named struct {
 		Path         string   `json:"path"`
 		FilePath     string   `json:"file_path"`
@@ -468,7 +474,7 @@ func fileTool(name string, args []byte) []string {
 		NotebookPath string   `json:"notebook_path"`
 		Paths        []string `json:"paths"`
 	}
-	if json.Unmarshal(args, &named) != nil {
+	if json.Unmarshal(object, &named) != nil {
 		return nil
 	}
 	var paths []string

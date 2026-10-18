@@ -190,8 +190,14 @@ func parseOMP(records *recordReader) []Edit {
 				}
 				if len(read) == 0 {
 					// A result in a shape dr does not know. The call names its file only in
-					// the patch, so the edit names no file.
-					read = []Edit{unread(e, "edit", "", cwd)}
+					// the patch, so the edit names the files the result names, or none.
+					paths := namedPaths(message.Details)
+					if len(paths) == 0 {
+						paths = []string{""}
+					}
+					for _, path := range paths {
+						read = append(read, unread(e, "edit", path, cwd))
+					}
 				}
 				edits = append(edits, read...)
 			case "write":

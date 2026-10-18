@@ -614,22 +614,48 @@ func TestOMPProposals(t *testing.T) {
 	}
 }
 
-func TestUnreadProblem(t *testing.T) {
-	// An OMP edit result in a shape dr does not know names its file only in the patch of
-	// its call, so the log has a Problem instead of an edit.
-	log := strings.Join([]string{
-		`{"type":"session","version":3,"id":"s","timestamp":"2026-10-09T13:00:00.000Z","cwd":"` + spike + `"}`,
-		`{"type":"message","id":"a","timestamp":"2026-10-09T13:00:01.000Z","message":{"role":"user","content":[{"type":"text","text":"고쳐줘"}]}}`,
-		`{"type":"message","id":"b","timestamp":"2026-10-09T13:00:02.000Z","message":{"role":"assistant","content":` +
-			`[{"type":"toolCall","id":"t1","name":"edit","arguments":{"input":"[f.go#1A2B]\nPUT >1:\n+x"}}]}}`,
-		`{"type":"message","id":"c","timestamp":"2026-10-09T13:00:03.000Z","message":{"role":"toolResult","toolCallId":"t1","toolName":"edit",` +
-			`"content":[{"type":"text","text":"ok"}],"details":{"filePath":"` + spike + `/f.go","patch":"+x"},"isError":false}}`,
-	}, "\n")
-	home := fakeHome(t, map[string]string{".omp/agent/sessions/spike/s.jsonl": log})
-	var loader Loader
-	edits, problems := loader.Load(home, since, []string{spike})
-	if len(edits) != 0 || len(problems) != 1 || problems[0].Agent != "omp" || problems[0].Unread != 1 || problems[0].Bad != 0 {
-		t.Errorf("got %d edits and problems %+v, want one omp Problem with one unread edit", len(edits), problems)
+func TestOMPUnreadEdit(t *testing.T) {
+	// An OMP edit result in a shape dr does not know is unread. Its call names its file only
+	// in the patch, so the edit is of the file the result names, or with none, the log has a
+	// Problem instead.
+	log := func(details string) string {
+		return strings.Join([]string{
+			`{"type":"session","version":3,"id":"s","timestamp":"2026-10-09T13:00:00.000Z","cwd":"` + spike + `"}`,
+			`{"type":"message","id":"a","timestamp":"2026-10-09T13:00:01.000Z","message":{"role":"user","content":[{"type":"text","text":"고쳐줘"}]}}`,
+			`{"type":"message","id":"b","timestamp":"2026-10-09T13:00:02.000Z","message":{"role":"assistant","content":` +
+				`[{"type":"toolCall","id":"t1","name":"edit","arguments":{"input":"[f.go#1A2B]\nPUT >1:\n+x"}}]}}`,
+			`{"type":"message","id":"c","timestamp":"2026-10-09T13:00:03.000Z","message":{"role":"toolResult","toolCallId":"t1","toolName":"edit",` +
+				`"content":[{"type":"text","text":"ok"}],"details":` + details + `,"isError":false}}`,
+		}, "\n")
+	}
+	for _, tc := range []struct {
+		name, details string
+		edits         []string // the unread edits, as their files
+		problem       int      // the unread edits in the log's Problem
+	}{
+		{"names its file", `{"filePath":"f.go","patch":"+x"}`, []string{spike + "/f.go"}, 0},
+		{"names no file", `{"patch":"+x"}`, nil, 1},
+		{"not an object", `"+x"`, nil, 1},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			home := fakeHome(t, map[string]string{".omp/agent/sessions/spike/s.jsonl": log(tc.details)})
+			var loader Loader
+			edits, problems := loader.Load(home, since, []string{spike})
+			var got []string
+			for _, e := range edits {
+				if e.Unread != "edit" {
+					t.Errorf("edit of %s is read, or unread as %q", e.Path, e.Unread)
+				}
+				got = append(got, e.Path)
+			}
+			unread := 0
+			for _, p := range problems {
+				unread += p.Unread
+			}
+			if !slices.Equal(got, tc.edits) || unread != tc.problem {
+				t.Errorf("got edits %q and problems %+v, want edits %q and %d in a Problem", got, problems, tc.edits, tc.problem)
+			}
+		})
 	}
 }
 
