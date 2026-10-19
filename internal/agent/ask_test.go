@@ -15,16 +15,18 @@ import (
 	"time"
 )
 
-// fakeCLI stands for claude, codex and omp. It records its arguments, stdin and working
+// fakeCLI stands for claude, codex, omp and pi. It records its arguments, stdin and working
 // directory in $FAKE_DIR, and in $FAKE_DIR/sessions whether the directory after
 // --session-dir was there. It writes $FAKE_DIR/answer to the file after -o, prints
 // $FAKE_DIR/stdout and $FAKE_DIR/stderr and exits with the code in $FAKE_DIR/exit. With
 // $FAKE_DIR/sleep it first starts a child and waits for it, so that it has to be killed.
 // With $FAKE_DIR/leave it starts a child that keeps its stdout open and does not wait for
 // it. With $FAKE_DIR/rollout it writes that as the session log of Codex thread t1 under the
-// home directory $FAKE_DIR/home.
+// home directory $FAKE_DIR/home. Asked for its models with --list-models, it prints
+// $FAKE_DIR/models alone when there is one.
 const fakeCLI = `#!/bin/sh
 d=$FAKE_DIR
+if [ "$1" = --list-models ] && [ -f "$d/models" ]; then cat "$d/models"; exit 0; fi
 : > "$d/args"
 out=
 sessions=
@@ -58,7 +60,7 @@ if [ -f "$d/stderr" ]; then cat "$d/stderr" >&2; fi
 if [ -f "$d/exit" ]; then exit "$(cat "$d/exit")"; fi
 `
 
-// fakeAgents puts the fake claude, codex and omp first in PATH, with files in the directory
+// fakeAgents puts the fake claude, codex, omp and pi first in PATH, with files in the directory
 // they read from, which may name subdirectories, and returns that directory.
 func fakeAgents(t *testing.T, files map[string]string) string {
 	t.Helper()
@@ -86,7 +88,11 @@ func fakeAgents(t *testing.T, files map[string]string) string {
 // they write to, and a state directory that does not exist yet.
 func fakeDirs(t *testing.T, dir string) Dirs {
 	t.Helper()
-	return Dirs{Home: filepath.Join(dir, "home"), State: filepath.Join(t.TempDir(), "git", "dr")}
+	home := filepath.Join(dir, "home")
+	if err := os.MkdirAll(home, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	return Dirs{Home: home, State: filepath.Join(t.TempDir(), "git", "dr")}
 }
 
 // recorded returns what the fake recorded in dir under name.
@@ -137,6 +143,14 @@ func ompOut(session, model string) string {
 func ompArgs(head []string, tail ...string) []string {
 	flags := []string{"--session-dir", "SESSIONS", "--tools", "read,grep,glob", "--no-extensions", "--no-skills",
 		"--no-title", "--approval-mode", "always-ask", "--mode", "json"}
+	return slices.Concat(head, flags, tail)
+}
+
+// piArgs returns the arguments pi gets: head, the flags of every question with SESSIONS for
+// the state directory's sessions, and tail.
+func piArgs(head []string, tail ...string) []string {
+	flags := []string{"--session-dir", "SESSIONS", "--tools", "read,grep,find", "--no-mcp", "--no-extensions",
+		"--no-skills", "--no-prompt-templates", "--no-approve", "--mode", "json"}
 	return slices.Concat(head, flags, tail)
 }
 
@@ -288,6 +302,54 @@ func TestAsk(t *testing.T) {
 			args:  ompArgs([]string{"-p", "--resume", "n1"}),
 			want:  Answer{Fork: "n1", Text: "Because.", Model: "anthropic/claude-opus-5-5"},
 		},
+		{
+			// Pi prints the same events as OMP.
+			name:  "pi, a new fork",
+			q:     Question{Agent: "pi", Session: "s1", Model: "anthropic/claude-opus-5-5", Effort: "medium"},
+			log:   ".pi/agent/sessions/--r--/2026-10-09T12-00-00-000Z_s1.jsonl",
+			files: map[string]string{"models": piModelList, "stdout": ompOut("f1", "claude-opus-5-5")},
+			args:  piArgs([]string{"-p", "--fork", "LOG"}, "--model", "anthropic/claude-opus-5-5", "--thinking", "medium"),
+			want:  Answer{Fork: "f1", Text: "Because.", Model: "anthropic/claude-opus-5-5"},
+		},
+		{
+			// Without extensions, a model only an extension provides is not there. The question
+			// goes to the first model of pi's settings that is.
+			name: "pi, the fork continued, with a model of an extension",
+			q:    Question{Agent: "pi", Session: "s1", Model: "claude-bridge/claude-opus-5-5", Effort: "high", Fork: "f1"},
+			log:  ".pi/agent/sessions/--r--/2026-10-09T12-00-00-000Z_s1.jsonl",
+			files: map[string]string{
+				"models": piModelList,
+				"home/.pi/agent/settings.json": `{"defaultProvider":"claude-bridge","defaultModel":"claude-opus-5-5",` +
+					`"enabledModels":["claude-bridge/claude-opus-5-5","openai-codex/gpt-6-luna"]}`,
+				"stdout": strings.ReplaceAll(ompOut("f1", "gpt-6-luna"), `"anthropic"`, `"openai-codex"`),
+			},
+			args: piArgs([]string{"-p", "--session", "f1"}, "--model", "openai-codex/gpt-6-luna", "--thinking", "high"),
+			want: Answer{Fork: "f1", Text: "Because.", Model: "openai-codex/gpt-6-luna"},
+		},
+		{
+			// With none of pi's settings there either, pi chooses.
+			name:  "pi, a new fork, no model there",
+			q:     Question{Agent: "pi", Session: "s1", Model: "claude-bridge/claude-opus-5-5"},
+			log:   ".pi/agent/sessions/--r--/2026-10-09T12-00-00-000Z_s1.jsonl",
+			files: map[string]string{"models": piModelList, "stdout": ompOut("f1", "claude-opus-5-5")},
+			args:  piArgs([]string{"-p", "--fork", "LOG"}),
+			want:  Answer{Fork: "f1", Text: "Because.", Model: "anthropic/claude-opus-5-5"},
+		},
+		{
+			// When pi cannot list its models, the model goes as it is, and pi says what is wrong.
+			name:  "pi, a new session, its models not listed",
+			q:     Question{Agent: "pi", Model: "anthropic/claude-opus-5-5"},
+			files: map[string]string{"stdout": ompOut("n1", "claude-opus-5-5")},
+			args:  piArgs([]string{"-p"}, "--model", "anthropic/claude-opus-5-5"),
+			want:  Answer{Fork: "n1", Text: "Because.", Model: "anthropic/claude-opus-5-5"},
+		},
+		{
+			name:  "pi, a new session",
+			q:     Question{Agent: "pi"},
+			files: map[string]string{"stdout": ompOut("n1", "claude-opus-5-5")},
+			args:  piArgs([]string{"-p"}),
+			want:  Answer{Fork: "n1", Text: "Because.", Model: "anthropic/claude-opus-5-5"},
+		},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			dir := fakeAgents(t, tc.files)
@@ -339,15 +401,15 @@ func TestAsk(t *testing.T) {
 			if got := strings.TrimSpace(recorded(t, dir, "cwd")); got != realCwd {
 				t.Errorf("ran in %s, want the session's directory %s", got, realCwd)
 			}
-			if tc.q.Agent == "omp" {
+			if tc.q.Agent == "omp" || tc.q.Agent == "pi" {
 				// The session that answers keeps its log in the state directory, which is there
-				// before omp runs and only the user can read.
+				// before the agent runs and only the user can read.
 				info, err := os.Stat(sessions)
 				if err != nil || !info.IsDir() || info.Mode().Perm() != 0o700 {
 					t.Errorf("the state directory's sessions: %v, %v; want a directory with mode 0700", info, err)
 				}
 				if seen := recorded(t, dir, "sessions"); seen != "yes\n" {
-					t.Errorf("omp saw the sessions directory %q, want it there before it ran", seen)
+					t.Errorf("%s saw the sessions directory %q, want it there before it ran", tc.q.Agent, seen)
 				}
 			}
 			if tc.log != "" {
@@ -451,6 +513,38 @@ func TestAskFailure(t *testing.T) {
 			want: "omp gave no answer",
 		},
 		{
+			name:  "pi exits with an error",
+			q:     Question{Agent: "pi", Fork: "f1"},
+			files: map[string]string{"stderr": "No session found matching 'f1'\n", "exit": "1"},
+			want:  "No session found matching 'f1'",
+		},
+		{
+			name: "pi ends on an error of the provider",
+			q:    Question{Agent: "pi", Fork: "f1"},
+			files: map[string]string{"stdout": `{"type":"session","id":"f1"}` + "\n" +
+				`{"type":"message_end","message":{"role":"assistant","content":[],"stopReason":"error","errorMessage":"OpenAI API error (400): model not supported"}}` + "\n"},
+			want: "OpenAI API error (400): model not supported",
+		},
+		{
+			name: "pi stops on an error partway through the answer",
+			q:    Question{Agent: "pi", Fork: "f1"},
+			files: map[string]string{"stdout": `{"type":"session","id":"f1"}` + "\n" +
+				`{"type":"message_end","message":{"role":"assistant","content":[{"type":"text","text":"Because the"}],"stopReason":"error","errorMessage":"stream ended"}}` + "\n"},
+			want: "stream ended",
+		},
+		{
+			name:  "pi answers nothing",
+			q:     Question{Agent: "pi"},
+			files: map[string]string{"stdout": `{"type":"session","id":"n1"}` + "\n" + `{"type":"agent_end"}` + "\n"},
+			want:  "pi gave no answer",
+		},
+		{
+			name:    "pi without a state directory",
+			q:       Question{Agent: "pi"},
+			noState: true,
+			want:    "dr has no state directory to keep the session in",
+		},
+		{
 			name:    "omp without a state directory",
 			q:       Question{Agent: "omp"},
 			noState: true,
@@ -503,7 +597,7 @@ func TestInstalled(t *testing.T) {
 		t.Fatal(err)
 	}
 	t.Setenv("PATH", bin)
-	for _, name := range []string{"claude", "codex", "omp", "gemini"} {
+	for _, name := range []string{"claude", "codex", "omp", "pi", "gemini"} {
 		if got, want := Installed(name), name == "codex"; got != want {
 			t.Errorf("Installed(%q): got %t, want %t", name, got, want)
 		}
@@ -523,6 +617,7 @@ func TestAskStop(t *testing.T) {
 		{name: "cancelled", agent: "codex", timeout: time.Minute, cancel: true, want: context.Canceled},
 		{name: "out of time", agent: "codex", timeout: 2 * time.Second, want: errNoAnswer},
 		{name: "omp cancelled", agent: "omp", timeout: time.Minute, cancel: true, want: context.Canceled},
+		{name: "pi cancelled", agent: "pi", timeout: time.Minute, cancel: true, want: context.Canceled},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			dir := fakeAgents(t, map[string]string{"sleep": ""})

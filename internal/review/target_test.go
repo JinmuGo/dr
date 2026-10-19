@@ -176,7 +176,7 @@ func TestTarget(t *testing.T) {
 			file:      []origin.Line{added(nil)},
 			review:    []origin.Line{added(nil), added(c1)},
 			installed: []string{},
-			why:       "No agent CLI is installed to ask (claude, codex or omp)",
+			why:       "No agent CLI is installed to ask (claude, codex, omp or pi)",
 		},
 		{
 			name:   "two sessions",

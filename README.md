@@ -21,7 +21,7 @@
   <a href="CONTRIBUTING.md">Contributing</a>
 </p>
 
-dr shows which AI agent session wrote each changed line and what you asked it. Ask that session why, leave review comments, and get fixes back from it. It works with Claude Code, Codex and OMP.
+dr shows which AI agent session wrote each changed line and what you asked it. Ask that session why, leave review comments, and get fixes back from it. It works with Claude Code, Codex, OMP and Pi.
 
 ![dr showing which agent session wrote each changed line](docs/demo.gif)
 
@@ -30,7 +30,7 @@ dr shows which AI agent session wrote each changed line and what you asked it. A
 - **See who wrote each line.** `git blame` names you, because you committed. dr names the agent session and the request behind the line.
 - **Ask the author.** `a` asks the session that wrote a line why. dr asks a fork, so your conversation stays as it was.
 - **Get fixes from the author.** Comment as in a pull request review. Each session fixes only the lines it wrote.
-- **Three agents, one diff.** Claude Code, Codex and OMP sessions side by side, each in its own color.
+- **Four agents, one diff.** Claude Code, Codex, OMP and Pi sessions side by side, each in its own color.
 - **Local.** Origins come from the session logs on your machine, with no model calls. No server, no account, no telemetry.
 
 ## Install
@@ -42,7 +42,7 @@ nix profile install github:JinmuGo/dr               # Nix
 go install github.com/JinmuGo/dr@latest             # Go
 ```
 
-dr runs on macOS and Linux and needs git. Asking and fixing also need the CLI of the agent that wrote the lines: `claude`, `codex` or `omp`. Versions, upgrades and removal are in [docs/install.md](docs/install.md).
+dr runs on macOS and Linux and needs git. Asking and fixing also need the CLI of the agent that wrote the lines: `claude`, `codex`, `omp` or `pi`. Versions, upgrades and removal are in [docs/install.md](docs/install.md).
 
 ## Usage
 

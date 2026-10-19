@@ -108,7 +108,7 @@ func TestOpenSessionRefusals(t *testing.T) {
 		{keys: "2jga", want: "Move to a changed line to ask"},
 		{keys: "12jV4jga", want: "Some selected lines have no origin"},
 		{keys: "3jV9jga", want: "The selection mixes sessions. Select lines from one session"},
-		{keys: "40Gga", want: "No agent CLI is installed to ask (claude, codex or omp)", installed: []string{}},
+		{keys: "40Gga", want: "No agent CLI is installed to ask (claude, codex, omp or pi)", installed: []string{}},
 		{keys: "4jga", want: "claude is not installed or not in PATH", openErr: errors.New("claude is not installed or not in PATH")},
 	} {
 		ed := &fakeEditor{}

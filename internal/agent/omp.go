@@ -43,9 +43,19 @@ type ompRecord struct {
 	Timestamp     string `json:"timestamp"`
 	Cwd           string `json:"cwd"`
 	ParentSession string `json:"parentSession"`
-	Model         string `json:"model"`         // of a model_change, as provider/model
+	Model         string `json:"model"`         // of an OMP model_change, as provider/model
+	Provider      string `json:"provider"`      // of a Pi model_change
+	ModelID       string `json:"modelId"`       // of a Pi model_change
 	ThinkingLevel string `json:"thinkingLevel"` // of a thinking_level_change
-	Message       struct {
+	// OMPImport is set on the session record of an OMP session that Pi imported. Kind is
+	// "child" for a subagent's log, and OriginalHeader the session record OMP wrote.
+	OMPImport *struct {
+		Kind           string `json:"kind"`
+		OriginalHeader struct {
+			ID string `json:"id"`
+		} `json:"originalHeader"`
+	} `json:"ompImport"`
+	Message struct {
 		Role        string       `json:"role"`
 		Content     borrowedJSON `json:"content"`
 		Attribution string       `json:"attribution"` // "user", or "agent" for text an agent sent
@@ -95,16 +105,27 @@ type ompWrite struct {
 // parseOMP reads an OMP session log. A subagent has a log of its own. An edit was made with
 // the model and the thinking level the log last changed to before it.
 func parseOMP(records *recordReader) []Edit {
+	return parseSessionV3(records, "omp")
+}
+
+// parseSessionV3 reads a log in session format 3, which OMP and Pi share, as the log of the
+// agent named name. Pi holds the records of an OMP session it imported as OMP wrote them,
+// and a fork holds the records of the session it came from, so the edits of both agents
+// have keys as OMP's, and a copy matches its original in either agent.
+func parseSessionV3(records *recordReader, name string) []Edit {
 	var edits []Edit
 	var turns []turn
 	var session, parent, cwd string
+	var imported string      // the id OMP gave the session, when Pi imported it
 	var said string          // what the agent said since the last user message or tool result
 	var model, effort string // what the log last changed the model and the thinking level to
 	var start time.Time
-	writes := make(map[string]ompWrite) // by tool call id
-	notes := make(map[string]string)    // by tool call id
-	others := make(map[string][]string) // the files a call of another tool seems to change, by tool call id
-	var staged ompStaged                // the last proposal not yet applied or rejected
+	writes := make(map[string]ompWrite)  // by tool call id
+	editPaths := make(map[string]string) // the file a Pi edit call names, by tool call id
+	codemodes := make(map[string]bool)   // whether the code of a codemode call edits, by tool call id
+	notes := make(map[string]string)     // by tool call id
+	others := make(map[string][]string)  // the files a call of another tool seems to change, by tool call id
+	var staged ompStaged                 // the last proposal not yet applied or rejected
 	for records.next() {
 		var record ompRecord
 		if json.Unmarshal(records.line, &record) != nil {
@@ -112,7 +133,12 @@ func parseOMP(records *recordReader) []Edit {
 		}
 		if record.Type == "session" && session == "" {
 			session, cwd, start = record.ID, record.Cwd, parseTime(record.Timestamp)
-			if record.ParentSession != "" {
+			if record.OMPImport != nil {
+				imported = record.OMPImport.OriginalHeader.ID
+			}
+			// The parent of a Pi session is the session it forked, not one that started it,
+			// unless the log is of an OMP subagent.
+			if record.ParentSession != "" && (name == "omp" || record.OMPImport != nil && record.OMPImport.Kind == "child") {
 				name := strings.TrimSuffix(filepath.Base(record.ParentSession), ".jsonl")
 				parent = name[strings.LastIndex(name, "_")+1:]
 			}
@@ -121,6 +147,9 @@ func parseOMP(records *recordReader) []Edit {
 		switch record.Type {
 		case "model_change":
 			model = record.Model
+			if record.Provider != "" && record.ModelID != "" {
+				model = record.Provider + "/" + record.ModelID
+			}
 		case "thinking_level_change":
 			effort = record.ThinkingLevel
 		}
@@ -160,12 +189,18 @@ func parseOMP(records *recordReader) []Edit {
 					}
 					notes[b.ID] = strings.TrimSpace(note)
 					var write ompWrite
-					switch {
-					case b.Name == "write":
+					switch b.Name {
+					case "write":
 						if json.Unmarshal(b.Arguments, &write) == nil {
 							writes[b.ID] = write
 						}
-					case b.Name != "edit":
+					case "edit":
+						if paths := namedPaths(b.Arguments); len(paths) == 1 {
+							editPaths[b.ID] = paths[0]
+						}
+					case "codemode":
+						codemodes[b.ID] = mentionsFileTool(b.Arguments)
+					default:
 						if paths := fileTool(b.Name, b.Arguments); len(paths) > 0 {
 							others[b.ID] = paths
 						}
@@ -174,12 +209,18 @@ func parseOMP(records *recordReader) []Edit {
 			}
 		case "toolResult":
 			said = ""
-			if message.IsError {
-				continue
-			}
 			e := Edit{
 				Agent: "omp", Turn: len(turns), Time: parseTime(record.Timestamp), Note: notes[message.ToolCallID],
 				Model: model, Effort: effort,
+			}
+			if mentions, ok := codemodes[message.ToolCallID]; ok && message.ToolName == "codemode" {
+				// The code may have changed files before it failed, so a failed call counts too.
+				delete(codemodes, message.ToolCallID) // a call is answered once
+				edits = append(edits, codemodeEdits(e, message.Details, mentions, cwd)...)
+				continue
+			}
+			if message.IsError {
+				continue
 			}
 			switch message.ToolName {
 			case "edit":
@@ -187,6 +228,9 @@ func parseOMP(records *recordReader) []Edit {
 				var read []Edit
 				if json.Unmarshal(message.Details, &details) == nil {
 					read = ompEdits(e, details)
+				}
+				if len(read) == 0 {
+					read = piEdit(e, message.Details, editPaths[message.ToolCallID], cwd)
 				}
 				if len(read) == 0 {
 					// A result in a shape dr does not know. The call names its file only in
@@ -251,7 +295,7 @@ func parseOMP(records *recordReader) []Edit {
 	}
 	for i := range edits {
 		e := &edits[i]
-		e.Session, e.Parent, e.Cwd, e.start = session, parent, cwd, start
+		e.Agent, e.Session, e.Parent, e.Cwd, e.start, e.importOf = name, session, parent, cwd, start, imported
 	}
 	return finish(edits, map[string][]turn{session: turns})
 }

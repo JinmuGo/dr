@@ -30,7 +30,7 @@ For local development, run `omp plugin link /path/to/dr` with the repository roo
 
 ## Reading the diff
 
-A session is one conversation with an agent, and a request is one message you sent in it. A line's origin is the session and request whose edit last changed it. A line that no recorded edit explains is unknown: you changed it, or a shell command did. dr does not guess. When a log records an edit to the file that dr cannot read, such as one by OMP's `ast_edit` or by a tool of an MCP server, the line's origin card names that edit instead, and a band at the top says which agent's records could not be read.
+A session is one conversation with an agent, and a request is one message you sent in it. A line's origin is the session and request whose edit last changed it. A line that no recorded edit explains is unknown: you changed it, or a shell command did. dr does not guess. When a log records an edit to the file that dr cannot read, such as one by OMP's `ast_edit`, by Pi's `codemode` or by a tool of an MCP server, the line's origin card names that edit instead, and a band at the top says which agent's records could not be read.
 
 - Each session has a color. The rail next to a changed line has the color of its session, dotted when the origin is unknown and teal for a fix dr applied.
 - The first line a request changed in each hunk carries a label such as `claude c1a0 #2`: the agent, the end of the session id and the request number.
@@ -51,6 +51,8 @@ When the author cannot be asked, dr asks the closest session that can and says s
 - If no session edited the file, a new session of the agent you used most reads the code, and its answer is marked as a guess.
 
 Type `^` at the start of a word in the box to pick another model for that one question.
+
+Pi runs a question without extensions, so a model that only an extension provides cannot answer it. Pi then answers with its default model, and the answer names that model. The `^` list shows only the models Pi has without extensions. OMP sessions that Pi imported are Pi sessions to dr, and questions about them go to `pi`.
 
 ## Fixing with `c`
 

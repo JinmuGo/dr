@@ -49,6 +49,11 @@ func TestOpen(t *testing.T) {
 			q:    Question{Agent: "omp", Session: "o1", Log: log, Cwd: cwd},
 			want: []string{"--fork", log},
 		},
+		{
+			name: "pi with a model and an effort",
+			q:    Question{Agent: "pi", Session: "p1", Log: "/home/.pi/agent/sessions/--work--/p1.jsonl", Cwd: cwd, Model: "openai/gpt-6-astra", Effort: "high"},
+			want: []string{"--fork", "/home/.pi/agent/sessions/--work--/p1.jsonl", "--model", "openai/gpt-6-astra", "--thinking", "high"},
+		},
 	} {
 		cmd, err := Open(tc.q)
 		if err != nil {

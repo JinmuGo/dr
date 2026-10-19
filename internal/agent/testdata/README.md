@@ -1,6 +1,6 @@
 # Session log fixtures
 
-Which agent version wrote each fixture. Claude Code logs its version in the `version` field of each record and Codex in `cli_version` of `session_meta`. OMP logs only the version of its session format, in the `session` record.
+Which agent version wrote each fixture. Claude Code logs its version in the `version` field of each record and Codex in `cli_version` of `session_meta`. OMP and Pi log only the version of their session format, in the `session` record.
 
 | Fixture | Agent | Version | What it holds |
 | --- | --- | --- | --- |
@@ -13,5 +13,9 @@ Which agent version wrote each fixture. Claude Code logs its version in the `ver
 | `omp-01a1f000-0000-7000-8000-000000000001.jsonl` | OMP | session format 3 | A session written by hand in the shape of a real one |
 | `omp-01a1f000-0000-7000-8000-000000000002.jsonl` | OMP | session format 3 | A subagent of that session, written by hand |
 | `omp-01a1f000-0000-7000-8000-000000000003.jsonl` | OMP | session format 3 | An `ast_edit` proposal applied through `xd://resolve` and one never applied, written by hand from the records of a real session |
+| `pi-01a152c8-00fb-74d4-9060-82bb53bae8df.jsonl` | Pi | 1.3.0 | A `pi -p` session that wrote a rate limiter and renamed a field in a second request, with one failed edit |
+| `pi-omp-01a1f000-0000-7000-8000-000000000001-0a0a0a0a.jsonl` | Pi | session format 3 | The first OMP fixture as Pi imports it, written by hand in the shape of a real import |
+| `pi-omp-01a1f000-0000-7000-8000-000000000002-0b0b0b0b.jsonl` | Pi | session format 3 | Its subagent, imported the same way |
+| `pi-01a1f000-0000-7000-8000-000000000004.jsonl` | Pi | session format 3 | `codemode` calls that write, read and edit, written by hand from the records of a real session |
 
 When an agent's version changes, check it as [Checking a new agent version](../../../CONTRIBUTING.md#checking-a-new-agent-version) says, and update this table when you add or replace a fixture.

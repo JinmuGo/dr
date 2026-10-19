@@ -271,6 +271,8 @@ func TestCanFork(t *testing.T) {
 		{Edit{Agent: "omp", Session: "o1", Log: "/l/o1.jsonl"}, ""},
 		{Edit{Agent: "omp", Session: "o2", Parent: "o1", Log: "/l/o1/0-Task.jsonl"}, ""}, // a subagent forks from its own log
 		{Edit{Agent: "omp", Session: "o1"}, "the session's log is not known"},
+		{Edit{Agent: "pi", Session: "p1", Log: "/l/p1.jsonl"}, ""},
+		{Edit{Agent: "pi", Session: "p1"}, "the session's log is not known"},
 		{Edit{Agent: "gemini", Session: "g1"}, "dr cannot ask gemini sessions"},
 	} {
 		got := ""
@@ -281,7 +283,7 @@ func TestCanFork(t *testing.T) {
 			t.Errorf("%s %s parent %q log %q: got %q, want %q", tc.e.Agent, tc.e.Session, tc.e.Parent, tc.e.Log, got, tc.want)
 		}
 	}
-	if got, want := Names(), []string{"claude", "codex", "omp"}; !slices.Equal(got, want) {
+	if got, want := Names(), []string{"claude", "codex", "omp", "pi"}; !slices.Equal(got, want) {
 		t.Errorf("Names: got %q, want %q", got, want)
 	}
 }
