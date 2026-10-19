@@ -35,7 +35,7 @@ A session is one conversation with an agent, and a request is one message you se
 - Each session has a color. The rail next to a changed line has the color of its session, dotted when the origin is unknown and teal for a fix dr applied.
 - The first line a request changed in each hunk carries a label such as `claude c1a0 #2`: the agent, the end of the session id and the request number.
 - The status line shows the mode and the origin of the line under the cursor, and on the right the questions in flight, fixes ready and pending comments. The row under it lists the keys of the mode.
-- `Enter` opens the origin card under the line. A line with questions shows its ask thread. Otherwise it shows the session, your request, the note before the edit, and the final reply.
+- `Enter` opens the origin card under the line. A line with questions shows its ask thread. Otherwise it shows the session, your request, the note before the edit, the final reply, and when the edit was made, in your time zone.
 - `v` marks a file viewed, like the Viewed box on GitHub, and folds it. If the file's diff changes later, the mark is cleared.
 
 ## Asking with `a`
