@@ -65,7 +65,7 @@ A caller-owned `agent.Loader` reuses parsed logs across editor and agent returns
 
 Session parsers consume one JSONL record at a time. The reader has no fixed line-size limit; borrowed JSON belongs only to the current record. Pending tool calls retain decoded, owned values. An I/O error discards that log's partial edits. Invalid complete lines are counted, while an incomplete final line is ignored. Root matching scans the log before parsing, so edits outside the session cwd are still considered. Memory includes the largest record and cached edit data.
 
-Session log formats of Claude Code, Codex and OMP are not public APIs. They change without notice. A change to a parser in `internal/agent/` needs a fixture: a session log from a real session, trimmed to what the test needs, in `internal/agent/testdata/`.
+Session log formats of Claude Code, Codex, OMP and Pi are not public APIs. They change without notice. A change to a parser in `internal/agent/` needs a fixture: a session log from a real session, trimmed to what the test needs, in `internal/agent/testdata/`.
 
 A fixture from a real session must hold nothing personal before you commit it:
 
@@ -79,14 +79,14 @@ A test fails when any file in the repository holds a home directory other than `
 
 The fixtures and the agent versions that wrote them are listed in [internal/agent/testdata/README.md](internal/agent/testdata/README.md). When an agent you use is newer than its fixtures, check that dr still reads its logs:
 
-1. Note the version: `claude --version`, `codex --version` or `omp --version`.
+1. Note the version: `claude --version`, `codex --version`, `omp --version` or `pi --version`.
 2. In a scratch repository with one commit, ask the agent in one session to create a file, then in a second request to change two of its lines. For Claude Code and OMP, have a subagent write another file too.
 3. Run `dr blame <file>` on each file. Every line the agent wrote must name its session and request. An `unknown` line or a message that some records could not be read means the log format changed.
 4. When it changed, trim that log into a fixture as above, fix the parser and its test, and add the fixture to the table.
 
 ## Adding an agent
 
-Each agent is one file in `internal/agent/`, like `claude.go`, `codex.go` and `omp.go`. Nothing outside that file and the list of agents names an agent, so the screen and `dr blame` need no change.
+Each agent is one file in `internal/agent/`, like `claude.go`, `codex.go`, `omp.go` and `pi.go`. OMP and Pi share session format 3, so `pi.go` reads its logs with the parser in `omp.go`. Nothing outside that file and the list of agents names an agent, so the screen and `dr blame` need no change.
 
 1. Add `internal/agent/<name>.go` with an `agent` value:
    - `name`: what dr shows, and keeps in `Edit.Agent`.

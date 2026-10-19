@@ -1,6 +1,6 @@
 # Installing dr
 
-dr is one binary. It runs on macOS and Linux, on Intel and ARM, and needs git. To ask and to fix, it also runs the CLI of the agent that wrote the lines: `claude`, `codex` or `omp`.
+dr is one binary. It runs on macOS and Linux, on Intel and ARM, and needs git. To ask and to fix, it also runs the CLI of the agent that wrote the lines: `claude`, `codex`, `omp` or `pi`.
 
 ## Homebrew
 

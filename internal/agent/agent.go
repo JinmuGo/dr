@@ -53,6 +53,9 @@ type Edit struct {
 
 	key   string    // the same in every session log that holds a copy of the edit
 	start time.Time // when the session started
+	// importOf is the id OMP gave the session of a Pi edit, when Pi imported the session
+	// from OMP, "" otherwise.
+	importOf string
 }
 
 // Problem is a session log dr could not fully read.
@@ -84,7 +87,7 @@ type agent struct {
 }
 
 // agents are the agents dr knows, in the order dr prefers them.
-var agents = []agent{claude, codex, omp}
+var agents = []agent{claude, codex, omp, pi}
 
 // Names returns the names of the agents dr knows, in the order dr prefers them.
 func Names() []string {
@@ -356,7 +359,10 @@ func dropCopies(edits []Edit) []Edit {
 			continue
 		}
 		switch picked := edits[p.index]; {
-		case e.Session == picked.Session:
+		case e.importOf != "" && e.importOf == picked.Session:
+			// An OMP session and Pi's import of it. Pi has the session now, so keep its copy.
+			p.index, p.tie = i, false
+		case e.Session == picked.Session, picked.importOf != "" && picked.importOf == e.Session:
 			// One session in two files, such as an OMP session that moved. Keep one.
 		case e.start.Before(picked.start):
 			p.index, p.tie = i, false

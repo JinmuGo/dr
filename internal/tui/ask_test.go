@@ -253,7 +253,7 @@ func TestAskRefusals(t *testing.T) {
 		{keys: "5jVjja", want: "The selection has no changed lines"},
 		{keys: "12jV4ja", want: "Some selected lines have no origin"},
 		{keys: "3jV9ja", want: "The selection mixes sessions. Select lines from one session"},
-		{keys: "40Ga", want: "No agent CLI is installed to ask (claude, codex or omp)", installed: []string{}},
+		{keys: "40Ga", want: "No agent CLI is installed to ask (claude, codex, omp or pi)", installed: []string{}},
 	} {
 		f := &fakeAsk{answer: answer, installed: tc.installed}
 		m := askScreen(askFiles(), Saved{}, f)
