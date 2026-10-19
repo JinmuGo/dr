@@ -87,7 +87,10 @@ func (m *model) draw() string {
 func (m *model) mainLines(h int) []string {
 	listWidth, diffWidth := m.layout()
 	var list []string
-	if listWidth > 0 {
+	switch {
+	case listWidth > 0 && m.threads.shown:
+		list = m.threadsList(listWidth, h)
+	case listWidth > 0:
 		list = m.fileTree(listWidth, h)
 	}
 	rows := m.diffLines(diffWidth, m.rowsHeight())
@@ -155,7 +158,8 @@ func (b Base) same() string {
 }
 
 // layout returns the widths of the file tree and the diff. The file tree is as wide as it
-// was dragged, or as its rows up to maxListWidth, and it is hidden, 0 wide, when the diff
+// was dragged, or as its rows up to maxListWidth, the threads panel up to maxListWidth
+// whatever its rows, and it is hidden, 0 wide, when the diff
 // would be narrower than minDiffWidth beside it. Folded, it is 0 wide too, and a handle of a
 // cell takes its place.
 func (m *model) layout() (list, diff int) {
@@ -163,6 +167,9 @@ func (m *model) layout() (list, diff int) {
 		return 0, max(m.width-1, 0)
 	}
 	list = min(m.listWidth, maxListWidth)
+	if m.threads.shown { // the threads take more room than file names, as much as leaves the diff its least
+		list = max(list, min(maxListWidth, m.width-1-minDiffWidth))
+	}
 	if m.treeSize > 0 {
 		list = m.treeSize
 	}

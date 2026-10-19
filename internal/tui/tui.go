@@ -53,16 +53,17 @@ type model struct {
 	folded        bool // the file tree was dragged narrow and shows as a handle
 	dragging      bool // the line between the file tree and the diff is being dragged
 
-	count     int         // number typed before a key, 0 when none
-	pending   string      // "g" waiting for the key that completes it
-	help      bool        // the key help is open
-	originBox originBox   // the origin box under the cursor row: whether it is open and how far it is scrolled
-	asking    *target     // the input box of a is open, and what it asks about
-	search    search      // the search: whether its input is open, what is typed, the last query and where it is
-	cmdline   cmdline     // the : input: whether it is open, what is typed and the highlighted command
-	message   string      // shown in the status line until the next key
-	tone      messageTone // how the message reads: a warning or an error
-	notice    *notice     // floats at the top right of the diff until the next key
+	count     int          // number typed before a key, 0 when none
+	pending   string       // "g" waiting for the key that completes it
+	help      bool         // the key help is open
+	originBox originBox    // the origin box under the cursor row: whether it is open and how far it is scrolled
+	asking    *target      // the input box of a is open, and what it asks about
+	search    search       // the search: whether its input is open, what is typed, the last query and where it is
+	cmdline   cmdline      // the : input: whether it is open, what is typed and the highlighted command
+	message   string       // shown in the status line until the next key
+	tone      messageTone  // how the message reads: a warning or an error
+	notice    *notice      // floats at the top right of the diff until the next key
+	threads   threadsPanel // the threads panel t shows in place of the file tree
 
 	drafting   *commentInput // the input box of c is open, and what it comments on
 	entry      textBox       // what is typed in the input box of a or c
@@ -315,6 +316,7 @@ func (m *model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	}
 	m.relayout()
 	m.scroll()
+	m.markRead() // after scroll, which keeps the origin box in its text
 	m.color()
 	return m, cmd
 }
@@ -364,7 +366,7 @@ func (m *model) mouse(msg tea.MouseMsg) tea.Cmd {
 }
 
 // click handles a click at column x of line y. On a file of the file tree it goes to the
-// file's header, and on the Viewed box of a file header it marks the file viewed or not, as
+// file's header, on a thread of the threads panel it goes to the thread, and on the Viewed box of a file header it marks the file viewed or not, as
 // v does there. Either ends a selection first. A click on a band does nothing. It returns
 // the command that saves the viewed files then.
 func (m *model) click(x, y int) tea.Cmd {
@@ -373,6 +375,13 @@ func (m *model) click(x, y int) tea.Cmd {
 		return nil
 	}
 	if list, _ := m.layout(); !m.folded && x < list {
+		if m.threads.shown {
+			if th := m.threadAt(y, h); th != nil {
+				m.selection.on = false
+				return m.goThread(th)
+			}
+			return nil
+		}
 		body := m.treeBody(h)
 		if i := m.treeTop(body) + y - treeHead; y >= treeHead && y < treeHead+body && i < len(m.tree) && m.tree[i].file >= 0 {
 			m.selection.on = false
