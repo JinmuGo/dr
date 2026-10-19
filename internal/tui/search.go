@@ -129,8 +129,9 @@ func (m *model) marks(text string) [][2]int {
 
 // sideMarks returns where the search query is in pieces, the code of a side of a row, and
 // which of those matches is the current one: the first when current is set, -1 otherwise.
+// The focus view shows no matches, since n and N do not move there.
 func (m *model) sideMarks(pieces []piece, current bool) ([][2]int, int) {
-	if m.searchQuery() == "" {
+	if m.searchQuery() == "" || m.focus.open {
 		return nil, -1
 	}
 	marks := m.marks(join(pieces))

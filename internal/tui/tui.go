@@ -69,6 +69,7 @@ type model struct {
 	tone      messageTone  // how the message reads: a warning or an error
 	notice    *notice      // floats at the top right of the diff until the next key
 	threads   threadsPanel // the threads panel t shows in place of the file tree
+	focus     focusView    // the focus view space opens on the cursor's file
 
 	drafting   *commentInput // the input box of c is open, and what it comments on
 	entry      textBox       // what is typed in the input box of a or c
@@ -349,6 +350,9 @@ func (m *model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	}
 	m.relayout()
 	m.scroll()
+	if m.focus.open {
+		m.focusScroll()
+	}
 	m.markRead() // after scroll, which keeps the origin box in its text
 	m.color()
 	return m, cmd
@@ -369,8 +373,8 @@ func (m *model) mouse(msg tea.MouseMsg) tea.Cmd {
 	mouse := msg.Mouse()
 	switch msg.(type) {
 	case tea.MouseClickMsg:
-		m.dragging = mouse.Button == tea.MouseLeft && mouse.Y < m.diffHeight() && m.onDivider(mouse.X)
-		if mouse.Button == tea.MouseLeft && !m.dragging && !m.help && !m.originBox.open && !m.search.open {
+		m.dragging = mouse.Button == tea.MouseLeft && mouse.Y < m.diffHeight() && m.onDivider(mouse.X) && !m.focus.open
+		if mouse.Button == tea.MouseLeft && !m.dragging && !m.help && !m.originBox.open && !m.search.open && !m.focus.open {
 			return m.click(mouse.X, mouse.Y)
 		}
 	case tea.MouseMotionMsg:
@@ -459,15 +463,18 @@ func (m *model) dragTo(x int) {
 	m.treeSize = min(max(x, minListWidth), most)
 }
 
-// relayout shows the split view when s asked for it and the diff is wide enough for both
-// sides, and the unified view otherwise, whether s, a resize or a drag of the file tree
-// changed that. A change of view keeps the cursor on the same line, or header, where it was
+// relayout shows the split view when s asked for it and the diff, or the open focus view,
+// is wide enough for both sides, and the unified view otherwise, whether s, a resize, a drag
+// of the file tree or the focus view opening or closing changed that. A change of view keeps the cursor on the same line, or header, where it was
 // on the screen. Leaving the split view from the row it was entered at goes back to the line
 // it was entered from, the deleted one of a pair too; from any other row it goes to the line
 // on the right, or on the left when the right has none. It ends a selection, whose rows are
 // those of the other view, and moves the row the input box is under the same way.
 func (m *model) relayout() {
 	_, w := m.layout()
+	if m.focus.open {
+		w = m.focusWidth()
+	}
 	split := m.splitOn && w >= minSplitWidth
 	if split == m.splitShown {
 		return

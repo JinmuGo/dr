@@ -98,6 +98,10 @@ export DR_VIEW=split
 
 `DR_VIEW` takes `unified` (the default) or `split`. The split view needs a diff at least 100 cells wide, so on a narrower screen dr shows the unified view until there is room. `s` still switches between the two.
 
+## Focusing on a file with `space`
+
+`space` opens the diff of the file under the cursor in a box over the screen, without the file tree and the other files. The keys that move stay in the file, `h` and `l` go to the previous and the next file, `s` switches between the split and the unified view, and `v` marks the file viewed. The box is wider than the diff beside the tree, so it shows the split view on screens where the diff stays unified. `space`, `Esc` or `q` closes it with the cursor where you left it. The box shows only the lines: comments, origin cards and search stay in the diff.
+
 ## Keys
 
 | Key | Action |
@@ -110,6 +114,7 @@ export DR_VIEW=split
 | `/` `n` `N` | Search, next, previous. A lowercase query ignores case |
 | `Enter` | Open the origin card. `j` `k` `d` `u` `J` `K` `gg` `G` scroll it, `a` asks a follow-up, `q` `Esc` `Enter` close |
 | `s` | Split or unified view. Narrow screens stay unified |
+| `space` | Focus on the file under the cursor in a box. `j` `k` `d` `u` `J` `K` `gg` `G` `{` `}` move inside it, `h` `l` go to another file, `s` splits it, `v` marks it viewed, `space` `Esc` `q` close |
 | `v` | Mark the file viewed or not |
 | `V` | Select lines, as in vim. `V` or `Esc` ends it |
 | `a` | Ask the session that wrote the line or the selection |

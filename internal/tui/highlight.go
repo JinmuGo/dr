@@ -28,9 +28,12 @@ type piece struct {
 	changed bool
 }
 
-// color colors the files that have lines on the screen and are not colored yet. A viewed
-// file shows only its header, so it waits until it unfolds.
+// color colors the files that have lines on the screen, or in the open focus view, and are
+// not colored yet. A viewed file shows only its header, so it waits until it unfolds.
 func (m *model) color() {
+	if f := m.rows[m.cursor].file; m.focus.open && !m.files[f].colored && !m.files[f].viewed {
+		m.colorFile(f)
+	}
 	for i := m.top; i < min(m.top+m.rowsHeight(), len(m.rows)); i++ {
 		if f := m.rows[i].file; !m.files[f].colored && !m.files[f].viewed {
 			m.colorFile(f)

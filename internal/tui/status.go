@@ -73,6 +73,7 @@ const (
 	modeSearch              // the search input is open
 	modeCommand             // the : input is open
 	modeThreads             // the threads panel has the keys
+	modeFocus               // the focus view is open
 	modeHelp                // the key help is open
 )
 
@@ -86,6 +87,7 @@ var modeNames = [...]string{
 	modeSearch:  "SEARCH",
 	modeCommand: "COMMAND",
 	modeThreads: "THREADS",
+	modeFocus:   "FOCUS",
 	modeHelp:    "HELP",
 }
 
@@ -95,8 +97,9 @@ func (md mode) String() string {
 }
 
 // mode returns what the keys do now: HELP, SEARCH or COMMAND while their input is open, ASK
-// or COMMENT while the input box of a or c is, ORIGIN while the origin box is, VISUAL while
-// lines are selected, and NORMAL otherwise.
+// or COMMENT while the input box of a or c is, THREADS while the threads panel has the keys,
+// FOCUS while the focus view is open, ORIGIN while the origin box is, VISUAL while lines are
+// selected, and NORMAL otherwise.
 func (m *model) mode() mode {
 	switch {
 	case m.help:
@@ -107,6 +110,8 @@ func (m *model) mode() mode {
 		return modeCommand
 	case m.threads.focus:
 		return modeThreads
+	case m.focus.open:
+		return modeFocus
 	case m.asking != nil:
 		return modeAsk
 	case m.drafting != nil:

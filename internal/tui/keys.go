@@ -61,6 +61,7 @@ const (
 	keyComment     = "c"
 	keyEdit        = "e"
 	keyThreads     = "t"
+	keyFocus       = "space"
 	keyCommand     = ":"
 	keyApply       = "y"
 	keyDrop        = "x"
@@ -95,7 +96,8 @@ func keyLabels(keys ...string) string {
 }
 
 // key handles a key press and hands it to the handler of what is open: the : input, the
-// empty screen, the search input, the input box, the origin box or the diff. It returns the
+// empty screen, the search input, the input box, the threads panel, the focus view, the
+// origin box or the diff. It returns the
 // command the key starts: quitting, saving the viewed files, asking a question, opening the
 // editor or a session's agent, sending fix requests or reading the diff again after a fix.
 // While the input box of a or c is open, every key goes to it, and ctrl+c cancels the box
@@ -129,11 +131,15 @@ func (m *model) key(msg tea.KeyPressMsg) tea.Cmd {
 	case m.typing():
 		return m.typeBox(msg)
 	case n != nil && k == keyEnter && n.question != nil:
+		m.focus.open = false // the answer is in the diff
 		return m.read(n.question)
 	case n != nil && k == keyEnter && n.fixes != nil:
+		m.focus.open = false
 		return m.readFix(n.fixes)
 	case m.threads.focus:
 		return m.threadKey(k)
+	case m.focus.open:
+		return m.focusKey(k)
 	case m.originBox.open:
 		return m.readKey(k)
 	case k == keyEsc:
@@ -179,7 +185,7 @@ func (m *model) normalKey(k string) tea.Cmd {
 	count := m.count
 	m.count, m.pending = 0, ""
 	switch k {
-	case keyPrevFile, keyLeft, keyNextFile, keyRight, keySearch, keySplit, keyViewed, keyOrigin:
+	case keyPrevFile, keyLeft, keyNextFile, keyRight, keySearch, keySplit, keyViewed, keyOrigin, keyFocus:
 		m.selection.on = false // these end a selection, then do what they do
 	}
 	if m.moveKey(k, count) {
@@ -217,6 +223,8 @@ func (m *model) normalKey(k string) tea.Cmd {
 		m.openCommand()
 	case keyThreads:
 		m.openThreads()
+	case keyFocus:
+		m.openFocus()
 	case keyApply:
 		return m.apply()
 	case keyDrop:
@@ -339,11 +347,15 @@ func (m *model) readKey(k string) tea.Cmd {
 }
 
 // moveTo puts the cursor on row i, or on the nearest row there is. During a selection the
-// nearest row is in the selection's file, between its first and its last line.
+// nearest row is in the selection's file, between its first and its last line, and in the
+// focus view it is in the rows the view shows.
 func (m *model) moveTo(i int) {
 	first, last := 0, len(m.rows)-1
-	if m.selection.on {
+	switch {
+	case m.selection.on:
 		first, last = m.selection.first, m.selection.last
+	case m.focus.open:
+		first, last = m.focusRows()
 	}
 	m.cursor = max(min(i, last), first)
 }
@@ -366,15 +378,20 @@ func (m *model) halfPage(dir int) {
 }
 
 // jump moves the cursor count times to the next row in the direction dir (1 or -1) for
-// which ok holds. It stays at the last such row when there are fewer.
+// which ok holds, inside the rows the focus view shows while it is open. It stays at the
+// last such row when there are fewer.
 func (m *model) jump(count, dir int, ok func(i int) bool) {
+	first, last := 0, len(m.rows)-1
+	if m.focus.open {
+		first, last = m.focusRows()
+	}
 	to := m.cursor
 	for range max(count, 1) {
 		i := to + dir
-		for i >= 0 && i < len(m.rows) && !ok(i) {
+		for i >= first && i <= last && !ok(i) {
 			i += dir
 		}
-		if i < 0 || i >= len(m.rows) {
+		if i < first || i > last {
 			break
 		}
 		to = i
@@ -402,7 +419,7 @@ var helpColumns = [2][]helpGroup{
 		}},
 		{"REVIEW", [][2]string{
 			{keyLabel(keyOrigin), "origin; j k scroll it"}, {keyLabels(keyViewed, keySelect), "viewed, select lines"},
-			{keySplit, "split or unified"}, {keyThreads, "questions and comments"},
+			{keyLabels(keySplit, keyFocus), "split; focus on a file"}, {keyThreads, "questions and comments"},
 		}},
 		{"MOUSE", [][2]string{
 			{"drag", "resize the tree"}, {"wheel", "scroll three lines"}, {"click", "a file, or a Viewed box"},
@@ -457,6 +474,11 @@ func (m *model) keycaps() []keycap {
 			newline = keyShiftEnter
 		}
 		return []keycap{{keyLabel(keyEnter), verb}, {keyLabel(newline), "new line"}, {keyPickModel, "pick a model"}, {keyEsc, "cancel"}}
+	case modeFocus:
+		return []keycap{
+			{keyLabels(keyLineDown, keyLineUp), "move"}, {keyLabels(keyNextFile, keyPrevFile), "next, previous file"},
+			{keySplit, "split"}, {keyViewed, "viewed"}, {keyLabels(keyFocus, keyEsc), "close"},
+		}
 	case modeThreads:
 		return []keycap{{keyLabels(keyLineDown, keyLineUp), "move"}, {keyLabel(keyEnter), "go"}, {keyEsc, "back to the diff"}, {keyThreads, "files"}}
 	case modeOrigin:
@@ -483,7 +505,7 @@ func (m *model) keycaps() []keycap {
 	}
 	keys := []keycap{
 		{keyAsk, "ask"}, {keyComment, "comment"}, {keyEdit, "edit"}, {keyLabel(keyOrigin), "origin"}, {keyViewed, "viewed"},
-		{keySelect, "select"}, {keySplit, "split"}, {keySearch, "search"}, {keyThreads, "threads"}, {keyCommand, "command"}, {keyHelp, "help"},
+		{keySelect, "select"}, {keySplit, "split"}, {keyFocus, "focus"}, {keySearch, "search"}, {keyThreads, "threads"}, {keyCommand, "command"}, {keyHelp, "help"},
 	}
 	if c := m.commentOn(m.cursor); c != nil && c.fix != nil {
 		keys = append([]keycap{{keyApply, "apply"}, {keyDrop, "drop"}}, keys...)
