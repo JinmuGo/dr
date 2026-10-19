@@ -123,6 +123,7 @@ func browse(stdout io.Writer, home, ref string) (err error) {
 		return err
 	}
 	saved := tui.Load(dir)
+	saved.Theme = os.Getenv("DR_THEME")
 	if !opens(repo.Root, files, saved.Log) {
 		_, _ = fmt.Fprintln(stdout, "No changed files")
 		return nil

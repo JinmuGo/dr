@@ -11,6 +11,7 @@ import (
 	"os/exec"
 	"path/filepath"
 	"slices"
+	"strconv"
 	"strings"
 	"time"
 
@@ -40,6 +41,10 @@ type model struct {
 	unreadable []string          // the agents whose session logs dr could not fully read
 	listWidth  int               // width the file tree needs
 	theme      theme
+	themeName  string // the theme DR_THEME named, "" for the default
+	// terminalDark tells the terminal has a dark background, as it told, or as assumed until
+	// it does. A named theme is dark or light whatever the terminal is.
+	terminalDark bool
 
 	rows          []row // the rows on the screen, of the unified or the split view
 	width, height int
@@ -126,6 +131,9 @@ type Saved struct {
 	// takes them, read again; nil keeps the diff as it is.
 	Reload func() ([]review.File, []agent.Problem, error)
 	Base   Base // what the diff compares the working tree with
+	// Theme names the colors of the screen, as DR_THEME gives it: one of Themes, or "" for
+	// the default.
+	Theme string
 }
 
 // Base is what the diff compares the working tree with, which the screen names when no file
@@ -163,25 +171,31 @@ func Load(dir string) Saved {
 // fully read, saved what the screen kept from earlier runs, and asker how it asks agents.
 func newModel(files []review.File, problems []agent.Problem, saved Saved, asker Asker) *model {
 	m := &model{
-		unreadable: unreadableAgents(problems),
-		theme:      newTheme(nil, true, false),
-		message:    saved.Problem,
-		viewed:     viewedState{files: saved.Viewed, saver: &saver{}},
-		asker:      asker,
-		earlier:    saved.Log,
-		records:    saved.Log,
-		lockErr:    saved.Lock,
-		base:       saved.Base,
-		reload:     saved.Reload,
-		execute:    tea.ExecProcess,
-		open:       agent.Open,
-		flights:    &flights{},
-		busy:       make(map[session]bool),
-		forks:      make(map[session]runFork),
-		requests:   make(map[string]*request),
-		models:     make(map[string]*modelList),
-		now:        time.Now,
-		tick:       tick,
+		unreadable:   unreadableAgents(problems),
+		themeName:    saved.Theme,
+		terminalDark: true,
+		theme:        themeFor(saved.Theme, nil, true, false),
+		message:      saved.Problem,
+		viewed:       viewedState{files: saved.Viewed, saver: &saver{}},
+		asker:        asker,
+		earlier:      saved.Log,
+		records:      saved.Log,
+		lockErr:      saved.Lock,
+		base:         saved.Base,
+		reload:       saved.Reload,
+		execute:      tea.ExecProcess,
+		open:         agent.Open,
+		flights:      &flights{},
+		busy:         make(map[session]bool),
+		forks:        make(map[session]runFork),
+		requests:     make(map[string]*request),
+		models:       make(map[string]*modelList),
+		now:          time.Now,
+		tick:         tick,
+	}
+	if !knownTheme(saved.Theme) {
+		unknown := "unknown DR_THEME " + strconv.Quote(review.Visible(saved.Theme)) + ", one of " + strings.Join(Themes(), ", ")
+		m.message = strings.Join(slices.DeleteFunc([]string{m.message, unknown}, func(s string) bool { return s == "" }), "; ")
 	}
 	if saved.Dir != "" {
 		m.viewed.saver.path = state.ViewedPath(saved.Dir)
@@ -301,9 +315,10 @@ func (m *model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	case tickMsg:
 		m.ticking = false
 	case tea.BackgroundColorMsg:
-		m.theme = newTheme(msg.Color, msg.IsDark(), m.theme.plain)
+		m.terminalDark = msg.IsDark()
+		m.theme = themeFor(m.themeName, msg.Color, m.terminalDark, m.theme.plain)
 	case tea.ColorProfileMsg:
-		m.theme = newTheme(m.theme.bg, m.theme.dark, msg.Profile <= colorprofile.ASCII)
+		m.theme = themeFor(m.themeName, m.theme.bg, m.terminalDark, msg.Profile <= colorprofile.ASCII)
 	case tea.KeyboardEnhancementsMsg:
 		m.shiftEnter = msg.SupportsKeyDisambiguation()
 	}

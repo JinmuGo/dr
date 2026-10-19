@@ -78,6 +78,16 @@ To fix a line by hand, `e` opens it in your editor. For a change too big for a c
 
 Questions and fix requests run in the background, so you can keep reviewing while they wait. `t` shows every thread in place of the file tree, the ones that need you first. `◉` is an answer that came while you were elsewhere, or a fix waiting for `y` or `x`, `●` is still waiting, `✗` got no answer or fix, `✎` is a comment `:submit` will send and `○` is read. Enter on a thread opens it where it lives in the diff. An answer counts as read once its origin card shows it. dr forgets what you read when it quits, and quitting stops the questions that are still waiting.
 
+## Colors
+
+dr picks light or dark GitHub colors to match your terminal. To use another theme, set `DR_THEME`, for example in your shell profile:
+
+```sh
+export DR_THEME=onedark
+```
+
+The themes are `github` (the default), `catppuccin-latte`, `catppuccin-mocha`, `gruvbox`, `onedark` and `tokyonight`. A theme sets the colors of the code, the changed lines and the panels. Unchanged lines keep your terminal's background, and the tinted lines are mixed into it. Pick a light theme for a light terminal and a dark one for a dark terminal, or the text is hard to read. `NO_COLOR=1` turns colors off whatever the theme.
+
 ## Keys
 
 | Key | Action |
