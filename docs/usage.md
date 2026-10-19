@@ -19,7 +19,7 @@ When `<branch>` is checked out in another worktree, such as one an agent works i
 Install dr on `PATH`, then install the OMP plugin:
 
 ```sh
-omp plugin install github:JinmuGo/dr#v0.1.5
+omp plugin install github:JinmuGo/dr#v0.1.6
 ```
 
 Restart OMP after installing or updating the plugin. When the agent has finished its turn, run `/dr`. If the repository has multiple worktrees, choose the one to review. The diff opens in the same terminal. Press `q` in dr to return to the same OMP session and continue typing.
@@ -33,7 +33,7 @@ For local development, run `omp plugin link /path/to/dr` with the repository roo
 Install dr on `PATH`, then install the package:
 
 ```sh
-pi install git:github.com/JinmuGo/dr@v0.1.5
+pi install git:github.com/JinmuGo/dr@v0.1.6
 ```
 
 Restart Pi after installing or updating the package. `/dr` works as it does in OMP: choose a worktree when there are several, or name one with `/dr <branch>`, and press `q` in dr to return to the same Pi session.
