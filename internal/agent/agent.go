@@ -46,6 +46,10 @@ type Edit struct {
 	// Fix is set on an edit dr made: a fix it applied for a comment. It is nil for an edit
 	// read from a session log.
 	Fix *Fix
+	// Unread names the tool of an edit the log records but dr cannot read, such as a tool
+	// dr does not know or a record in a shape it does not know. Apply of such an edit
+	// reports false, so the lines it changed have no origin. It is "" for an edit dr read.
+	Unread string
 
 	key   string    // the same in every session log that holds a copy of the edit
 	start time.Time // when the session started
@@ -55,6 +59,9 @@ type Edit struct {
 type Problem struct {
 	Agent, Path string
 	Bad         int // lines that are not JSON
+	// Unread counts the edits the log records that dr could not read and that name no file
+	// dr can tell, so no file can say so.
+	Unread int
 }
 
 // agent is a coding agent dr knows: where it keeps its session logs and how to read them,
@@ -272,14 +279,19 @@ func (l *sessionLog) readRecords(reader io.Reader, since time.Time) bool {
 		l.problem = &Problem{Agent: l.agent.name, Path: l.path}
 		return false
 	}
-	if records.bad > 0 {
-		l.problem = &Problem{Agent: l.agent.name, Path: l.path, Bad: records.bad}
-	}
+	unread := 0
 	for _, e := range edits {
-		if !e.Time.Before(since) {
+		switch {
+		case e.Time.Before(since):
+		case e.Unread != "" && e.Path == "":
+			unread++
+		default:
 			e.Log = l.path
 			l.edits = append(l.edits, e)
 		}
+	}
+	if records.bad > 0 || unread > 0 {
+		l.problem = &Problem{Agent: l.agent.name, Path: l.path, Bad: records.bad, Unread: unread}
 	}
 	return true
 }
@@ -423,6 +435,55 @@ func finish(edits []Edit, turns map[string][]turn) []Edit {
 		}
 	}
 	return edits
+}
+
+// unread returns e as an edit of path with tool that dr cannot read. A relative path is
+// taken from the session's directory cwd. With no path, Load counts the edit in the log's
+// Problem, since no file can say so.
+func unread(e Edit, tool, path, cwd string) Edit {
+	if path != "" && !filepath.IsAbs(path) {
+		path = filepath.Join(cwd, path)
+	}
+	if path != "" {
+		path = filepath.Clean(path)
+	}
+	e.Path, e.Unread, e.Before = path, tool, nil
+	e.Apply = func(string) (string, bool) { return "", false }
+	e.key = keyOf(e.Agent, e.Time, e.Path, "unread", tool)
+	return e
+}
+
+// fileTool returns the files a call of a tool dr does not read seems to change: when the
+// tool's name says it edits, writes or patches, the paths its arguments name. A tool
+// that names no file, such as a to-do list, changes none.
+func fileTool(name string, args []byte) []string {
+	lower := strings.ToLower(name)
+	if !strings.Contains(lower, "edit") && !strings.Contains(lower, "write") && !strings.Contains(lower, "patch") {
+		return nil
+	}
+	return namedPaths(args)
+}
+
+// namedPaths returns the files a JSON object names in a field for a path, such as path,
+// file_path, filePath or paths, leaving out device paths such as xd://resolve.
+func namedPaths(object []byte) []string {
+	var named struct {
+		Path         string   `json:"path"`
+		FilePath     string   `json:"file_path"`
+		FilePathCase string   `json:"filePath"`
+		NotebookPath string   `json:"notebook_path"`
+		Paths        []string `json:"paths"`
+	}
+	if json.Unmarshal(object, &named) != nil {
+		return nil
+	}
+	var paths []string
+	for _, p := range append([]string{named.Path, named.FilePath, named.FilePathCase, named.NotebookPath}, named.Paths...) {
+		if p != "" && !strings.Contains(p, "://") && !slices.Contains(paths, p) {
+			paths = append(paths, p)
+		}
+	}
+	return paths
 }
 
 // whole is an edit that writes the whole file.

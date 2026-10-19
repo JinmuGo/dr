@@ -97,6 +97,7 @@ func parseClaude(records *recordReader) []Edit {
 	notes := make(map[string]string)       // by tool_use id
 	models := make(map[string]string)      // by tool_use id
 	calls := make(map[string]claudeResult) // owned Write and Edit arguments, by tool_use id
+	others := make(map[string]claudeOther) // calls of other tools that seem to change files, by tool_use id
 	var start time.Time
 	for records.next() {
 		var record claudeRecord
@@ -128,8 +129,13 @@ func parseClaude(records *recordReader) []Edit {
 					if model := record.Message.Model; model != "<synthetic>" { // a message Claude Code made up
 						models[b.ID] = model
 					}
-					if b.Name == "Write" || b.Name == "Edit" {
-						calls[b.ID] = claudeCallResult(b)
+					if call := claudeCallResult(b); call.FilePath != "" {
+						calls[b.ID] = call
+					} else if paths := fileTool(b.Name, b.Input); len(paths) > 0 {
+						// Another tool, or a Write or an Edit with arguments dr does not know.
+						others[b.ID] = claudeOther{tool: b.Name, paths: paths}
+					} else if b.Name == "Write" || b.Name == "Edit" {
+						others[b.ID] = claudeOther{tool: b.Name, paths: []string{""}} // no file dr can tell
 					}
 				}
 			}
@@ -145,26 +151,61 @@ func parseClaude(records *recordReader) []Edit {
 			// Code 2.1.295 logs no toolUseResult, and then the call a result answers says
 			// what changed, if the call was allowed and did not fail.
 			hasResult := len(record.ToolUseResult) > 0 && record.ToolUseResult[0] == '{'
+			// A Write or an Edit that ran and that toolUseResult tells of. dr cannot read it
+			// when it cannot read toolUseResult.
+			var told claudeOther
 			for _, b := range blocks {
 				if b.Type != "tool_result" {
 					continue
 				}
 				e.Note, e.Model = notes[b.ToolUseID], models[b.ToolUseID]
+				if other, ok := others[b.ToolUseID]; ok {
+					delete(others, b.ToolUseID)
+					switch {
+					case b.IsError:
+					case other.tool == "Write" || other.tool == "Edit":
+						// Like a Write or an Edit dr reads: told of by toolUseResult, or
+						// else made only when allowed.
+						if hasResult {
+							told = other
+						} else if record.PermissionDecision.Decision == "accept" {
+							for _, path := range other.paths {
+								edits = append(edits, unread(e, other.tool, path, record.Cwd))
+							}
+						}
+					default:
+						for _, path := range other.paths {
+							edits = append(edits, unread(e, other.tool, path, record.Cwd))
+						}
+					}
+					continue
+				}
 				call, ok := calls[b.ToolUseID]
 				delete(calls, b.ToolUseID) // a call is answered once
+				if ok && hasResult && !b.IsError {
+					told = claudeOther{tool: claudeTool(call), paths: []string{call.FilePath}}
+				}
 				if !ok || hasResult || b.IsError || record.PermissionDecision.Decision != "accept" {
 					continue
 				}
 				if edit, ok := claudeEdit(e, call); ok {
 					edits = append(edits, edit)
+				} else {
+					edits = append(edits, unread(e, claudeTool(call), call.FilePath, record.Cwd))
 				}
 			}
 			switch {
 			case hasResult:
 				var result claudeResult
+				edit, ok := e, false
 				if json.Unmarshal(record.ToolUseResult, &result) == nil {
-					if edit, ok := claudeEdit(e, result); ok {
-						edits = append(edits, edit)
+					edit, ok = claudeEdit(e, result)
+				}
+				if ok {
+					edits = append(edits, edit)
+				} else {
+					for _, path := range told.paths {
+						edits = append(edits, unread(e, told.tool, path, record.Cwd))
 					}
 				}
 			case len(record.ToolUseResult) == 0 || string(record.ToolUseResult) == "null":
@@ -200,13 +241,27 @@ func claudeEdit(e Edit, result claudeResult) (Edit, bool) {
 	return e, true
 }
 
+// claudeOther is a call of a tool other than Write and Edit that seems to change files.
+type claudeOther struct {
+	tool  string
+	paths []string
+}
+
+// claudeTool returns the tool of call, as claudeCallResult made it: a Write or an Edit.
+func claudeTool(call claudeResult) string {
+	if call.Content != nil {
+		return "Write"
+	}
+	return "Edit"
+}
+
 // claudeCallResult returns the toolUseResult Claude Code would log for call, a Write or an
 // Edit, short of the file before the call, which only a toolUseResult holds. A Write then
 // reads like one that replaced a file the log does not hold, so the same Write in a log
 // that has its toolUseResult gets the same key.
 func claudeCallResult(call claudeBlock) claudeResult {
 	var input claudeInput
-	if json.Unmarshal(call.Input, &input) != nil {
+	if call.Name != "Write" && call.Name != "Edit" || json.Unmarshal(call.Input, &input) != nil {
 		return claudeResult{}
 	}
 	if call.Name == "Write" {

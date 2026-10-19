@@ -72,6 +72,7 @@ func TestRepo(t *testing.T) {
 	}
 	writeFile(t, filepath.Join(repo, "omp/notes.md"), "a\nold\nc\n")
 	writeFile(t, filepath.Join(repo, "omp/other.md"), "x\n")
+	writeFile(t, filepath.Join(repo, "omp/lower.md"), "A\nB\n")
 	writeFile(t, filepath.Join(repo, "gone.md"), "gone\n")
 	writeFile(t, filepath.Join(repo, "moved.md"), "moved\n")
 	writeFile(t, filepath.Join(repo, "empty/.gitkeep"), "")
@@ -100,6 +101,7 @@ func TestRepo(t *testing.T) {
 	writeFile(t, filepath.Join(repo, "codex/ratelimit.go"), readFile(t, "testdata/codex-ratelimit.go"))
 	writeFile(t, filepath.Join(repo, "omp/notes.md"), "a\nB\nc\nd\n")
 	writeFile(t, filepath.Join(repo, "omp/other.md"), "y\nz\n")
+	writeFile(t, filepath.Join(repo, "omp/lower.md"), "A\nb\n")
 	// What a person did outside the sessions.
 	for _, path := range []string{"gone.md", "empty/.gitkeep"} {
 		if err := os.Remove(filepath.Join(repo, path)); err != nil {
@@ -140,6 +142,7 @@ func TestRepo(t *testing.T) {
 		".codex/sessions/2026/10/09/rollout-1.jsonl":   "codex-01a1209b-a5af-7992-ba5a-c5fdd6a39255.jsonl",
 		".omp/agent/sessions/spike/1.jsonl":            "omp-01a1f000-0000-7000-8000-000000000001.jsonl",
 		".omp/agent/sessions/spike/1/0-Subagent.jsonl": "omp-01a1f000-0000-7000-8000-000000000002.jsonl",
+		".omp/agent/sessions/spike/3.jsonl":            "omp-01a1f000-0000-7000-8000-000000000003.jsonl",
 	} {
 		log := readFile(t, filepath.Join("../agent/testdata", name))
 		writeFile(t, filepath.Join(home, dest), strings.ReplaceAll(log, spike, repo))
@@ -170,7 +173,7 @@ func TestRepo(t *testing.T) {
 		// untracked repository is its directory, without the slash git lists it with.
 		want := []string{
 			"claude/ratelimit.go", "codex/ratelimit.go", "empty/.gitkeep", "filed", "filed/a.go", "gone.md",
-			"image.bin", "link", "linked", "linked/a.go", "moved.md", "nested", "omp/notes.md", "omp/other.md",
+			"image.bin", "link", "linked", "linked/a.go", "moved.md", "nested", "omp/lower.md", "omp/notes.md", "omp/other.md",
 			"renamed.md", "sub",
 		}
 		if !slices.Equal(got, want) {
@@ -188,6 +191,18 @@ func TestRepo(t *testing.T) {
 		want := []string{"a", "omp #1 old", "omp #2 B", "c", "omp #3 d"}
 		if !slices.Equal(got, want) {
 			t.Errorf("got %q, want %q", got, want)
+		}
+	})
+
+	t.Run("unread", func(t *testing.T) {
+		// An ast_edit applied to lower.md and notes.md, which dr cannot read. Only lower.md
+		// has a changed line without an origin, so only it names the edit.
+		f := file(t, "omp/lower.md")
+		if !slices.Equal(f.Unread, []string{"omp ast_edit"}) || len(f.Lines) != 3 || f.Lines[1].Edit != nil || f.Lines[2].Edit != nil {
+			t.Errorf("lower.md: got unread %q, lines %+v; want omp ast_edit and its changed lines unknown", f.Unread, f.Lines)
+		}
+		if f := file(t, "omp/notes.md"); f.Unread != nil {
+			t.Errorf("notes.md: got unread %q, want none since every changed line has an origin", f.Unread)
 		}
 	})
 

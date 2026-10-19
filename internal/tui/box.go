@@ -81,12 +81,13 @@ func (m *model) originRows(width int) []cardRow {
 	if qs := m.questionsAt(m.cursor); len(qs) > 0 {
 		return m.threadRows(qs, width)
 	}
+	unread := m.files[r.file].unread
 	if r.isChange() && r.left >= 0 && r.right >= 0 && !sameOrigin(m.lines[r.left].Edit, m.lines[r.right].Edit) {
 		return joinGroups(
-			m.sideHead("DELETED LINE", m.lines[r.left].Edit), m.lineOrigin(m.lines[r.left], width),
-			m.sideHead("ADDED LINE", m.lines[r.right].Edit), m.lineOrigin(m.lines[r.right], width))
+			m.sideHead("DELETED LINE", m.lines[r.left].Edit), m.lineOrigin(m.lines[r.left], unread, width),
+			m.sideHead("ADDED LINE", m.lines[r.right].Edit), m.lineOrigin(m.lines[r.right], unread, width))
 	}
-	return m.lineOrigin(m.lines[r.main()], width)
+	return m.lineOrigin(m.lines[r.main()], unread, width)
 }
 
 // sideHead returns the head of a side of a split row in the origin card: its label, title,
@@ -106,15 +107,16 @@ func sameOrigin(a, b *agent.Edit) bool {
 }
 
 // lineOrigin tells the origin of l: the edit or the fix that wrote or deleted it, or that no
-// session log explains a changed line, or that the line did not change.
-func (m *model) lineOrigin(l origin.Line, width int) []cardRow {
+// session log explains a changed line, naming unread, the edits to its file that dr could
+// not read, or that the line did not change.
+func (m *model) lineOrigin(l origin.Line, unread []string, width int) []cardRow {
 	switch {
 	case l.Edit != nil && l.Edit.Fix != nil:
 		return m.fixRows(l, width)
 	case l.Edit != nil:
 		return m.editRows(l, width)
 	case l.Old == 0 || l.New == 0:
-		return m.section("UNKNOWN", "", review.NoOrigin, chunk{color: m.theme.fg}, width)
+		return m.section("UNKNOWN", "", review.UnknownOrigin(unread), chunk{color: m.theme.fg}, width)
 	}
 	return []cardRow{{left: []chunk{{text: "Unchanged line", color: m.theme.muted}}}}
 }

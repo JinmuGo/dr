@@ -30,7 +30,7 @@ For local development, run `omp plugin link /path/to/dr` with the repository roo
 
 ## Reading the diff
 
-A session is one conversation with an agent, and a request is one message you sent in it. A line's origin is the session and request whose edit last changed it. A line that no recorded edit explains is unknown: you changed it, or a shell command did. dr does not guess.
+A session is one conversation with an agent, and a request is one message you sent in it. A line's origin is the session and request whose edit last changed it. A line that no recorded edit explains is unknown: you changed it, or a shell command did. dr does not guess. When a log records an edit to the file that dr cannot read, such as one by OMP's `ast_edit` or by a tool of an MCP server, the line's origin card names that edit instead, and a band at the top says which agent's records could not be read.
 
 - Each session has a color. The rail next to a changed line has the color of its session, dotted when the origin is unknown and teal for a fix dr applied.
 - The first line a request changed in each hunk carries a label such as `claude c1a0 #2`: the agent, the end of the session id and the request number.

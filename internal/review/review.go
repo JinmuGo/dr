@@ -94,6 +94,9 @@ type File struct {
 	// holds the diff.
 	NoDiff string
 	Lines  []origin.Line // the whole diff, unchanged lines included
+	// Unread names the edits to the file that dr could not read, as agent and tool, such as
+	// "omp ast_edit", when some changed line has no origin. One of them may have written it.
+	Unread []string
 }
 
 // Why a file has no line diff, as dr shows it in place of the diff. dr does not look for
@@ -189,7 +192,15 @@ func (r *Repo) file(path, baseType, before string) (File, error) {
 		f.NoDiff = Binary
 		return f, nil
 	}
-	f.Lines = origin.Blame(before, after, r.origin.Edits(r.edits, path))
+	edits := r.origin.Edits(r.edits, path)
+	f.Lines = origin.Blame(before, after, edits)
+	if slices.ContainsFunc(f.Lines, func(l origin.Line) bool { return (l.Old == 0 || l.New == 0) && l.Edit == nil }) {
+		for _, e := range edits {
+			if tool := e.Agent + " " + e.Unread; e.Unread != "" && !slices.Contains(f.Unread, tool) {
+				f.Unread = append(f.Unread, tool)
+			}
+		}
+	}
 	return f, nil
 }
 

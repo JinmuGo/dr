@@ -78,7 +78,7 @@ func TestShowWholeRequest(t *testing.T) {
 		Prompt: prompt, Reply: "다 짰어요.\u009b2J", Note: "짤게요.\u2066",
 	}
 	var b strings.Builder
-	if err := show(&b, []origin.Line{{Text: "\tx := \"\x1b[2K\u202e\"", New: 1, Edit: e}}); err != nil {
+	if err := show(&b, []origin.Line{{Text: "\tx := \"\x1b[2K\u202e\"", New: 1, Edit: e}}, nil); err != nil {
 		t.Fatal(err)
 	}
 	got := b.String()
@@ -115,7 +115,7 @@ func TestShowNotes(t *testing.T) {
 		{Text: "D", New: 4, Edit: edit(4, "")},
 	}
 	var b strings.Builder
-	if err := show(&b, lines); err != nil {
+	if err := show(&b, lines, nil); err != nil {
 		t.Fatal(err)
 	}
 	want := "    request: notes.md를 고쳐줘\n" +
@@ -124,6 +124,26 @@ func TestShowNotes(t *testing.T) {
 		"    reply: 고쳤어요\n"
 	if got := b.String(); !strings.Contains(got, want) {
 		t.Errorf("got\n%s\nwant it to contain\n%s", got, want)
+	}
+}
+
+func TestShowUnread(t *testing.T) {
+	// A line without an origin in a file with edits dr could not read names those edits.
+	var b strings.Builder
+	if err := show(&b, []origin.Line{{Text: "b", New: 1}}, []string{"omp ast_edit"}); err != nil {
+		t.Fatal(err)
+	}
+	want := "unknown  Not in any session record dr can read. dr could not read the omp ast_edit edits to this file, which may have written it.\n"
+	if got := b.String(); !strings.HasPrefix(got, want) {
+		t.Errorf("got\n%s\nwant it to start with\n%s", got, want)
+	}
+	// The name of a tool comes from a log, so it cannot write to the terminal.
+	b.Reset()
+	if err := show(&b, []origin.Line{{Text: "b", New: 1}}, []string{"claude mcp__edit\x1b[2J\u202e"}); err != nil {
+		t.Fatal(err)
+	}
+	if got := b.String(); strings.ContainsAny(got, "\x1b\u202e") || !strings.Contains(got, "claude mcp__edit") {
+		t.Errorf("got %q, want the tool's name without its control characters", got)
 	}
 }
 
