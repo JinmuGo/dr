@@ -108,6 +108,7 @@ The themes are `github` (the default), `catppuccin-latte`, `catppuccin-mocha`, `
 | `y` `x` | Apply, drop the fix under the comment |
 | `:undo` | Revert the last fix dr applied |
 | `t` | Show the threads in place of the file tree: every question and comment, new answers and fixes first. `j` `k` move, `Enter` goes to one, `Esc` returns to the diff, `t` brings the files back |
+| `⌘B` | Fold the file tree, or the threads, to the left edge, or show it again. Only terminals that report the Command key, such as Ghostty and kitty, send it |
 | `e` | Edit the line in `$VISUAL`, else `$EDITOR`, else `vi` |
 | `ga` | Open the session that wrote the line in its agent, in this terminal |
 | `:` | Type a command. A list shows each command and what it would do now |

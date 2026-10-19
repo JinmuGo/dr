@@ -31,6 +31,7 @@ const (
 	keyCtrlN      = "ctrl+n"
 	keyCtrlP      = "ctrl+p"
 	keyCtrlU      = "ctrl+u"
+	keySuperB     = "super+b" // ⌘B, which only a terminal that reports the super key sends
 )
 
 // The keys of the diff and the origin box, named for what they do. keyPrefix waits for the
@@ -61,6 +62,7 @@ const (
 	keyComment     = "c"
 	keyEdit        = "e"
 	keyThreads     = "t"
+	keyFoldTree    = keySuperB
 	keyCommand     = ":"
 	keyApply       = "y"
 	keyDrop        = "x"
@@ -73,10 +75,11 @@ const (
 var glyphs = map[string]string{
 	keyEnter: "⏎", keyShiftEnter: "⇧⏎", keyAltEnter: "⌥⏎", keyUp: "↑", keyDown: "↓",
 	keyCtrlC: "^C", keyCtrlJ: "^J", keyCtrlN: "^N", keyCtrlP: "^P", keyCtrlU: "^U",
+	keySuperB: "⌘B",
 }
 
 // keyLabel returns how the key help and the key row show key k: a glyph for Enter, the
-// arrows and the ctrl keys, and its name for the others.
+// arrows, the ctrl keys and ⌘B, and its name for the others.
 func keyLabel(k string) string {
 	if g, ok := glyphs[k]; ok {
 		return g
@@ -217,6 +220,8 @@ func (m *model) normalKey(k string) tea.Cmd {
 		m.openCommand()
 	case keyThreads:
 		m.openThreads()
+	case keyFoldTree:
+		m.foldTree()
 	case keyApply:
 		return m.apply()
 	case keyDrop:
@@ -402,7 +407,7 @@ var helpColumns = [2][]helpGroup{
 		}},
 		{"REVIEW", [][2]string{
 			{keyLabel(keyOrigin), "origin; j k scroll it"}, {keyLabels(keyViewed, keySelect), "viewed, select lines"},
-			{keySplit, "split or unified"}, {keyThreads, "questions and comments"},
+			{keyLabels(keySplit, keyFoldTree), "split, fold the tree"}, {keyThreads, "questions and comments"},
 		}},
 		{"MOUSE", [][2]string{
 			{"drag", "resize the tree"}, {"wheel", "scroll three lines"}, {"click", "a file, or a Viewed box"},

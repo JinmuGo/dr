@@ -141,8 +141,8 @@ func (m *model) cursorThread(threads []*thread) string {
 }
 
 // threadKey handles a key while the threads panel has the keys: j and k move the selection,
-// Enter goes to the selected thread, Esc gives the keys back to the diff, and t shows the
-// file tree again. It returns the command that saves the viewed files when going to a
+// Enter goes to the selected thread, Esc gives the keys back to the diff, t shows the file
+// tree again, and ⌘B folds the panel. It returns the command that saves the viewed files when going to a
 // thread unfolds a viewed file.
 func (m *model) threadKey(k string) tea.Cmd {
 	threads := m.threadList()
@@ -160,6 +160,8 @@ func (m *model) threadKey(k string) tea.Cmd {
 		m.threads.focus = false
 	case keyThreads:
 		m.threads.shown, m.threads.focus = false, false
+	case keyFoldTree:
+		m.foldTree()
 	case keyHelp:
 		m.help = true
 	case keyQuit:
