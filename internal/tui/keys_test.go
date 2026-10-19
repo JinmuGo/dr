@@ -15,7 +15,7 @@ import (
 var keyGlyphs = map[string]string{
 	"⏎": "<enter>", "⇧⏎": "<shift+enter>", "⌥⏎": "<alt+enter>", "esc": "<esc>", "tab": "<tab>",
 	"↑": "<up>", "↓": "<down>", "^C": "<ctrl+c>", "^J": "<ctrl+j>", "^N": "<ctrl+n>", "^P": "<ctrl+p>", "^U": "<ctrl+u>", "⌘B": "<super+b>",
-	"any key": "x",
+	"any key": "x", "space": " ",
 }
 
 // labelPresses returns the key presses of each key a label of the key help or the key row
@@ -90,6 +90,7 @@ func TestKeysHandled(t *testing.T) {
 		{"search", "SEARCH", screenOf(testFiles(), "/ab"), nil, ""},
 		{"command", "COMMAND", screenOf(testFiles(), ":"), map[string]string{"<up>": "<down>"}, ""},
 		{"help", "HELP", screenOf(testFiles(), "?"), nil, ""},
+		{"focus", "PEEK", screenOf(testFiles(), "4j "), nil, "Z"},
 		{"empty", "NORMAL", screenOf(nil, ""), nil, "Z"},
 	} {
 		t.Run(tc.name, func(t *testing.T) {

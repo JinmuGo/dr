@@ -254,7 +254,7 @@ func (m *model) rebuild(files []review.File, problems []agent.Problem) {
 	m.unreadable = unreadableAgents(problems)
 	m.setFiles(files)
 	if len(m.rows) == 0 {
-		m.cursor, m.top = 0, 0
+		m.cursor, m.top, m.peek.open = 0, 0, false
 		m.search.open, m.search.input, m.count, m.pending = false, "", 0, ""
 		return
 	}
