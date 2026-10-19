@@ -73,7 +73,7 @@ const (
 	modeSearch              // the search input is open
 	modeCommand             // the : input is open
 	modeThreads             // the threads panel has the keys
-	modeFocus               // the focus view is open
+	modePeek                // the peek view is open
 	modeHelp                // the key help is open
 )
 
@@ -87,7 +87,7 @@ var modeNames = [...]string{
 	modeSearch:  "SEARCH",
 	modeCommand: "COMMAND",
 	modeThreads: "THREADS",
-	modeFocus:   "FOCUS",
+	modePeek:    "PEEK",
 	modeHelp:    "HELP",
 }
 
@@ -98,7 +98,7 @@ func (md mode) String() string {
 
 // mode returns what the keys do now: HELP, SEARCH or COMMAND while their input is open, ASK
 // or COMMENT while the input box of a or c is, THREADS while the threads panel has the keys,
-// FOCUS while the focus view is open, ORIGIN while the origin box is, VISUAL while lines are
+// FOCUS while the peek view is open, ORIGIN while the origin box is, VISUAL while lines are
 // selected, and NORMAL otherwise.
 func (m *model) mode() mode {
 	switch {
@@ -110,8 +110,8 @@ func (m *model) mode() mode {
 		return modeCommand
 	case m.threads.focus:
 		return modeThreads
-	case m.focus.open:
-		return modeFocus
+	case m.peek.open:
+		return modePeek
 	case m.asking != nil:
 		return modeAsk
 	case m.drafting != nil:
@@ -152,6 +152,9 @@ func (m *model) pill() []seg {
 	segs := []seg{{text: " " + mode.String() + " ", st: t.pill(fg, bg)}}
 	if m.typing() && m.entry.picker != nil {
 		segs = append(segs, seg{text: " ^ model ", st: t.chip(t.fg, t.ask)})
+	}
+	if m.focused && len(m.rows) > 0 {
+		segs = append(segs, seg{text: " f focus ", st: t.chip(t.accent, t.accent)})
 	}
 	return append(segs, seg{text: "  ", st: t.paint(nil, t.panel)})
 }

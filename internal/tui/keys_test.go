@@ -90,7 +90,7 @@ func TestKeysHandled(t *testing.T) {
 		{"search", "SEARCH", screenOf(testFiles(), "/ab"), nil, ""},
 		{"command", "COMMAND", screenOf(testFiles(), ":"), map[string]string{"<up>": "<down>"}, ""},
 		{"help", "HELP", screenOf(testFiles(), "?"), nil, ""},
-		{"focus", "FOCUS", screenOf(testFiles(), "4j "), nil, "Z"},
+		{"focus", "PEEK", screenOf(testFiles(), "4j "), nil, "Z"},
 		{"empty", "NORMAL", screenOf(nil, ""), nil, "Z"},
 	} {
 		t.Run(tc.name, func(t *testing.T) {

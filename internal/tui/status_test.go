@@ -116,7 +116,7 @@ func TestStatusCrowded(t *testing.T) {
 
 func TestKeyRowFit(t *testing.T) {
 	// The key row leaves out the keys that do not fit whole beside how to quit; none is cut.
-	labels := []string{"ask", "comment", "edit", "origin", "viewed", "select", "split", "focus", "search", "threads", "command", "help"}
+	labels := []string{"ask", "comment", "edit", "origin", "viewed", "select", "split", "peek", "focus", "search", "threads", "command", "help"}
 	m := askScreen(testFiles(), Saved{}, &fakeAsk{})
 	for width := 40; width <= 150; width++ {
 		m.Update(tea.WindowSizeMsg{Width: width, Height: 24})

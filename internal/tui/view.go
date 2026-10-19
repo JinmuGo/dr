@@ -55,7 +55,7 @@ func (m *model) View() tea.View {
 
 // draw returns the screen, m.height lines of m.width cells: the diff, or noChanges when no
 // changed file is left, the status line and, on a screen of minKeyRowHeight rows or more,
-// the key row. Over the diff floats the open focus view, and over them float the notice at the top right of the diff, the command list
+// the key row. Over the diff floats the open peek view, and over them float the notice at the top right of the diff, the command list
 // above the status line while the : input is open, and the key help over all of it.
 func (m *model) draw() string {
 	if m.width <= 0 || m.height <= 0 {
@@ -68,8 +68,8 @@ func (m *model) draw() string {
 		lines, w = m.emptyLines(h), m.width
 	} else {
 		lines = m.mainLines(h)
-		if m.focus.open {
-			m.drawFocus(lines)
+		if m.peek.open {
+			m.drawPeek(lines)
 		}
 	}
 	m.drawNotice(lines, w)

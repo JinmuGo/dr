@@ -61,7 +61,8 @@ const (
 	keyComment     = "c"
 	keyEdit        = "e"
 	keyThreads     = "t"
-	keyFocus       = "space"
+	keyPeek        = "space"
+	keyFocus       = "f"
 	keyCommand     = ":"
 	keyApply       = "y"
 	keyDrop        = "x"
@@ -96,7 +97,7 @@ func keyLabels(keys ...string) string {
 }
 
 // key handles a key press and hands it to the handler of what is open: the : input, the
-// empty screen, the search input, the input box, the threads panel, the focus view, the
+// empty screen, the search input, the input box, the threads panel, the peek view, the
 // origin box or the diff. It returns the
 // command the key starts: quitting, saving the viewed files, asking a question, opening the
 // editor or a session's agent, sending fix requests or reading the diff again after a fix.
@@ -131,15 +132,15 @@ func (m *model) key(msg tea.KeyPressMsg) tea.Cmd {
 	case m.typing():
 		return m.typeBox(msg)
 	case n != nil && k == keyEnter && n.question != nil:
-		m.focus.open = false // the answer is in the diff
+		m.peek.open = false // the answer is in the diff
 		return m.read(n.question)
 	case n != nil && k == keyEnter && n.fixes != nil:
-		m.focus.open = false
+		m.peek.open = false
 		return m.readFix(n.fixes)
 	case m.threads.focus:
 		return m.threadKey(k)
-	case m.focus.open:
-		return m.focusKey(k)
+	case m.peek.open:
+		return m.peekKey(k)
 	case m.originBox.open:
 		return m.readKey(k)
 	case k == keyEsc:
@@ -185,7 +186,7 @@ func (m *model) normalKey(k string) tea.Cmd {
 	count := m.count
 	m.count, m.pending = 0, ""
 	switch k {
-	case keyPrevFile, keyLeft, keyNextFile, keyRight, keySearch, keySplit, keyViewed, keyOrigin, keyFocus:
+	case keyPrevFile, keyLeft, keyNextFile, keyRight, keySearch, keySplit, keyViewed, keyOrigin, keyPeek:
 		m.selection.on = false // these end a selection, then do what they do
 	}
 	if m.moveKey(k, count) {
@@ -223,8 +224,10 @@ func (m *model) normalKey(k string) tea.Cmd {
 		m.openCommand()
 	case keyThreads:
 		m.openThreads()
+	case keyPeek:
+		m.openPeek()
 	case keyFocus:
-		m.openFocus()
+		m.focused = !m.focused // scroll keeps the screen in the file
 	case keyApply:
 		return m.apply()
 	case keyDrop:
@@ -250,12 +253,14 @@ func (m *model) moveKey(k string, count int) bool {
 	case keyLineUp, keyUp:
 		m.moveTo(m.cursor - max(count, 1))
 	case keyTop:
-		m.jumpTo(max(count, 1) - 1)
+		first, last := m.viewRows()
+		m.jumpTo(min(first+max(count, 1)-1, last))
 	case keyBottom:
+		first, last := m.viewRows()
 		if count == 0 {
-			count = len(m.rows)
+			count = last - first + 1
 		}
-		m.jumpTo(count - 1)
+		m.jumpTo(min(first+count-1, last))
 	case keyHalfDown, keyHalfDownAlt:
 		m.halfPage(1)
 	case keyHalfUp, keyHalfUpAlt:
@@ -265,9 +270,17 @@ func (m *model) moveKey(k string, count int) bool {
 	case keyPrevChange:
 		m.jump(count, -1, m.changeStart)
 	case keyNextFile, keyRight:
-		m.jump(count, 1, m.fileStart)
+		if m.focused {
+			m.otherFile(max(count, 1))
+		} else {
+			m.jump(count, 1, m.fileStart)
+		}
 	case keyPrevFile, keyLeft:
-		m.jump(count, -1, m.fileStart)
+		if m.focused {
+			m.otherFile(-max(count, 1))
+		} else {
+			m.jump(count, -1, m.fileStart)
+		}
 	case keyNextMatch:
 		m.find(count, 1)
 	case keyPrevMatch:
@@ -347,27 +360,58 @@ func (m *model) readKey(k string) tea.Cmd {
 }
 
 // moveTo puts the cursor on row i, or on the nearest row there is. During a selection the
-// nearest row is in the selection's file, between its first and its last line, and in the
-// focus view it is in the rows the view shows.
+// nearest row is in the selection's file, between its first and its last line, and
+// otherwise in the rows viewRows gives.
 func (m *model) moveTo(i int) {
-	first, last := 0, len(m.rows)-1
-	switch {
-	case m.selection.on:
+	first, last := m.viewRows()
+	if m.selection.on {
 		first, last = m.selection.first, m.selection.last
-	case m.focus.open:
-		first, last = m.focusRows()
 	}
 	m.cursor = max(min(i, last), first)
 }
 
-// jumpTo puts the cursor on row i like moveTo. When the row is off the screen, it scrolls
-// the row to the middle of the screen, or as near as the ends of the diff allow, the way
-// vim shows where a jump lands.
-func (m *model) jumpTo(i int) {
-	m.moveTo(i)
-	if h := m.rowsHeight(); m.cursor < m.top || m.top < m.fitTop(m.cursor, h) {
-		m.top = min(m.fitTop(m.cursor, h/2+1), m.fitTop(len(m.rows)-1, h))
+// viewRows returns the first and the last row the keys that move go between: the rows the
+// peek view shows while it is open, the rows of the cursor's file while the diff is focused
+// on it, and all rows otherwise.
+func (m *model) viewRows() (first, last int) {
+	switch {
+	case m.peek.open:
+		return m.peekRows()
+	case m.focused:
+		return m.fileSpan()
 	}
+	return 0, len(m.rows) - 1
+}
+
+// lastRow returns the last row the diff draws: the last of the cursor's file while the diff
+// is focused on it, else the last row.
+func (m *model) lastRow() int {
+	if m.focused {
+		_, last := m.fileSpan()
+		return last
+	}
+	return len(m.rows) - 1
+}
+
+// jumpTo puts the cursor on row i, or on the nearest row there is, in the selection during
+// one. Unlike moveTo it goes to another file while the diff is focused on one, which then
+// shows that file. When the row is off the screen, it scrolls the row to the middle of the
+// screen, or as near as the ends of the diff allow, the way vim shows where a jump lands.
+func (m *model) jumpTo(i int) {
+	first, last := 0, len(m.rows)-1
+	if m.selection.on {
+		first, last = m.selection.first, m.selection.last
+	}
+	m.cursor = max(min(i, last), first)
+	if h := m.rowsHeight(); m.cursor < m.top || m.top < m.fitTop(m.cursor, h) {
+		m.top = min(m.fitTop(m.cursor, h/2+1), m.fitTop(m.lastRow(), h))
+	}
+}
+
+// otherFile puts the cursor on the header of the file n files after the cursor's, before it
+// when n is negative, or of the last or the first file when there are fewer.
+func (m *model) otherFile(n int) {
+	m.jumpTo(m.headRow(min(max(m.rows[m.cursor].file+n, 0), len(m.files)-1)))
 }
 
 // halfPage moves the cursor and the screen half a screen down (dir 1) or up (dir -1).
@@ -378,13 +422,10 @@ func (m *model) halfPage(dir int) {
 }
 
 // jump moves the cursor count times to the next row in the direction dir (1 or -1) for
-// which ok holds, inside the rows the focus view shows while it is open. It stays at the
-// last such row when there are fewer.
+// which ok holds, inside the rows viewRows gives. It stays at the last such row when there
+// are fewer.
 func (m *model) jump(count, dir int, ok func(i int) bool) {
-	first, last := 0, len(m.rows)-1
-	if m.focus.open {
-		first, last = m.focusRows()
-	}
+	first, last := m.viewRows()
 	to := m.cursor
 	for range max(count, 1) {
 		i := to + dir
@@ -419,7 +460,7 @@ var helpColumns = [2][]helpGroup{
 		}},
 		{"REVIEW", [][2]string{
 			{keyLabel(keyOrigin), "origin; j k scroll it"}, {keyLabels(keyViewed, keySelect), "viewed, select lines"},
-			{keyLabels(keySplit, keyFocus), "split; focus on a file"}, {keyThreads, "questions and comments"},
+			{keyLabels(keySplit, keyPeek), "split; peek at a file"}, {keyLabels(keyThreads, keyFocus), "threads; focus on a file"},
 		}},
 		{"MOUSE", [][2]string{
 			{"drag", "resize the tree"}, {"wheel", "scroll three lines"}, {"click", "a file, or a Viewed box"},
@@ -474,10 +515,10 @@ func (m *model) keycaps() []keycap {
 			newline = keyShiftEnter
 		}
 		return []keycap{{keyLabel(keyEnter), verb}, {keyLabel(newline), "new line"}, {keyPickModel, "pick a model"}, {keyEsc, "cancel"}}
-	case modeFocus:
+	case modePeek:
 		return []keycap{
 			{keyLabels(keyLineDown, keyLineUp), "move"}, {keyLabels(keyNextFile, keyPrevFile), "next, previous file"},
-			{keySplit, "split"}, {keyViewed, "viewed"}, {keyLabels(keyFocus, keyEsc), "close"},
+			{keySplit, "split"}, {keyViewed, "viewed"}, {keyLabels(keyPeek, keyEsc), "close"},
 		}
 	case modeThreads:
 		return []keycap{{keyLabels(keyLineDown, keyLineUp), "move"}, {keyLabel(keyEnter), "go"}, {keyEsc, "back to the diff"}, {keyThreads, "files"}}
@@ -503,9 +544,13 @@ func (m *model) keycaps() []keycap {
 	if len(m.rows) == 0 {
 		return []keycap{{keyCommand, "command"}, {keyHelp, "help"}, {keyQuit, "quit"}}
 	}
+	focus := "focus"
+	if m.focused {
+		focus = "all files"
+	}
 	keys := []keycap{
 		{keyAsk, "ask"}, {keyComment, "comment"}, {keyEdit, "edit"}, {keyLabel(keyOrigin), "origin"}, {keyViewed, "viewed"},
-		{keySelect, "select"}, {keySplit, "split"}, {keyFocus, "focus"}, {keySearch, "search"}, {keyThreads, "threads"}, {keyCommand, "command"}, {keyHelp, "help"},
+		{keySelect, "select"}, {keySplit, "split"}, {keyPeek, "peek"}, {keyFocus, focus}, {keySearch, "search"}, {keyThreads, "threads"}, {keyCommand, "command"}, {keyHelp, "help"},
 	}
 	if c := m.commentOn(m.cursor); c != nil && c.fix != nil {
 		keys = append([]keycap{{keyApply, "apply"}, {keyDrop, "drop"}}, keys...)

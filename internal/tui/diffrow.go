@@ -28,7 +28,7 @@ func (m *model) diffLines(w, h int) []string {
 		lines = append(lines, m.drawHeader(m.files[m.rows[m.top].file], w, false))
 	}
 	for i := m.top; len(lines) < h; i++ {
-		if i >= len(m.rows) {
+		if i > m.lastRow() {
 			lines = append(lines, blank)
 			continue
 		}
