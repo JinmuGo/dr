@@ -1094,6 +1094,38 @@ func TestSplitWidth(t *testing.T) {
 	}
 }
 
+func TestSplitDefault(t *testing.T) {
+	// DR_VIEW=split opens the split view when the diff is wide enough and the unified view
+	// when it is not, and s still leaves it. A name dr does not know opens the unified view,
+	// and the status line lists the names.
+	for _, tc := range []struct {
+		view    string
+		keys    string
+		width   int
+		split   bool
+		message string
+	}{
+		{view: "split", width: 125, split: true},
+		{view: "split", width: 90, split: false},
+		{view: "split", keys: "s", width: 125, split: false},
+		{view: "unified", width: 125, split: false},
+		{view: "", width: 125, split: false},
+		{view: "side", width: 125, split: false, message: `unknown DR_VIEW "side", one of unified, split`},
+	} {
+		m := newModel(testFiles(), nil, Saved{View: tc.view}, Asker{})
+		if m.message != tc.message {
+			t.Errorf("DR_VIEW %q: message %q, want %q", tc.view, m.message, tc.message)
+		}
+		m.Update(tea.WindowSizeMsg{Width: tc.width, Height: 24})
+		for _, k := range keyPresses(tc.keys) {
+			m.Update(k)
+		}
+		if m.splitShown != tc.split {
+			t.Errorf("DR_VIEW %q, width %d, keys %q: split view %t, want %t", tc.view, tc.width, tc.keys, m.splitShown, tc.split)
+		}
+	}
+}
+
 func TestSplitOrigin(t *testing.T) {
 	// The first pair comes from two requests and the second from one. The header names the
 	// origin of the main line, and a pair of two origins tells each under its side.

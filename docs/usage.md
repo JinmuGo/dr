@@ -88,6 +88,16 @@ export DR_THEME=onedark
 
 The themes are `github` (the default), `catppuccin-latte`, `catppuccin-mocha`, `gruvbox`, `onedark` and `tokyonight`. A theme sets the colors of the code, the changed lines and the panels. Unchanged lines keep your terminal's background, and the tinted lines are mixed into it. Pick a light theme for a light terminal and a dark one for a dark terminal, or the text is hard to read. `NO_COLOR=1` turns colors off whatever the theme.
 
+## Split view by default
+
+dr opens the unified view. To open the split view instead, set `DR_VIEW`:
+
+```sh
+export DR_VIEW=split
+```
+
+`DR_VIEW` takes `unified` (the default) or `split`. The split view needs a diff at least 100 cells wide, so on a narrower screen dr shows the unified view until there is room. `s` still switches between the two.
+
 ## Keys
 
 | Key | Action |
