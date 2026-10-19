@@ -53,7 +53,7 @@ dr
 
 Move with `j` and `k`. `Enter` shows where a line came from, `a` asks its session, `c` leaves a comment and `:submit` sends your comments. `?` lists every key. More in [docs/usage.md](docs/usage.md).
 
-In OMP, the [dr plugin](docs/usage.md#opening-from-omp) adds `/dr`. Review in the same terminal and press `q` to return to your conversation.
+In OMP and Pi, the dr plugin ([OMP](docs/usage.md#opening-from-omp), [Pi](docs/usage.md#opening-from-pi)) adds `/dr`. Review in the same terminal and press `q` to return to your conversation.
 
 ## License
 

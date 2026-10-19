@@ -28,6 +28,18 @@ Use `/dr <branch>` to open a worktree directly without the picker. Other refs fo
 
 For local development, run `omp plugin link /path/to/dr` with the repository root or an extracted release archive. Keep that directory in place while linked. To remove the plugin, run `omp plugin uninstall dr-omp` and restart OMP.
 
+## Opening from Pi
+
+Install dr on `PATH`, then install the package:
+
+```sh
+pi install git:github.com/JinmuGo/dr@v0.1.5
+```
+
+Restart Pi after installing or updating the package. `/dr` works as it does in OMP: choose a worktree when there are several, or name one with `/dr <branch>`, and press `q` in dr to return to the same Pi session.
+
+For local development, run `pi -e /path/to/dr/integrations/pi/index.ts`, or `pi install /path/to/dr` to load the package from that directory. To remove it, run `pi remove git:github.com/JinmuGo/dr` and restart Pi.
+
 ## Reading the diff
 
 A session is one conversation with an agent, and a request is one message you sent in it. A line's origin is the session and request whose edit last changed it. A line that no recorded edit explains is unknown: you changed it, or a shell command did. dr does not guess. When a log records an edit to the file that dr cannot read, such as one by OMP's `ast_edit` or by a tool of an MCP server, the line's origin card names that edit instead, and a band at the top says which agent's records could not be read.

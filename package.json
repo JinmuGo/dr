@@ -2,8 +2,11 @@
   "name": "dr-omp",
   "version": "0.1.4",
   "private": true,
-  "description": "Open dr in OMP's terminal and return to the same session.",
+  "description": "Open dr in OMP's or Pi's terminal and return to the same session.",
   "omp": {
     "extensions": ["./integrations/omp/index.ts"]
+  },
+  "pi": {
+    "extensions": ["./integrations/pi/index.ts"]
   }
 }
