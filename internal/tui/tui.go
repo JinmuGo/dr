@@ -50,7 +50,7 @@ type model struct {
 	width, height int
 	cursor        int  // row under the cursor
 	top           int  // first row on the screen
-	splitOn       bool // s asked for the split view
+	splitOn       bool // s or DR_VIEW asked for the split view
 	splitShown    bool // the rows are the split view's: s asked for it and the diff is wide enough
 	enteredFrom   int  // the unified row the split view was last entered from
 	enteredAt     int  // the split row it was entered at, which holds the line of enteredFrom
@@ -134,7 +134,20 @@ type Saved struct {
 	// Theme names the colors of the screen, as DR_THEME gives it: one of Themes, or "" for
 	// the default.
 	Theme string
+	// View names the view the screen opens in, as DR_VIEW gives it: one of Views, or "" for
+	// the unified view.
+	View string
 }
+
+// Views returns the names DR_VIEW takes: the unified view, the default, and the split view.
+func Views() []string {
+	return []string{viewUnified, viewSplit}
+}
+
+const (
+	viewUnified = "unified"
+	viewSplit   = "split"
+)
 
 // Base is what the diff compares the working tree with, which the screen names when no file
 // differs from it.
@@ -173,6 +186,7 @@ func newModel(files []review.File, problems []agent.Problem, saved Saved, asker 
 	m := &model{
 		unreadable:   unreadableAgents(problems),
 		themeName:    saved.Theme,
+		splitOn:      saved.View == viewSplit,
 		terminalDark: true,
 		theme:        themeFor(saved.Theme, nil, true, false),
 		message:      saved.Problem,
@@ -193,10 +207,14 @@ func newModel(files []review.File, problems []agent.Problem, saved Saved, asker 
 		now:          time.Now,
 		tick:         tick,
 	}
+	messages := []string{m.message}
 	if !knownTheme(saved.Theme) {
-		unknown := "unknown DR_THEME " + strconv.Quote(review.Visible(saved.Theme)) + ", one of " + strings.Join(Themes(), ", ")
-		m.message = strings.Join(slices.DeleteFunc([]string{m.message, unknown}, func(s string) bool { return s == "" }), "; ")
+		messages = append(messages, "unknown DR_THEME "+strconv.Quote(review.Visible(saved.Theme))+", one of "+strings.Join(Themes(), ", "))
 	}
+	if saved.View != "" && !slices.Contains(Views(), saved.View) {
+		messages = append(messages, "unknown DR_VIEW "+strconv.Quote(review.Visible(saved.View))+", one of "+strings.Join(Views(), ", "))
+	}
+	m.message = strings.Join(slices.DeleteFunc(messages, func(s string) bool { return s == "" }), "; ")
 	if saved.Dir != "" {
 		m.viewed.saver.path = state.ViewedPath(saved.Dir)
 		m.log = state.NewLog(state.LogPath(saved.Dir))
