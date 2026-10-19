@@ -459,6 +459,22 @@ func (m *model) dragTo(x int) {
 	m.treeSize = min(max(x, minListWidth), most)
 }
 
+// foldTree folds the file tree, or the threads panel in its place, to a handle, as a drag
+// to the left edge does, or shows it again at the width it had. Folding gives the keys of
+// the threads panel back to the diff. When the screen is too narrow for the tree beside the
+// diff, it stays folded and says so.
+func (m *model) foldTree() {
+	if !m.folded {
+		m.folded, m.threads.focus = true, false
+		return
+	}
+	m.folded = false
+	if list, _ := m.layout(); list == 0 {
+		m.folded = true
+		m.warn("Widen the screen to show the tree")
+	}
+}
+
 // relayout shows the split view when s asked for it and the diff is wide enough for both
 // sides, and the unified view otherwise, whether s, a resize or a drag of the file tree
 // changed that. A change of view keeps the cursor on the same line, or header, where it was

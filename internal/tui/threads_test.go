@@ -82,6 +82,26 @@ func TestThreadsNarrow(t *testing.T) {
 	}
 }
 
+func TestFoldTree(t *testing.T) {
+	// ⌘B folds the threads panel with the file tree and gives the keys back to the diff, and
+	// shows the panel again. A screen too narrow for the tree keeps it folded and says so.
+	m := askScreen(testFiles(), Saved{}, &fakeAsk{})
+	typeKeys(m, "t<super+b>")
+	if !m.folded || m.mode() != modeNormal || !m.threads.shown {
+		t.Errorf("⌘B in the threads: folded %t, mode %v, shown %t; want folded, NORMAL, the panel kept", m.folded, m.mode(), m.threads.shown)
+	}
+	typeKeys(m, "<super+b>")
+	if list, _ := m.layout(); m.folded || list == 0 || !strings.Contains(panelText(t, m), "Threads") {
+		t.Errorf("⌘B again: folded %t, tree %d cells wide; want the threads shown", m.folded, list)
+	}
+	typeKeys(m, "<super+b>")
+	m.Update(tea.WindowSizeMsg{Width: 70, Height: 24})
+	typeKeys(m, "<super+b>")
+	if !m.folded || !strings.Contains(m.message, "Widen the screen") {
+		t.Errorf("⌘B on a narrow screen: folded %t, message %q; want folded and why", m.folded, m.message)
+	}
+}
+
 func TestThreadsUnreadOutOfView(t *testing.T) {
 	// An answer that comes while the origin box shows an earlier answer on the same line stays
 	// new until the box scrolls to it.

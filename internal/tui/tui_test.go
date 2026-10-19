@@ -121,6 +121,7 @@ var namedKeys = map[string]tea.KeyPressMsg{
 	"<ctrl+j>":      {Code: 'j', Mod: tea.ModCtrl},
 	"<ctrl+n>":      {Code: 'n', Mod: tea.ModCtrl},
 	"<ctrl+p>":      {Code: 'p', Mod: tea.ModCtrl},
+	"<super+b>":     {Code: 'b', Mod: tea.ModSuper},
 	"<ctrl+u>":      {Code: 'u', Mod: tea.ModCtrl},
 	"<ctrl+w>":      {Code: 'w', Mod: tea.ModCtrl},
 }
@@ -1178,7 +1179,9 @@ func drag(from int, to ...int) []tea.Msg {
 
 func TestDragTree(t *testing.T) {
 	// The file tree of testFiles is 19 cells wide on the 125-cell screen, so the line beside
-	// it is column 19. The diff keeps 60 cells, which leaves the tree 64 at most.
+	// it is column 19. The diff keeps 60 cells, which leaves the tree 64 at most. ⌘B folds
+	// the tree and shows it again, as dragging does.
+	fold := []tea.Msg{namedKeys["<super+b>"]}
 	for _, tc := range []struct {
 		name   string
 		drags  [][]tea.Msg
@@ -1196,6 +1199,9 @@ func TestDragTree(t *testing.T) {
 		{"handle grabbed beside it", [][]tea.Msg{drag(19, 5), drag(1, 30)}, 30, false},
 		{"not dragged far enough to open", [][]tea.Msg{drag(19, 5), drag(0, 6)}, 0, true},
 		{"the line follows the tree", [][]tea.Msg{drag(19, 30), drag(30, 40)}, 40, false},
+		{"folded by ⌘B", [][]tea.Msg{fold}, 0, true},
+		{"shown again by ⌘B at its width", [][]tea.Msg{drag(19, 30), fold, fold}, 30, false},
+		{"opened by ⌘B after a drag folded it", [][]tea.Msg{drag(19, 5), fold}, 19, false},
 	} {
 		var msgs []tea.Msg
 		for _, d := range tc.drags {

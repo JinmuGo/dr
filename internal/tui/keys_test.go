@@ -14,7 +14,7 @@ import (
 // the key row name with a glyph or a word.
 var keyGlyphs = map[string]string{
 	"⏎": "<enter>", "⇧⏎": "<shift+enter>", "⌥⏎": "<alt+enter>", "esc": "<esc>", "tab": "<tab>",
-	"↑": "<up>", "↓": "<down>", "^C": "<ctrl+c>", "^J": "<ctrl+j>", "^N": "<ctrl+n>", "^P": "<ctrl+p>", "^U": "<ctrl+u>",
+	"↑": "<up>", "↓": "<down>", "^C": "<ctrl+c>", "^J": "<ctrl+j>", "^N": "<ctrl+n>", "^P": "<ctrl+p>", "^U": "<ctrl+u>", "⌘B": "<super+b>",
 	"any key": "x",
 }
 
