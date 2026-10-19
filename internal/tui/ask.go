@@ -77,6 +77,7 @@ type question struct {
 	tag     string        // who was asked, as the input box of a named them; "" for an earlier run's
 	own     string        // the model of the session asked, to compare the one that answered with; "" when not known
 	pending bool          // asked in this run, and the answer has not come
+	unread  bool          // its answer, or why none came, came in this run while the origin box did not show it
 	answer  *state.Answer // nil while pending, or when dr closed before the answer came
 }
 
@@ -318,7 +319,7 @@ func (m *model) answered(msg answeredMsg) {
 	q := m.questions[i]
 	shown := m.originBox.open && slices.Contains(m.questionsAt(m.cursor), q)
 	following := shown && m.originBox.top == m.questionTop(q) // the box shows the question waiting
-	q.pending, q.answer = false, &msg.answer
+	q.pending, q.answer, q.unread = false, &msg.answer, true  // until the origin box shows it, as markRead tells
 	who := session{q.Agent, q.Session}
 	delete(m.busy, who)
 	if msg.answer.Error == "" && msg.answer.Fork != "" {
@@ -372,7 +373,7 @@ func (m *model) read(q *question) tea.Cmd {
 	if m.files[q.file].viewed {
 		cmd = m.toggleViewed(q.file)
 	}
-	m.selection.on = false
+	m.selection.on, m.threads.focus = false, false
 	m.originBox.open = true
 	if q.lines == nil {
 		m.jumpTo(m.headRow(q.file))

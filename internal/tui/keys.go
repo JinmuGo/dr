@@ -60,6 +60,7 @@ const (
 	keyOpenSession = "ga"
 	keyComment     = "c"
 	keyEdit        = "e"
+	keyThreads     = "t"
 	keyCommand     = ":"
 	keyApply       = "y"
 	keyDrop        = "x"
@@ -131,6 +132,8 @@ func (m *model) key(msg tea.KeyPressMsg) tea.Cmd {
 		return m.read(n.question)
 	case n != nil && k == keyEnter && n.fixes != nil:
 		return m.readFix(n.fixes)
+	case m.threads.focus:
+		return m.threadKey(k)
 	case m.originBox.open:
 		return m.readKey(k)
 	case k == keyEsc:
@@ -212,6 +215,8 @@ func (m *model) normalKey(k string) tea.Cmd {
 		m.startComment()
 	case keyCommand:
 		m.openCommand()
+	case keyThreads:
+		m.openThreads()
 	case keyApply:
 		return m.apply()
 	case keyDrop:
@@ -396,8 +401,8 @@ var helpColumns = [2][]helpGroup{
 			{keyLabels(keySearch, keyNextMatch, keyPrevMatch), "search, next, previous"},
 		}},
 		{"REVIEW", [][2]string{
-			{keyLabel(keyOrigin), "origin; j k scroll it"}, {keyViewed, "mark the file viewed"}, {keySelect, "select lines"},
-			{keySplit, "split or unified"},
+			{keyLabel(keyOrigin), "origin; j k scroll it"}, {keyLabels(keyViewed, keySelect), "viewed, select lines"},
+			{keySplit, "split or unified"}, {keyThreads, "questions and comments"},
 		}},
 		{"MOUSE", [][2]string{
 			{"drag", "resize the tree"}, {"wheel", "scroll three lines"}, {"click", "a file, or a Viewed box"},
@@ -452,6 +457,8 @@ func (m *model) keycaps() []keycap {
 			newline = keyShiftEnter
 		}
 		return []keycap{{keyLabel(keyEnter), verb}, {keyLabel(newline), "new line"}, {keyPickModel, "pick a model"}, {keyEsc, "cancel"}}
+	case modeThreads:
+		return []keycap{{keyLabels(keyLineDown, keyLineUp), "move"}, {keyLabel(keyEnter), "go"}, {keyEsc, "back to the diff"}, {keyThreads, "files"}}
 	case modeOrigin:
 		// a asks from the box where its title offers it: on a changed line, or a line with
 		// questions, which a follows up.
@@ -476,7 +483,7 @@ func (m *model) keycaps() []keycap {
 	}
 	keys := []keycap{
 		{keyAsk, "ask"}, {keyComment, "comment"}, {keyEdit, "edit"}, {keyLabel(keyOrigin), "origin"}, {keyViewed, "viewed"},
-		{keySelect, "select"}, {keySplit, "split"}, {keySearch, "search"}, {keyCommand, "command"}, {keyHelp, "help"},
+		{keySelect, "select"}, {keySplit, "split"}, {keySearch, "search"}, {keyThreads, "threads"}, {keyCommand, "command"}, {keyHelp, "help"},
 	}
 	if c := m.commentOn(m.cursor); c != nil && c.fix != nil {
 		keys = append([]keycap{{keyApply, "apply"}, {keyDrop, "drop"}}, keys...)

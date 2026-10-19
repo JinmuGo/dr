@@ -474,20 +474,42 @@ func (m *model) originLines() []cardRow {
 // the end of the answer, or else the row that brings that end to the bottom of the card,
 // but no further down than q's first row. It returns 0 when q is not about the cursor row.
 func (m *model) questionTop(q *question) int {
+	start, _, end, ok := m.questionSpan(q)
+	if !ok {
+		return 0
+	}
+	return min(start, max(end-m.boxRows(), 0))
+}
+
+// questionSpan returns the rows of the origin card's body that show q, a question about the
+// cursor row, and its answer: from start, where the question starts, and answer, where who
+// was asked heads the answer, up to end. It returns false when q is not about the cursor row.
+func (m *model) questionSpan(q *question) (start, answer, end int, ok bool) {
 	qs := m.questionsAt(m.cursor)
 	k := slices.Index(qs, q)
 	if k < 0 {
-		return 0
+		return 0, 0, 0, false
 	}
 	_, w := m.layout()
 	_, width := m.boxLeft(w)
 	width = textWidth(width)
-	start := 1 + k // the label, and the empty row after each question before q
+	start = 1 + k // the label, and the empty row after each question before q
 	for _, p := range qs[:k] {
 		start += len(m.exchange(p, width))
 	}
-	end := start + len(m.exchange(q, width))
-	return min(start, max(end-m.boxRows(), 0))
+	answer = start + 1 + len(wrapped(review.Visible(q.Text), chunk{}, width)) // you, and the question
+	return start, answer, start + len(m.exchange(q, width)), true
+}
+
+// answerShown reports whether the open origin card shows the answer to q, a question about
+// the cursor row: the last row of the answer is in view, or the view is inside a long answer.
+func (m *model) answerShown(q *question) bool {
+	_, answer, end, ok := m.questionSpan(q)
+	if !m.originBox.open || !ok {
+		return false
+	}
+	top, bottom := m.originBox.top, m.originBox.top+m.boxRows()
+	return end-1 >= top && end-1 < bottom || answer <= top && bottom <= end
 }
 
 // box draws the open origin card under the cursor row of a diff w cells wide: its header, its

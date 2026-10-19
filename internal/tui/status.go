@@ -72,6 +72,7 @@ const (
 	modeComment             // the input box of c is open
 	modeSearch              // the search input is open
 	modeCommand             // the : input is open
+	modeThreads             // the threads panel has the keys
 	modeHelp                // the key help is open
 )
 
@@ -84,6 +85,7 @@ var modeNames = [...]string{
 	modeComment: "COMMENT",
 	modeSearch:  "SEARCH",
 	modeCommand: "COMMAND",
+	modeThreads: "THREADS",
 	modeHelp:    "HELP",
 }
 
@@ -103,6 +105,8 @@ func (m *model) mode() mode {
 		return modeSearch
 	case m.cmdline.open:
 		return modeCommand
+	case m.threads.focus:
+		return modeThreads
 	case m.asking != nil:
 		return modeAsk
 	case m.drafting != nil:
@@ -135,6 +139,8 @@ func (m *model) pill() []seg {
 		bg = t.pending
 	case modeSearch, modeCommand:
 		bg = t.strong
+	case modeThreads:
+		bg = t.accent
 	case modeHelp:
 		bg = t.muted
 	}

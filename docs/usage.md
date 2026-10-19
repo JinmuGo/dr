@@ -74,6 +74,10 @@ Each fix shows under its comment as a small diff. `y` applies it, `x` drops it, 
 
 To fix a line by hand, `e` opens it in your editor. For a change too big for a comment, `ga` opens a fork of the session that wrote the line in its agent, right in this terminal. When you leave the agent, dr redraws the diff with the fork's edits.
 
+## Following threads with `t`
+
+Questions and fix requests run in the background, so you can keep reviewing while they wait. `t` shows every thread in place of the file tree, the ones that need you first. `◉` is an answer that came while you were elsewhere, or a fix waiting for `y` or `x`, `●` is still waiting, `✗` got no answer or fix, `✎` is a comment `:submit` will send and `○` is read. Enter on a thread opens it where it lives in the diff. An answer counts as read once its origin card shows it. dr forgets what you read when it quits, and quitting stops the questions that are still waiting.
+
 ## Keys
 
 | Key | Action |
@@ -93,6 +97,7 @@ To fix a line by hand, `e` opens it in your editor. For a change too big for a c
 | `:submit` | Send all pending comments |
 | `y` `x` | Apply, drop the fix under the comment |
 | `:undo` | Revert the last fix dr applied |
+| `t` | Show the threads in place of the file tree: every question and comment, new answers and fixes first. `j` `k` move, `Enter` goes to one, `Esc` returns to the diff, `t` brings the files back |
 | `e` | Edit the line in `$VISUAL`, else `$EDITOR`, else `vi` |
 | `ga` | Open the session that wrote the line in its agent, in this terminal |
 | `:` | Type a command. A list shows each command and what it would do now |
