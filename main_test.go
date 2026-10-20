@@ -8,12 +8,14 @@ import (
 	"os/exec"
 	"path/filepath"
 	"runtime/debug"
+	"slices"
 	"strings"
 	"testing"
 	"time"
 	"unicode"
 
 	"github.com/JinmuGo/dr/internal/agent"
+	"github.com/JinmuGo/dr/internal/git"
 	"github.com/JinmuGo/dr/internal/origin"
 	"github.com/JinmuGo/dr/internal/review"
 	"github.com/JinmuGo/dr/internal/state"
@@ -334,6 +336,67 @@ func TestReviewed(t *testing.T) {
 		dir, ref, err := reviewed(tc.in, tc.ref)
 		if err != nil || dir != tc.dir || ref != tc.want {
 			t.Errorf("%s: reviewed(%q, %q) = %q, %q, %v; want %q, %q", tc.name, tc.in, tc.ref, dir, ref, err, tc.dir, tc.want)
+		}
+	}
+}
+
+func TestChosen(t *testing.T) {
+	// dr without a ref asks which worktree to open when the repository has more than one,
+	// and opens none when the person cancels. A worktree whose directory is gone is not
+	// offered.
+	for k, v := range map[string]string{
+		"GIT_CONFIG_GLOBAL": os.DevNull, "GIT_CONFIG_NOSYSTEM": "1",
+		"GIT_AUTHOR_NAME": "t", "GIT_AUTHOR_EMAIL": "t@t", "GIT_COMMITTER_NAME": "t", "GIT_COMMITTER_EMAIL": "t@t",
+	} {
+		t.Setenv(k, v)
+	}
+	tmp, err := filepath.EvalSymlinks(t.TempDir()) // git reports paths with symlinks resolved
+	if err != nil {
+		t.Fatal(err)
+	}
+	repo, feature, detached, gone := filepath.Join(tmp, "repo"), filepath.Join(tmp, "feature"), filepath.Join(tmp, "detached"), filepath.Join(tmp, "gone")
+	runGit(t, tmp, "init", "-q", "-b", "main", repo)
+	runGit(t, repo, "commit", "-q", "--allow-empty", "-m", "one")
+	head, err := git.Commit(repo, "HEAD")
+	if err != nil {
+		t.Fatal(err)
+	}
+	sub := filepath.Join(repo, "sub")
+	if err := os.Mkdir(sub, 0o755); err != nil {
+		t.Fatal(err)
+	}
+
+	asked := false
+	none := func([]git.Worktree, int) (int, error) { asked = true; return -1, nil }
+	if dir, err := chosen(repo, none); err != nil || dir != repo || asked {
+		t.Errorf("one worktree: chosen = %q, %v, asked %v; want %q without asking", dir, err, asked, repo)
+	}
+
+	runGit(t, repo, "worktree", "add", "-q", "-b", "feature", feature)
+	runGit(t, repo, "worktree", "add", "-q", "--detach", detached)
+	runGit(t, repo, "worktree", "add", "-q", "-b", "deleted", gone)
+	if err := os.RemoveAll(gone); err != nil {
+		t.Fatal(err)
+	}
+	want := []git.Worktree{{Dir: repo, Branch: "main", Head: head}, {Dir: detached, Head: head}, {Dir: feature, Branch: "feature", Head: head}} // the main worktree, then by directory
+	for _, tc := range []struct {
+		name, in string
+		pick     int
+		current  int
+		dir      string
+	}{
+		{"from a subdirectory of the main worktree", sub, 2, 0, feature},
+		{"from another worktree", feature, 0, 2, repo},
+		{"canceled", feature, -1, 2, ""},
+	} {
+		dir, err := chosen(tc.in, func(list []git.Worktree, current int) (int, error) {
+			if !slices.Equal(list, want) || current != tc.current {
+				t.Errorf("%s: asked with %+v, %d; want %+v, %d", tc.name, list, current, want, tc.current)
+			}
+			return tc.pick, nil
+		})
+		if err != nil || dir != tc.dir {
+			t.Errorf("%s: chosen = %q, %v; want %q", tc.name, dir, err, tc.dir)
 		}
 	}
 }

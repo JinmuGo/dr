@@ -1,8 +1,5 @@
-import { execFile, spawn } from "node:child_process";
-import { promisify } from "node:util";
+import { spawn } from "node:child_process";
 import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
-
-const exec = promisify(execFile);
 
 export default function (pi: ExtensionAPI) {
   pi.registerCommand("dr", {
@@ -19,25 +16,8 @@ export default function (pi: ExtensionAPI) {
       }
 
       try {
-        let cwd = ctx.cwd;
-        if (!ref) {
-          const { stdout } = await exec("git", ["worktree", "list", "--porcelain", "-z"], {
-            cwd,
-            timeout: 10_000,
-          });
-          const worktrees = stdout.split("\0\0").flatMap(record => {
-            const fields = record.split("\0");
-            const path = fields.find(field => field.startsWith("worktree "))?.slice(9);
-            if (!path || fields.includes("bare") || fields.some(field => field.startsWith("prunable"))) return [];
-            const branch = fields.find(field => field.startsWith("branch "))?.slice(7).replace(/^refs\/heads\//, "");
-            return [{ path, label: `${branch ?? "(detached)"} — ${path}` }];
-          });
-          if (worktrees.length > 1) {
-            const selected = await ctx.ui.select("Open dr in which worktree?", worktrees.map(worktree => worktree.label));
-            if (selected === undefined) return;
-            cwd = worktrees.find(worktree => worktree.label === selected)!.path;
-          }
-        }
+        // dr asks which worktree to open when there are several and no ref is given.
+        const cwd = ctx.cwd;
         await ctx.ui.custom<void>(async (tui, _theme, _keys, done) => {
           // Give dr the real terminal, not a captured tool-output stream.
           tui.stop();

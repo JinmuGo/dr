@@ -128,6 +128,41 @@ func Worktrees(root string) ([]string, error) {
 	return dirs, nil
 }
 
+// Worktree is a worktree of a repository: its top directory, the branch checked out in it,
+// "" when HEAD is detached, and the commit of HEAD.
+type Worktree struct {
+	Dir, Branch, Head string
+}
+
+// Checkouts returns the worktrees of the repository that holds root, in the order git lists
+// them, the main worktree first. A bare repository and a worktree whose directory is gone
+// do not count.
+func Checkouts(root string) ([]Worktree, error) {
+	out, err := run(root, "worktree", "list", "--porcelain", "-z")
+	if err != nil {
+		return nil, err
+	}
+	var list []Worktree
+	for _, record := range strings.Split(out, "\x00\x00") {
+		fields := strings.Split(record, "\x00")
+		dir, ok := strings.CutPrefix(fields[0], "worktree ")
+		if !ok || slices.Contains(fields, "bare") || slices.ContainsFunc(fields, isPrunable) {
+			continue
+		}
+		w := Worktree{Dir: dir}
+		for _, f := range fields[1:] {
+			if head, ok := strings.CutPrefix(f, "HEAD "); ok {
+				w.Head = head
+			}
+			if branch, ok := strings.CutPrefix(f, "branch "); ok {
+				w.Branch = strings.TrimPrefix(branch, "refs/heads/")
+			}
+		}
+		list = append(list, w)
+	}
+	return list, nil
+}
+
 // Checkout returns the top directory of the worktree that has branch checked out, or ""
 // when none has. A worktree whose directory is gone does not count.
 func Checkout(root, branch string) (string, error) {

@@ -3,8 +3,9 @@
 // dr [<ref>] opens the files changed since the merge-base of HEAD and ref, the default
 // branch when ref is left out, in a diff screen that shows the agent session and the
 // request behind each changed line. When ref is a branch checked out in another worktree,
-// dr opens that worktree instead, compared with the default branch. dr blame <path> writes
-// the same for one file.
+// dr opens that worktree instead, compared with the default branch. Without ref, when the
+// repository has more than one worktree, dr first asks which to open. dr blame <path>
+// writes the same for one file.
 package main
 
 import (
@@ -14,6 +15,7 @@ import (
 	"io"
 	"os"
 	"runtime/debug"
+	"slices"
 	"strings"
 
 	"github.com/JinmuGo/dr/internal/agent"
@@ -101,7 +103,8 @@ func versionOf(ldflags string, info *debug.BuildInfo) string {
 }
 
 // browse opens the diff screen on the files changed since the merge-base of HEAD and ref,
-// or on the worktree ref names, as reviewed says.
+// or on the worktree ref names, as reviewed says. Without ref it opens the worktree chosen
+// says, and nothing when the person cancels.
 // The files marked viewed, the questions asked, the comments and fixes and, when an agent
 // lets dr choose where, the sessions dr starts to ask them are kept in the worktree's git
 // directory. The screen holds the lock on the worktree while it is open, so only one dr
@@ -109,8 +112,15 @@ func versionOf(ldflags string, info *debug.BuildInfo) string {
 // fixes. With no changed file, it opens only when :undo can revert the last fix dr applied,
 // and otherwise says so on stdout. The agents' session logs are read under home.
 func browse(stdout io.Writer, home, ref string) (err error) {
-	worktree, ref, err := reviewed(".", ref)
-	if err != nil {
+	worktree := "."
+	if ref == "" {
+		worktree, err = chosen(worktree, func(list []git.Worktree, current int) (int, error) {
+			return tui.Choose(list, current, home, os.Getenv("DR_THEME"))
+		})
+	} else {
+		worktree, ref, err = reviewed(worktree, ref)
+	}
+	if err != nil || worktree == "" {
 		return err
 	}
 	var loader agent.Loader
@@ -181,6 +191,26 @@ func reviewed(dir, ref string) (string, string, error) {
 		return dir, ref, err
 	}
 	return other, "", nil
+}
+
+// chosen returns the directory of the worktree dr opens when started in dir without a ref:
+// dir when the repository has one worktree, else the one choose returns the index of, given
+// the worktrees and the index of the one that holds dir, -1 for none. It returns "" when
+// choose returns -1, for none.
+func chosen(dir string, choose func(list []git.Worktree, current int) (int, error)) (string, error) {
+	root, err := git.Root(dir)
+	if err != nil {
+		return "", err
+	}
+	list, err := git.Checkouts(root)
+	if err != nil || len(list) < 2 {
+		return dir, err
+	}
+	i, err := choose(list, slices.IndexFunc(list, func(w git.Worktree) bool { return w.Dir == root }))
+	if err != nil || i < 0 {
+		return "", err
+	}
+	return list[i].Dir, nil
 }
 
 // shortName returns the branch name of ref, a ref DefaultBranch returns: main for
