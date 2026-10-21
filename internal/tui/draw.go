@@ -213,6 +213,53 @@ func cutChunks(chunks []chunk, w int) []chunk {
 	return out
 }
 
+// shiftSegs returns segs without their first n cells, and whether that left out any text. A
+// wide character, or a cluster of characters that shows as one, that the cut splits gives
+// way to spaces, so the text after it keeps its column.
+func shiftSegs(segs []seg, n int) ([]seg, bool) {
+	if n <= 0 {
+		return segs, false
+	}
+	out := make([]seg, 0, len(segs))
+	hid := false
+	for _, s := range segs {
+		w := ansi.StringWidth(s.text)
+		if n >= w {
+			n -= w
+			hid = hid || w > 0
+			continue
+		}
+		if n > 0 {
+			left, rest := 0, s.text // the cells left out, and the text after them
+			for left < n && rest != "" {
+				c, cw := ansi.FirstGraphemeCluster(rest, ansi.GraphemeWidth) // as StringWidth counts
+				left += cw
+				rest = rest[len(c):]
+			}
+			s.text = strings.Repeat(" ", max(left-n, 0)) + rest
+			n, hid = 0, true
+		}
+		out = append(out, s)
+	}
+	return out, hid
+}
+
+// cutSegs returns segs cut to w cells, without splitting a wide character: the cut ends
+// before a wide character that does not fit, even when what comes after it would.
+func cutSegs(segs []seg, w int) []seg {
+	var out []seg
+	for _, s := range segs {
+		n := ansi.StringWidth(s.text)
+		if n > w {
+			s.text = ansi.Truncate(s.text, w, "")
+			return append(out, s)
+		}
+		w -= n
+		out = append(out, s)
+	}
+	return out
+}
+
 // wrapChunks returns chunks broken into lines of at most w cells, after the spaces where it
 // can, each piece keeping the style of its chunk. A word longer than a line is cut where the
 // line ends, without splitting a wide character.

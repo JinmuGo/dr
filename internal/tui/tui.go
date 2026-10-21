@@ -26,6 +26,13 @@ import (
 // wheelLines is how many lines a step of the mouse wheel moves, as in tuicr.
 const wheelLines = 3
 
+// scrollCells is how many cells < and > scroll the code sideways, and wheelCells how many a
+// step of a sideways wheel does.
+const (
+	scrollCells = 8
+	wheelCells  = 4
+)
+
 // model is the state of the diff screen.
 type model struct {
 	files      []file
@@ -50,6 +57,7 @@ type model struct {
 	width, height int
 	cursor        int  // row under the cursor
 	top           int  // first row on the screen
+	scrolled      int  // how many cells of code > scrolled out at the left of every line
 	splitOn       bool // s or DR_VIEW asked for the split view
 	splitShown    bool // the rows are the split view's: s asked for it and the diff is wide enough
 	enteredFrom   int  // the unified row the split view was last entered from
@@ -363,7 +371,8 @@ func (m *model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 // tree, folds it to a handle at the left edge when dragged narrow, and opens it again when
 // the handle is dragged right. A click on a file of the tree or on the Viewed box of a file
 // header does what click says. The wheel moves the cursor, or the text of the open origin
-// box, wheelLines lines; it extends a selection as a move does. When no changed file is
+// box, wheelLines lines; it extends a selection as a move does. A sideways wheel scrolls the
+// code wheelCells cells as < and > do. When no changed file is
 // left, or while the input box is open, the mouse does nothing. It returns the command that
 // saves the viewed files after a click on a Viewed box.
 func (m *model) mouse(msg tea.MouseMsg) tea.Cmd {
@@ -391,9 +400,13 @@ func (m *model) mouse(msg tea.MouseMsg) tea.Cmd {
 			n = wheelLines
 		case tea.MouseWheelUp:
 			n = -wheelLines
+		case tea.MouseWheelRight:
+			m.scrollCode(wheelCells)
+		case tea.MouseWheelLeft:
+			m.scrollCode(-wheelCells)
 		}
 		switch {
-		case m.help:
+		case m.help, n == 0:
 		case m.originBox.open:
 			m.originBox.top += n // scroll keeps it in the text
 		default:

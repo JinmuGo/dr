@@ -80,8 +80,9 @@ func TestKeysHandled(t *testing.T) {
 		first  map[string]string // keys typed before a press that needs them to have work
 		inert  string            // a key that does nothing there
 	}{
-		// On a line between two changes with a search query, so { }, n, N and Esc have work.
-		{"normal", "NORMAL", screenOf(testFiles(), "/line 1<enter>12G"), nil, "Z"},
+		// On a line between two changes with a search query, so { }, n, N and Esc have work,
+		// and > and < at the end, where a line is too long for the screen.
+		{"normal", "NORMAL", screenOf(testFiles(), "/line 1<enter>12G"), map[string]string{">": "G", "<": "G>"}, "Z"},
 		{"visual", "VISUAL", screenOf(testFiles(), "4jV"), nil, "Z"},
 		{"origin", "ORIGIN", screenOf(longFiles(), "G<enter>j"), nil, "Z"}, // a box with text to scroll both ways
 		{"ask", "ASK", screenOf(testFiles(), "4jawhy"), nil, ""},

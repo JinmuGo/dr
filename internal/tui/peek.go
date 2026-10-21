@@ -59,9 +59,9 @@ func (m *model) fileSpan() (head, last int) {
 }
 
 // peekKey handles a key while the peek view is open: the keys of the diff that move,
-// inside the file, s for the split view, h and l for the previous and the next file, v to
-// mark the file viewed or not, ? for the help, and space, Esc and q to close it. Esc first
-// clears a count or a g waiting for its key. n and N do nothing, since the search runs
+// inside the file, > and < that scroll the code, s for the split view, h and l for the
+// previous and the next file, v to mark the file viewed or not, ? for the help, and space,
+// Esc and q to close it. Esc first clears a count or a g waiting for its key. n and N do nothing, since the search runs
 // through the whole diff. It returns the command that saves the viewed files after v.
 func (m *model) peekKey(k string) tea.Cmd {
 	waiting := m.count > 0 || m.pending != ""
