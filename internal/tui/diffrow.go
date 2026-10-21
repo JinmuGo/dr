@@ -278,6 +278,53 @@ func (m *model) codeColumn(f file) int {
 	return 2*f.digits + 7
 }
 
+// scrollCode scrolls the code of every line n cells to the left, to the right when n is
+// negative, no further than it takes to show the end of the longest line on the screen,
+// or in the open peek view, nor back past the start of the lines. Scrolled further than
+// that, as after moving to shorter lines, it scrolls right from where the end shows.
+func (m *model) scrollCode(n int) {
+	_, w := m.layout()
+	first, last := m.top, min(m.top+m.rowsHeight(), len(m.rows))-1
+	if m.peek.open {
+		_, end := m.peekRows()
+		_, _, _, h := m.peekBox(m.diffHeight())
+		first, last, w = m.peek.top, min(end, m.peek.top+h-3), m.peekWidth() // the box less its borders
+	}
+	over := 0 // how far the longest line goes past its side
+	for i := first; i <= last; i++ {
+		r := m.rows[i]
+		if r.kind != lineRow {
+			continue
+		}
+		f := m.files[r.file]
+		if !m.splitShown {
+			k := r.main()
+			over = max(over, piecesWidth(m.pieces(k, r.right < 0))-(w-m.codeColumn(f)))
+			continue
+		}
+		right := (w - 2) / 2 // as drawRow splits a row
+		if r.left >= 0 {
+			over = max(over, piecesWidth(m.pieces(r.left, true))-(w-1-right-m.codeColumn(f)))
+		}
+		if r.right >= 0 {
+			over = max(over, piecesWidth(m.pieces(r.right, false))-(right-m.codeColumn(f)+1))
+		}
+	}
+	if n < 0 {
+		m.scrolled = min(m.scrolled, over)
+	}
+	m.scrolled = max(min(m.scrolled+n, max(over, m.scrolled)), 0)
+}
+
+// piecesWidth returns how many cells the text of pieces takes.
+func piecesWidth(pieces []piece) int {
+	n := 0
+	for _, p := range pieces {
+		n += ansi.StringWidth(p.text)
+	}
+	return n
+}
+
 // sideText is what side writes of a line.
 type sideText struct {
 	bar     chunk
@@ -306,9 +353,11 @@ const (
 
 // side writes a line on l: its bar, then its numbers on the background of its line numbers,
 // then its rail, sign, code and label on the background of its kind of line, with the
-// search's matches lit in the code. The cursor row has a shade of its line's background,
-// and a selected line the blue one of its kind, which without colors shows in reverse
-// video. It returns the style that fills the rest of the line.
+// search's matches lit in the code. The code starts m.scrolled cells in, with ‹ after the
+// sign when that leaves out some of it, and a line too long for its side ends with › at the
+// edge. The cursor row has a shade of its line's background, and a selected line the blue
+// one of its kind, which without colors shows in reverse video. It returns the style that
+// fills the rest of the line.
 func (m *model) side(l *line, s sideText, cursor, selected bool) lipgloss.Style {
 	t := &m.theme
 	var numberBg, lineBg, wordBg, signColor color.Color // an unchanged line's sign is blank
@@ -335,7 +384,6 @@ func (m *model) side(l *line, s sideText, cursor, selected bool) lipgloss.Style 
 	l.add(s.bar.text, t.paint(s.bar.color, numberBg).Bold(s.bar.bold).Reverse(cursor && t.plain))
 	l.add(s.numbers, t.paint(numberColor, numberBg).Bold(cursor).Reverse(cursor && t.plain || reverse))
 	l.add(s.rail.text, on(s.rail.color, lineBg))
-	l.add(string(s.change)+" ", on(signColor, lineBg))
 	code := make([]seg, len(s.pieces))
 	for i, p := range s.pieces {
 		bg := lineBg
@@ -344,8 +392,22 @@ func (m *model) side(l *line, s sideText, cursor, selected bool) lipgloss.Style 
 		}
 		code[i] = seg{text: p.text, st: on(t.code(p.kind), bg)}
 	}
-	for _, c := range m.markSegs(code, s.marks, s.current) {
+	code, hid := shiftSegs(m.markSegs(code, s.marks, s.current), m.scrolled)
+	if hid {
+		l.add(string(s.change), on(signColor, lineBg))
+		l.add("‹", on(t.subtle, lineBg))
+	} else {
+		l.add(string(s.change)+" ", on(signColor, lineBg))
+	}
+	long := segsWidth(code) > l.free
+	if long {
+		code = cutSegs(code, l.free-1)
+	}
+	for _, c := range code {
 		l.add(c.text, c.st)
+	}
+	if long {
+		l.add(strings.Repeat(" ", max(l.free-1, 0))+"›", on(t.subtle, lineBg))
 	}
 	if s.labeled {
 		m.addLabel(l, s.label, func(fg color.Color) lipgloss.Style { return on(fg, lineBg) })

@@ -117,10 +117,11 @@ export DR_VIEW=split
 | `d` `u` `J` `K` | Half a page down, up |
 | `}` `{` | Next, previous change |
 | `l` `h` | Next, previous file. Arrows work too. Takes a count (3l) |
+| `>` `<` | Scroll the code of every line right, left, as far as the end of the longest line on the screen. A line cut at the edge ends with `›`, and `‹` after the sign tells its start is scrolled out |
 | `/` `n` `N` | Search, next, previous. A lowercase query ignores case |
 | `Enter` | Open the origin card. `j` `k` `d` `u` `J` `K` `gg` `G` scroll it, `a` asks a follow-up, `q` `Esc` `Enter` close |
 | `s` | Split or unified view. Narrow screens stay unified |
-| `space` | Peek at the file under the cursor in a box. `j` `k` `d` `u` `J` `K` `gg` `G` `{` `}` move inside it, `h` `l` go to another file, `s` splits it, `v` marks it viewed, `space` `Esc` `q` close |
+| `space` | Peek at the file under the cursor in a box. `j` `k` `d` `u` `J` `K` `gg` `G` `{` `}` move inside it, `>` `<` scroll it sideways, `h` `l` go to another file, `s` splits it, `v` marks it viewed, `space` `Esc` `q` close |
 | `f` | Show only the file under the cursor, or every file again. Moving keys stay in the file, `h` `l` go to another file |
 | `v` | Mark the file viewed or not |
 | `V` | Select lines, as in vim. `V` or `Esc` ends it |
@@ -147,4 +148,4 @@ In the `a` and `c` box:
 | `^` | Pick a model, at the start of a word |
 | `Esc` `Ctrl-C` | Cancel |
 
-With the mouse, drag the line between the tree and the diff to resize the tree, all the way left to fold it. The wheel scrolls. Click a file in the tree to go to it, or the Viewed box on a file header to mark it. Hold Shift, or Option on macOS, to select text.
+With the mouse, drag the line between the tree and the diff to resize the tree, all the way left to fold it. The wheel scrolls, and a sideways wheel or trackpad swipe scrolls the code as `>` `<` do. Click a file in the tree to go to it, or the Viewed box on a file header to mark it. Hold Shift, or Option on macOS, to select text.

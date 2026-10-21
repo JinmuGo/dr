@@ -50,6 +50,8 @@ const (
 	keyPrevChange  = "{"
 	keyNextFile    = "l"
 	keyPrevFile    = "h"
+	keyScrollRight = ">"
+	keyScrollLeft  = "<"
 	keySearch      = "/"
 	keyNextMatch   = "n"
 	keyPrevMatch   = "N"
@@ -243,8 +245,9 @@ func (m *model) normalKey(k string) tea.Cmd {
 	return nil
 }
 
-// moveKey handles k when it is a digit of a count, the g that waits for its key, or a key
-// that moves the cursor count times, or to row count, and reports whether it was one.
+// moveKey handles k when it is a digit of a count, the g that waits for its key, a key that
+// moves the cursor count times, or to row count, or one that scrolls the code sideways count
+// times, and reports whether it was one.
 func (m *model) moveKey(k string, count int) bool {
 	switch k {
 	case "1", "2", "3", "4", "5", "6", "7", "8", "9":
@@ -286,6 +289,10 @@ func (m *model) moveKey(k string, count int) bool {
 		} else {
 			m.jump(count, -1, m.fileStart)
 		}
+	case keyScrollRight:
+		m.scrollCode(max(count, 1) * scrollCells)
+	case keyScrollLeft:
+		m.scrollCode(-max(count, 1) * scrollCells)
 	case keyNextMatch:
 		m.find(count, 1)
 	case keyPrevMatch:
@@ -460,7 +467,7 @@ var helpColumns = [2][]helpGroup{
 			{keyLabels(keyHalfDown, keyHalfUp, keyHalfDownAlt, keyHalfUpAlt), "half a page down, up"},
 			{keyLabels(keyTop, keyBottom), "top, bottom · 12G"},
 			{keyLabels(keyNextChange, keyPrevChange), "next, previous change"},
-			{keyLabels(keyNextFile, keyPrevFile), "next, previous file · 3l"},
+			{keyLabels(keyNextFile, keyPrevFile, keyScrollRight, keyScrollLeft), "file · 3l; code sideways"},
 			{keyLabels(keySearch, keyNextMatch, keyPrevMatch), "search, next, previous"},
 		}},
 		{"REVIEW", [][2]string{

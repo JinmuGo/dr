@@ -1238,3 +1238,66 @@ func TestWheel(t *testing.T) {
 		t.Errorf("wheel over the help: cursor at row %d, help %t; want row 0 under the help", m.cursor, m.help)
 	}
 }
+
+func TestScrollCode(t *testing.T) {
+	// A line too long for its side ends with › at the edge. > scrolls the code of every line
+	// to the left, with ‹ after the sign while some of it is out of sight, no further than
+	// it takes to show the end of the longest line on the screen, and < scrolls it back to
+	// the start. In the split view too.
+	for _, keys := range []string{"G", "sG"} {
+		m := newModel(testFiles(), nil, Saved{}, Asker{})
+		m.Update(tea.WindowSizeMsg{Width: 125, Height: 24})
+		typeKeys(m, keys)
+		long := func() string { // the comment of c/new.go, too long for the screen
+			for _, l := range strings.Split(screen(t, m), "\n") {
+				if strings.Contains(l, "주석이에요") {
+					return strings.TrimRight(l, " ")
+				}
+			}
+			t.Fatalf("%q: no long line on the screen", keys)
+			return ""
+		}
+		if l := long(); m.scrolled != 0 || !strings.Contains(l, "+ // 한글로") || !strings.HasSuffix(l, "›") {
+			t.Errorf("%q: scrolled %d, line %q; want it unscrolled and ending with ›", keys, m.scrolled, l)
+		}
+		typeKeys(m, ">")
+		if l := long(); m.scrolled != scrollCells || !strings.Contains(l, "+‹") || strings.Contains(l, "//") {
+			t.Errorf("%q >: scrolled %d, line %q; want %d cells out of sight after ‹", keys, m.scrolled, l, scrollCells)
+		}
+		typeKeys(m, "99>")
+		end := m.scrolled
+		if l := long(); !strings.HasSuffix(l, "주석이에요.") || !strings.Contains(l, "+‹") {
+			t.Errorf("%q 99>: line %q, want its end in sight", keys, l)
+		}
+		if typeKeys(m, ">"); m.scrolled != end {
+			t.Errorf("%q 99>>: scrolled %d, want it kept at %d", keys, m.scrolled, end)
+		}
+		typeKeys(m, "99<")
+		if l := long(); m.scrolled != 0 || !strings.Contains(l, "+ // 한글로") || !strings.HasSuffix(l, "›") {
+			t.Errorf("%q 99<: scrolled %d, line %q; want it back at the start", keys, m.scrolled, l)
+		}
+	}
+}
+
+func TestCutSegs(t *testing.T) {
+	// A cut ends before a wide character that does not fit, and leaves out what comes after
+	// it, which would otherwise show in its place.
+	got := cutSegs([]seg{{text: "ab한"}, {text: "X"}}, 3)
+	if len(got) != 1 || got[0].text != "ab" {
+		t.Errorf("cut to 3 cells: got %+v, want only \"ab\"", got)
+	}
+	if got := cutSegs([]seg{{text: "ab"}, {text: "cd"}}, 3); len(got) != 2 || got[0].text+got[1].text != "abc" {
+		t.Errorf("cut to 3 cells: got %+v, want \"ab\" and \"c\"", got)
+	}
+}
+
+func TestShiftSegs(t *testing.T) {
+	// The cut leaves out a character it splits, wide or made of several, as a space, so the
+	// text after it keeps its column.
+	for _, text := range []string{"a한b", "a👩‍💻b", "a☺️b"} {
+		got, hid := shiftSegs([]seg{{text: text}, {text: "X"}}, 2)
+		if want := ansi.StringWidth(text) - 2 + 1; !hid || segsWidth(got) != want || got[0].text != " b" {
+			t.Errorf("%q from cell 2: got %+v, %d cells; want \" b\" then X, %d cells", text, got, segsWidth(got), want)
+		}
+	}
+}
