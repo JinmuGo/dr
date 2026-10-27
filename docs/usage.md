@@ -70,6 +70,8 @@ Pi runs a question without extensions, so a model that only an extension provide
 
 ## Fixing with `c`
 
+ask 답변을 읽다가 수정하기로 정했다면 스레드에서 `c`를 누릅니다. 최근 질문의 줄 범위와 스레드의 질문·답변을 담은 수정 요청 초안이 열립니다. 적용할 내용을 확인하거나 고친 뒤 `Enter`로 저장하고, `:submit`으로 보냅니다. 반환된 diff를 확인한 뒤 `y`로 적용하거나 `x`로 버립니다. `Esc`는 초안을 취소합니다. 같은 범위에 코멘트가 있으면 그 코멘트를 편집하며, 답변 대기 중이거나 수정 범위가 기존 코멘트와 부분적으로 겹치면 전환하지 않습니다.
+
 `c` leaves a comment on the line or the selection, such as "use errors.Is". Nothing is sent yet: the comment waits under its lines, like a pending GitHub review comment. `:submit` sends every comment at once, one request per session, to the same fork `a` asks.
 
 Each fix shows under its comment as a small diff. `y` applies it, `x` drops it, and `:undo` reverts the last fix dr applied. To get a different fix, edit the comment and submit again. dr writes a fix only to the comment's lines in a regular file inside the worktree, and only if the file has not changed since the request went out, apart from fixes dr applied. Only one dr per worktree applies fixes.

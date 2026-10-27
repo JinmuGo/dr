@@ -365,6 +365,8 @@ func (m *model) readKey(k string) tea.Cmd {
 		m.startAsk()
 	case keyOpenSession:
 		return m.openSession()
+	case keyComment:
+		m.startComment()
 	case keyQuit, keyEsc, keyEnter:
 		m.originBox.open = false
 	}
@@ -540,7 +542,7 @@ func (m *model) keycaps() []keycap {
 		keys := []keycap{{keyLabels(keyLineDown, keyLineUp), "scroll"}}
 		switch {
 		case m.hasQuestions(m.cursor):
-			keys = append(keys, keycap{keyAsk, "ask a follow-up"})
+			keys = append(keys, keycap{keyAsk, "ask a follow-up"}, keycap{keyComment, "request a fix"})
 		case m.rows[m.cursor].isChange():
 			keys = append(keys, keycap{keyAsk, "ask"})
 		}

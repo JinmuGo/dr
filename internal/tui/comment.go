@@ -98,7 +98,18 @@ func (m *model) startComment() {
 	if in.editing != nil {
 		m.entry = newTextBox(in.editing.Text)
 		m.entry.pick = in.editing.Model
+	} else if m.originBox.open && m.hasQuestions(m.cursor) && !m.selection.on {
+		var text strings.Builder
+		text.WriteString("Make the agreed change based on this discussion.\n")
+		for _, q := range m.questionsAt(m.cursor) {
+			text.WriteString("\nQuestion: " + q.Text + "\n")
+			if q.answer != nil && q.answer.Error == "" {
+				text.WriteString("Answer: " + q.answer.Text + "\n")
+			}
+		}
+		m.entry = newTextBox(text.String())
 	}
+	m.originBox.open = false
 }
 
 // commentTarget returns what the input box of c comments on, and who the comment goes to,
@@ -115,6 +126,18 @@ func (m *model) commentTarget() (*commentInput, string) {
 		return nil, "Move to a changed line to comment"
 	}
 	in := &commentInput{file: m.rows[rows[0]].file, lines: m.rowLines(rows)}
+	thread := m.originBox.open && m.hasQuestions(m.cursor) && !m.selection.on
+	if thread {
+		qs := m.questionsAt(m.cursor)
+		q := qs[len(qs)-1]
+		if q.pending {
+			return nil, "Wait for the answer before requesting a fix"
+		}
+		if q.answer == nil || q.answer.Error != "" {
+			return nil, "Ask again to get an answer before requesting a fix"
+		}
+		in.lines = slices.Clone(q.lines)
+	}
 	from, to := m.currentRange(in.lines)
 	for _, c := range m.comments {
 		if !c.placed() || c.file != in.file {
@@ -125,7 +148,7 @@ func (m *model) commentTarget() (*commentInput, string) {
 			continue
 		}
 		switch {
-		case m.selection.on && (from != at || to != end):
+		case (m.selection.on || thread) && (from != at || to != end):
 			return nil, "The selection overlaps a comment. Edit it with c on its lines"
 		case c.request != "":
 			return nil, "Wait for the fix to this comment"
@@ -134,7 +157,7 @@ func (m *model) commentTarget() (*commentInput, string) {
 		in.who, in.from, in.to = m.commentWho(c.Agent, c.Session, review.Relation(c.Relation)), at, end
 		return in, ""
 	}
-	if !m.selection.on && !m.rows[m.cursor].isChange() {
+	if !m.selection.on && !thread && !m.rows[m.cursor].isChange() {
 		return nil, "Move to a changed line to comment"
 	}
 	var lines []origin.Line
