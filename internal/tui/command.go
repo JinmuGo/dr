@@ -17,16 +17,32 @@ type cmdline struct {
 }
 
 // command is a dr command typed after :, with what it does now as the command list tells it.
+// A command with review set is offered only when dr runs with --review.
 type command struct {
-	name string
-	run  func(*model) tea.Cmd
-	does func(*model) string
+	name   string
+	run    func(*model) tea.Cmd
+	does   func(*model) string
+	review bool
 }
 
 // commands are the dr commands, in the order the command list shows them.
 var commands = []command{
 	{name: "submit", run: (*model).submit, does: (*model).submitDoes},
 	{name: "undo", run: (*model).undo, does: (*model).undoDoes},
+	{name: "approve", run: (*model).approve, does: (*model).approveDoes, review: true},
+	{name: "request", run: (*model).request, does: (*model).requestDoes, review: true},
+}
+
+// offered returns the commands dr offers now: every command, less the review commands when
+// dr does not run with --review.
+func (m *model) offered() []command {
+	var out []command
+	for _, c := range commands {
+		if !c.review || m.reviewing {
+			out = append(out, c)
+		}
+	}
+	return out
 }
 
 // Sizes of the command list, in cells: it is no wider than maxCommandsWidth, and what each
@@ -70,7 +86,7 @@ func (m *model) undoDoes() string {
 func (m *model) commandRows() []command {
 	typed := strings.TrimSpace(m.cmdline.input)
 	var rows []command
-	for _, c := range commands {
+	for _, c := range m.offered() {
 		if strings.HasPrefix(c.name, typed) {
 			rows = append(rows, c)
 		}
@@ -124,7 +140,7 @@ func (m *model) runCommand(name string) tea.Cmd {
 	if name == "" {
 		return nil
 	}
-	for _, c := range commands {
+	for _, c := range m.offered() {
 		if c.name == name {
 			return c.run(m)
 		}
@@ -155,7 +171,7 @@ func (m *model) commandBox(rows []command, w int) []string {
 	t := &m.theme
 	lines := []string{t.floatTop(w, seg{text: " commands ", st: t.paint(t.muted, t.surface)}, seg{})}
 	names := 0
-	for _, c := range commands {
+	for _, c := range m.offered() {
 		names = max(names, ansi.StringWidth(c.name))
 	}
 	typed := strings.TrimSpace(m.cmdline.input)

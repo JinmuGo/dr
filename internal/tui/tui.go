@@ -102,13 +102,15 @@ type model struct {
 	resolved  []*comment            // likewise, resolved by a fix dr applied that is in place
 	models    map[string]*modelList // what Asker.Models gave for each agent in this run, or that it is still at it
 
-	newest   map[session]*agent.Edit // the newest edit of each session in the diff, as newestEdits finds it
-	records  state.Records           // what the log holds: what it held when the screen opened, and the fix records of this run
-	requests map[string]*request     // the fix requests in flight, by ID
-	lockErr  error                   // why this dr does not hold the lock on the worktree, so y and :undo write no file; nil when it does
-	undoable bool                    // no changed file is left and :undo can revert the last fix dr applied, as Undoable tells
-	base     Base                    // what the diff compares the working tree with
-	reloads  int                     // how many times the changed files were asked to be read again; reloaded rebuilds from the last only
+	newest    map[session]*agent.Edit // the newest edit of each session in the diff, as newestEdits finds it
+	records   state.Records           // what the log holds: what it held when the screen opened, and the fix records of this run
+	requests  map[string]*request     // the fix requests in flight, by ID
+	lockErr   error                   // why this dr does not hold the lock on the worktree, so y and :undo write no file; nil when it does
+	undoable  bool                    // no changed file is left and :undo can revert the last fix dr applied, as Undoable tells
+	base      Base                    // what the diff compares the working tree with
+	reviewing bool                    // dr --review: :approve and :request decide the review and quit
+	verdict   review.Verdict          // what :approve or :request decided, "" until one did
+	reloads   int                     // how many times the changed files were asked to be read again; reloaded rebuilds from the last only
 
 	reload  func() ([]review.File, []agent.Problem, error) // reads the changed files again, nil for never
 	execute func(*exec.Cmd, tea.ExecCallback) tea.Cmd      // runs the editor or the agent ga opens: tea.ExecProcess, or a test's
@@ -147,6 +149,9 @@ type Saved struct {
 	// View names the view the screen opens in, as DR_VIEW gives it: one of Views, or "" for
 	// the unified view.
 	View string
+	// Review tells dr runs with --review: :approve and :request decide the review and quit,
+	// and Run returns the decision.
+	Review bool
 }
 
 // Views returns the names DR_VIEW takes: the unified view, the default, and the split view.
@@ -206,6 +211,7 @@ func newModel(files []review.File, problems []agent.Problem, saved Saved, asker 
 		records:      saved.Log,
 		lockErr:      saved.Lock,
 		base:         saved.Base,
+		reviewing:    saved.Review,
 		reload:       saved.Reload,
 		execute:      tea.ExecProcess,
 		open:         agent.Open,
@@ -281,20 +287,22 @@ func (m *model) setFiles(files []review.File) {
 	m.undoable = len(files) == 0 && Undoable(m.asker.Root, m.records)
 }
 
-// Run shows the diff screen for files until the user quits. Then it stops the questions in
-// flight, which stay in the log without an answer. A save of the viewed files that was
-// still running may not have ended, so Run saves them once more when they changed.
-func Run(files []review.File, problems []agent.Problem, saved Saved, asker Asker) error {
+// Run shows the diff screen for files until the user quits, and returns what the review
+// decided: the verdict of :approve or :request, none after q, with the comments. Then it
+// stops the questions in flight, which stay in the log without an answer. A save of the
+// viewed files that was still running may not have ended, so Run saves them once more when
+// they changed.
+func Run(files []review.File, problems []agent.Problem, saved Saved, asker Asker) (Outcome, error) {
 	m := newModel(files, problems, saved, asker)
 	_, err := tea.NewProgram(m).Run()
 	m.flights.stop(stopWait)
 	if err != nil {
-		return err
+		return Outcome{}, err
 	}
 	if err := m.viewed.saver.save(m.viewed.version, m.viewed.files); err != nil {
-		return fmt.Errorf("save viewed state: %w", err)
+		return Outcome{}, fmt.Errorf("save viewed state: %w", err)
 	}
-	return nil
+	return m.outcome(), nil
 }
 
 // Init starts the screen by asking the terminal for its background color, to pick the dark
