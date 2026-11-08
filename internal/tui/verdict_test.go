@@ -18,8 +18,9 @@ func quits(cmd tea.Cmd) bool {
 }
 
 func TestReviewCommands(t *testing.T) {
-	// Without --review, :approve and :request are not dr commands. With it, :request needs
-	// a comment and quits with the request and the comments, each with the range in the
+	// Without --review, :approve and :request are not dr commands. With it, :submit is not
+	// one, since comments are review comments for the author rather than fix requests for the
+	// session; :request needs a comment and quits with the request and the comments, each with the range in the
 	// current file and the diff lines it is on; :approve quits with the approval. q quits
 	// with no decision.
 	m := askScreen(testFiles(), Saved{}, &fakeAsk{answer: answer})
@@ -31,8 +32,11 @@ func TestReviewCommands(t *testing.T) {
 	}
 
 	m = askScreen(testFiles(), Saved{Review: true}, &fakeAsk{answer: answer})
-	if names := commandNames(m.commandRows()); !slices.Equal(names, []string{"submit", "undo", "approve", "request"}) {
-		t.Errorf("commands with --review: %q, want submit, undo, approve and request", names)
+	if names := commandNames(m.commandRows()); !slices.Equal(names, []string{"undo", "approve", "request"}) {
+		t.Errorf("commands with --review: %q, want undo, approve and request", names)
+	}
+	if cmd := typeAndKeep(m, ":submit<enter>"); quits(cmd) || m.tone != toneErr {
+		t.Errorf(":submit under --review: quit %t, tone %v; want an error and no quit", quits(cmd), m.tone)
 	}
 	if cmd := typeAndKeep(m, ":request<enter>"); quits(cmd) || m.tone != toneWarn {
 		t.Errorf(":request without a comment: quit %t, tone %v; want a warning and no quit", quits(cmd), m.tone)

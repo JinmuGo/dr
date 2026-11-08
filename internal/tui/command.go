@@ -17,28 +17,36 @@ type cmdline struct {
 }
 
 // command is a dr command typed after :, with what it does now as the command list tells it.
-// A command with review set is offered only when dr runs with --review.
+// review tells when it is offered: under --review, outside it, or always.
 type command struct {
 	name   string
 	run    func(*model) tea.Cmd
 	does   func(*model) string
-	review bool
+	review offer
 }
+
+// offer is when a command is offered.
+type offer int
+
+const (
+	always     offer = iota
+	reviewOnly       // only under --review, where comments are review comments
+	fixOnly          // only outside --review, where comments are fix requests for :submit
+)
 
 // commands are the dr commands, in the order the command list shows them.
 var commands = []command{
-	{name: "submit", run: (*model).submit, does: (*model).submitDoes},
+	{name: "submit", run: (*model).submit, does: (*model).submitDoes, review: fixOnly},
 	{name: "undo", run: (*model).undo, does: (*model).undoDoes},
-	{name: "approve", run: (*model).approve, does: (*model).approveDoes, review: true},
-	{name: "request", run: (*model).request, does: (*model).requestDoes, review: true},
+	{name: "approve", run: (*model).approve, does: (*model).approveDoes, review: reviewOnly},
+	{name: "request", run: (*model).request, does: (*model).requestDoes, review: reviewOnly},
 }
 
-// offered returns the commands dr offers now: every command, less the review commands when
-// dr does not run with --review.
+// offered returns the commands dr offers now, as each command's review says.
 func (m *model) offered() []command {
 	var out []command
 	for _, c := range commands {
-		if !c.review || m.reviewing {
+		if c.review == always || (c.review == reviewOnly) == m.reviewing {
 			out = append(out, c)
 		}
 	}

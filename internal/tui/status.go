@@ -377,7 +377,12 @@ func (m *model) keyRow() string {
 	var right []seg
 	if mode := m.mode(); len(m.rows) > 0 && (mode == modeNormal || mode == modeVisual) {
 		end := keycap{keyQuit, "quit"}
-		if n := m.pendingCount(); n > 0 {
+		switch n := m.pendingCount(); {
+		case m.reviewing && n > 0:
+			end = keycap{keyCommand + "request", "request with " + strconv.Itoa(n)}
+		case m.reviewing:
+			end = keycap{keyCommand + "approve", "approve"}
+		case n > 0:
 			end = keycap{keyCommand + "submit", "send " + strconv.Itoa(n)}
 		}
 		right = append(add(nil, end), seg{text: " "})
