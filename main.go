@@ -117,6 +117,8 @@ func versionOf(ldflags string, info *debug.BuildInfo) string {
 // says, and nothing when the person cancels. With report, the path of a file, the screen
 // offers :approve and :request, and browse writes what was decided to that file when the
 // screen closes, with no decision when there was nothing to review or the person cancelled.
+// With report and no ref, browse reviews the worktree dr runs in without asking which: the
+// harness that waits for the report chose it.
 // The files marked viewed, the questions asked, the comments and fixes and, when an agent
 // lets dr choose where, the sessions dr starts to ask them are kept in the worktree's git
 // directory. The screen holds the lock on the worktree while it is open, so only one dr
@@ -133,7 +135,7 @@ func browse(stdout io.Writer, home, ref, report string) (err error) {
 			}
 		}()
 	}
-	if ref == "" {
+	if ref == "" && report == "" {
 		worktree, err = chosen(worktree, func(list []git.Worktree, current int) (int, error) {
 			return tui.Choose(list, current, home, os.Getenv("DR_THEME"))
 		})

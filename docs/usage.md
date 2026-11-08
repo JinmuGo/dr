@@ -81,7 +81,7 @@ To fix a line by hand, `e` opens it in your editor. For a change too big for a c
 
 ## Deciding with `--review`
 
-`dr --review <file>` reviews as a pull request review ends: with a decision. It adds two commands, `:approve` and `:request`, that decide and quit. `:request` needs at least one comment, since a change request says what to change. `q` quits with no decision.
+`dr --review <file>` reviews as a pull request review ends: with a decision. It adds two commands, `:approve` and `:request`, that decide and quit. `:request` needs at least one comment, since a change request says what to change. `q` quits with no decision. Without a ref, `--review` reviews the worktree dr runs in and does not ask which worktree to open: the program that waits for the file chose it.
 
 When dr quits, it writes the decision to `<file>` as JSON: `verdict` (`approve`, `request` or `none`), the worktree `root`, the `ref` and `base` commit the diff was compared with, the changed `files`, and the `comments`, each with its `path`, the `first` and `last` line in the current file, the diff `lines` it is on, its `text`, and the `agent` and `session` that wrote the lines. A comment a fix dr applied resolved carries `fixed: true`. With nothing to review, the file holds `verdict: none`.
 
