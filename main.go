@@ -191,17 +191,13 @@ func browse(stdout io.Writer, home, ref, report string) (err error) {
 	if err != nil || report == "" {
 		return err
 	}
-	paths := make([]string, len(files))
-	for i, f := range files {
-		paths[i] = f.Path
-	}
 	written = true
 	return review.WriteReport(report, review.Report{
 		Verdict:  outcome.Verdict,
 		Root:     repo.Root,
 		Ref:      saved.Base.Ref,
 		Base:     repo.Base,
-		Files:    paths,
+		Files:    outcome.Files, // of the diff as it was at the decision, e and ga included
 		Comments: outcome.Comments,
 	})
 }

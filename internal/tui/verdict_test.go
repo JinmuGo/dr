@@ -5,6 +5,7 @@ import (
 	"testing"
 
 	tea "charm.land/bubbletea/v2"
+	"github.com/JinmuGo/dr/internal/origin"
 	"github.com/JinmuGo/dr/internal/review"
 )
 
@@ -61,6 +62,20 @@ func TestReviewCommands(t *testing.T) {
 	m = askScreen(testFiles(), Saved{Review: true}, &fakeAsk{answer: answer})
 	if cmd := typeAndKeep(m, ":approve<enter>"); !quits(cmd) || m.outcome().Verdict != review.VerdictApprove {
 		t.Errorf(":approve: quit %t, verdict %q; want quit and approve", quits(cmd), m.outcome().Verdict)
+	}
+	if files := m.outcome().Files; !slices.Equal(files, []string{"a.go", "b.bin", "c/new.go"}) {
+		t.Errorf("files of the outcome: %q, want the three of the diff", files)
+	}
+
+	// The files of the outcome are those of the diff at the decision: after e or ga changed
+	// it and the files were read again, the files read again.
+	m = askScreen(testFiles(), Saved{Review: true}, &fakeAsk{answer: answer})
+	again := append(testFiles()[:1], review.File{Path: "d.go", Status: 'A', Lines: origin.Blame("", "package d\n", nil)})
+	m.reloads++
+	m.reloaded(reloadedMsg{files: again, reload: m.reloads})
+	typeKeys(m, ":approve<enter>")
+	if files := m.outcome().Files; !slices.Equal(files, []string{"a.go", "d.go"}) {
+		t.Errorf("files of the outcome after a reload: %q, want a.go and d.go", files)
 	}
 }
 

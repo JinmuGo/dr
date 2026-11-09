@@ -77,16 +77,23 @@ func (m *model) reported() []review.ReportComment {
 
 // Outcome is what the screen decided when it quit, as Run returns it for dr --review.
 type Outcome struct {
-	Verdict  review.Verdict
+	Verdict review.Verdict
+	// Files are the paths of the diff the decision was made on: the files the screen showed
+	// when it quit, which e and ga can have changed since it opened.
+	Files    []string
 	Comments []review.ReportComment
 }
 
-// outcome returns what the screen decided: the verdict, none when it quit with q, and the
-// comments the report carries.
+// outcome returns what the screen decided: the verdict, none when it quit with q, the files
+// of the diff as it was then, and the comments the report carries.
 func (m *model) outcome() Outcome {
 	v := m.verdict
 	if v == "" {
 		v = review.VerdictNone
 	}
-	return Outcome{Verdict: v, Comments: m.reported()}
+	files := make([]string, len(m.files))
+	for i, f := range m.files {
+		files[i] = f.key
+	}
+	return Outcome{Verdict: v, Files: files, Comments: m.reported()}
 }
