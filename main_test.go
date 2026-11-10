@@ -2,6 +2,7 @@ package main
 
 import (
 	"crypto/sha256"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"os"
@@ -58,6 +59,10 @@ func TestRun(t *testing.T) {
 		{"blame outside the worktree", []string{"blame", "../outside.md"}, nil, 1, "", "dr: not in the worktree " + repo + ": ../outside.md\n"},
 		{"no home", nil, errNoHome, 1, "", "dr: no home\n"},
 		{"no changed files", nil, nil, 0, "No changed files\n", ""},
+		{"review without a file", []string{"--review"}, nil, 2, "", usage + "\n"},
+		{"review with a flag for a file", []string{"--review", "-x"}, nil, 2, "", usage + "\n"},
+		{"review with two refs", []string{"--review", "r.json", "a", "b"}, nil, 2, "", usage + "\n"},
+		{"review with no changed files", []string{"--review", filepath.Join(tmp, "out", "r.json")}, nil, 0, "No changed files\n", ""},
 		{"version", []string{"--version"}, errNoHome, 0, "dr " + versionOf(version, info) + "\n", ""},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
@@ -68,6 +73,16 @@ func TestRun(t *testing.T) {
 					tc.args, code, stdout.String(), stderr.String(), tc.code, tc.stdout, tc.stderr)
 			}
 		})
+	}
+	// --review with nothing to review still writes the report, with no decision, so the
+	// caller that waits for it reads one.
+	data, err := os.ReadFile(filepath.Join(tmp, "out", "r.json"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	var report review.Report
+	if err := json.Unmarshal(data, &report); err != nil || report.Verdict != review.VerdictNone || len(report.Comments) != 0 {
+		t.Errorf("the report with no changed files: %s, %v; want verdict none and no comments", data, err)
 	}
 }
 

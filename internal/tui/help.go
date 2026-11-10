@@ -40,6 +40,7 @@ func (m *model) drawHelp(lines []string) {
 func (m *model) helpBox(room int) ([]string, int) {
 	t := &m.theme
 	label := 0
+	helpColumns := m.helpGroups()
 	for _, column := range helpColumns {
 		for _, g := range column {
 			for _, k := range g.keys {

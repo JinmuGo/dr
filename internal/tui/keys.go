@@ -1,6 +1,7 @@
 package tui
 
 import (
+	"slices"
 	"strings"
 	"time"
 	"unicode/utf8"
@@ -460,7 +461,8 @@ type helpGroup struct {
 	keys [][2]string
 }
 
-// helpColumns are the groups of the key help, in its two columns, left and right. What a key
+// helpColumns are the groups of the key help, in its two columns, left and right, outside
+// --review; helpGroups returns the ones of the run. What a key
 // does is short, so that both columns fit on a screen 80 cells wide.
 var helpColumns = [2][]helpGroup{
 	{
@@ -493,6 +495,26 @@ var helpColumns = [2][]helpGroup{
 		}},
 		{"OTHER", [][2]string{{keyHelp, "this help"}, {keyEsc, "clear a count or search"}, {keyQuit, "quit"}}},
 	},
+}
+
+// reviewGroup is the ASK AND FIX group under --review, where c leaves a review comment and
+// :approve and :request end the review.
+var reviewGroup = helpGroup{"ASK AND REVIEW", [][2]string{
+	{keyAsk, "ask who wrote it"}, {keyOpenSession, "open it in the agent"}, {keyComment, "leave a review comment"},
+	{keyCommand + "approve", "approve and quit"}, {keyCommand + "request", "request changes, quit"},
+	{keyCommand + "undo", "revert the last fix"}, {keyEdit, "edit in $EDITOR"},
+}}
+
+// helpGroups returns the groups of the key help for this run: helpColumns, with the ASK AND
+// FIX group replaced by reviewGroup under --review.
+func (m *model) helpGroups() [2][]helpGroup {
+	if !m.reviewing {
+		return helpColumns
+	}
+	groups := helpColumns
+	groups[1] = slices.Clone(groups[1])
+	groups[1][0] = reviewGroup
+	return groups
 }
 
 // keycap is a key and what it does, as the key row shows it.

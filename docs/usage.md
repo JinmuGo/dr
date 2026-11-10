@@ -6,6 +6,7 @@ Run dr in a git repository after an agent has finished its work.
 dr              # changes since the merge-base with the default branch; asks which worktree when there are several
 dr <ref>        # changes since the merge-base of HEAD and <ref>
 dr <branch>     # the worktree that has <branch> checked out, against the default branch
+dr --review <file> [<ref>]  # also decide with :approve or :request, written to <file> on quit
 dr blame <path> # the origins of one file, as text
 dr --version
 ```
@@ -78,6 +79,14 @@ Each fix shows under its comment as a small diff. `y` applies it, `x` drops it, 
 
 To fix a line by hand, `e` opens it in your editor. For a change too big for a comment, `ga` opens a fork of the session that wrote the line in its agent, right in this terminal. When you leave the agent, dr redraws the diff with the fork's edits.
 
+## Reviewing with `--review`
+
+`dr --review <file>` reviews as a pull request review on GitHub: comments are collected, then the review ends with a decision. Under `--review`, `c` leaves a review comment for the author of the changes, not a fix request for a session, so `:submit` is not offered. `a` still asks the session that wrote the line. Two commands end the review and quit: `:approve`, and `:request`, which needs at least one comment, since a change request says what to change. `q` quits with no decision. Without a ref, `--review` reviews the worktree dr runs in and does not ask which worktree to open: the program that waits for the file chose it.
+
+When dr quits, it writes the decision to `<file>` as JSON: `verdict` (`approve`, `request` or `none`), the worktree `root`, the `ref` and `base` commit the diff was compared with, the changed `files`, and the `comments`, each with its `path`, the `first` and `last` line in the current file, the diff `lines` it is on, its `text`, and the `agent` and `session` that wrote the lines. A comment a fix dr applied resolved, in an earlier run without `--review`, carries `fixed: true`. With nothing to review, the file holds `verdict: none`.
+
+The file is for the agent that wrote the changes: a harness runs `dr --review`, reads the file, and gives the comments back to the session that made the changes, so it fixes them before opening a pull request. The comments stay in dr's log, so a later `dr` without `--review` can still `:submit` them to the sessions that wrote the lines.
+
 ## Following threads with `t`
 
 Questions and fix requests run in the background, so you can keep reviewing while they wait. `t` shows every thread in place of the file tree, the ones that need you first. `◉` is an answer that came while you were elsewhere, or a fix waiting for `y` or `x`, `●` is still waiting, `✗` got no answer or fix, `✎` is a comment `:submit` will send and `○` is read. Enter on a thread opens it where it lives in the diff. An answer counts as read once its origin card shows it. dr forgets what you read when it quits, and quitting stops the questions that are still waiting.
@@ -132,6 +141,7 @@ export DR_VIEW=split
 | `:submit` | Send all pending comments |
 | `y` `x` | Apply, drop the fix under the comment |
 | `:undo` | Revert the last fix dr applied |
+| `:approve` `:request` | With `--review`: end the review and quit. `:request` needs a comment. `:submit` is not offered there |
 | `t` | Show the threads in place of the file tree: every question and comment, new answers and fixes first. `j` `k` move, `Enter` goes to one, `Esc` returns to the diff, `t` brings the files back |
 | `⌘B` | Fold the file tree, or the threads, to the left edge, or show it again. Only terminals that report the Command key, such as Ghostty and kitty, send it |
 | `e` | Edit the line in `$VISUAL`, else `$EDITOR`, else `vi` |

@@ -16,6 +16,9 @@ const maxEntryRows = 10
 // commentPlaceholder is what the input box of c shows dim while nothing is typed.
 const commentPlaceholder = "How should these lines change?"
 
+// reviewPlaceholder is the dim text of the empty input box of c under --review.
+const reviewPlaceholder = "What should the author change here?"
+
 // typing reports whether the input box of a or c is open.
 func (m *model) typing() bool {
 	return m.asking != nil || m.drafting != nil
@@ -234,14 +237,16 @@ func (m *model) entryTop(w int) string {
 	return l.fill(border) + border.Render(f.tr)
 }
 
-// entryPill returns what the pill of the input box says: ASK for a, COMMENT for c, and EDIT
-// for c on a comment.
+// entryPill returns what the pill of the input box says: ASK for a, COMMENT for c, REVIEW
+// for c under --review, and EDIT for c on a comment.
 func (m *model) entryPill() string {
 	switch {
 	case m.asking != nil:
 		return "ASK"
 	case m.drafting.editing != nil:
 		return "EDIT"
+	case m.reviewing:
+		return "REVIEW"
 	}
 	return "COMMENT"
 }
@@ -266,6 +271,9 @@ func (m *model) entryTitle() []chunk {
 		return append(title, sep, chunk{text: m.lineLabel(a.lines), color: t.fg})
 	}
 	in := m.drafting
+	if m.reviewing { // a review comment goes to the author of the changes, not to a session
+		return []chunk{{text: "review comment", color: t.fg}, sep, {text: "L" + lineRange(in.from, in.to), color: t.fg}}
+	}
 	agentName, id := in.target.Ask.Agent, in.target.Ask.Session
 	if c := in.editing; c != nil {
 		agentName, id = c.Agent, c.Session
@@ -335,6 +343,9 @@ func (m *model) entryNote() string {
 	if m.drafting.editing != nil {
 		return "save it empty to remove it"
 	}
+	if m.reviewing {
+		return "saved as pending; :request sends it to the author"
+	}
 	return "saved as pending; :submit asks for its fix"
 }
 
@@ -343,6 +354,9 @@ func (m *model) entryNote() string {
 func (m *model) entryPlaceholder() string {
 	if m.asking != nil {
 		return m.asking.placeholder
+	}
+	if m.reviewing {
+		return reviewPlaceholder
 	}
 	return commentPlaceholder
 }

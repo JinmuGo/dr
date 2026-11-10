@@ -5,7 +5,9 @@
 // request behind each changed line. When ref is a branch checked out in another worktree,
 // dr opens that worktree instead, compared with the default branch. Without ref, when the
 // repository has more than one worktree, dr first asks which to open. dr blame <path>
-// writes the same for one file.
+// writes the same for one file. dr --review <file> [<ref>] adds :approve and :request,
+// which decide the review, and writes the decision with the comments to file as JSON when
+// dr quits, for the agent that wrote the changes to act on.
 package main
 
 import (
@@ -26,6 +28,7 @@ import (
 )
 
 const usage = `usage: dr [<ref>]
+       dr --review <file> [<ref>]
        dr blame <path>
        dr --version`
 
@@ -49,9 +52,16 @@ func run(args []string, stdout, stderr io.Writer, userHome func() (string, error
 	case len(args) == 2 && args[0] == "blame":
 		cmd = func(home string) error { return blame(stdout, stderr, ".", home, args[1]) }
 	case len(args) == 0:
-		cmd = func(home string) error { return browse(stdout, home, "") }
+		cmd = func(home string) error { return browse(stdout, home, "", "") }
 	case len(args) == 1 && args[0] != "blame" && !strings.HasPrefix(args[0], "-"):
-		cmd = func(home string) error { return browse(stdout, home, args[0]) }
+		cmd = func(home string) error { return browse(stdout, home, args[0], "") }
+	case (len(args) == 2 || len(args) == 3) && args[0] == "--review" && args[1] != "" && !strings.HasPrefix(args[1], "-") &&
+		(len(args) == 2 || !strings.HasPrefix(args[2], "-")):
+		ref := ""
+		if len(args) == 3 {
+			ref = args[2]
+		}
+		cmd = func(home string) error { return browse(stdout, home, ref, args[1]) }
 	default:
 		_, _ = fmt.Fprintln(stderr, usage) // as for any message to the user, a failed write is not reported
 		return 2
@@ -104,16 +114,28 @@ func versionOf(ldflags string, info *debug.BuildInfo) string {
 
 // browse opens the diff screen on the files changed since the merge-base of HEAD and ref,
 // or on the worktree ref names, as reviewed says. Without ref it opens the worktree chosen
-// says, and nothing when the person cancels.
+// says, and nothing when the person cancels. With report, the path of a file, the screen
+// offers :approve and :request, and browse writes what was decided to that file when the
+// screen closes, with no decision when there was nothing to review or the person cancelled.
+// With report and no ref, browse reviews the worktree dr runs in without asking which: the
+// harness that waits for the report chose it.
 // The files marked viewed, the questions asked, the comments and fixes and, when an agent
 // lets dr choose where, the sessions dr starts to ask them are kept in the worktree's git
 // directory. The screen holds the lock on the worktree while it is open, so only one dr
 // applies fixes to it; when it cannot take the lock, the screen opens without applying
 // fixes. With no changed file, it opens only when :undo can revert the last fix dr applied,
 // and otherwise says so on stdout. The agents' session logs are read under home.
-func browse(stdout io.Writer, home, ref string) (err error) {
+func browse(stdout io.Writer, home, ref, report string) (err error) {
 	worktree := "."
-	if ref == "" {
+	written := false // the report was written with what the screen decided
+	if report != "" {
+		defer func() {
+			if err == nil && !written {
+				err = review.WriteReport(report, review.Report{Verdict: review.VerdictNone})
+			}
+		}()
+	}
+	if ref == "" && report == "" {
 		worktree, err = chosen(worktree, func(list []git.Worktree, current int) (int, error) {
 			return tui.Choose(list, current, home, os.Getenv("DR_THEME"))
 		})
@@ -140,6 +162,7 @@ func browse(stdout io.Writer, home, ref string) (err error) {
 		return nil
 	}
 	saved.Base = compared(repo.Root, ref, repo.Base)
+	saved.Review = report != ""
 	dirs := agent.Dirs{Home: home, State: dir}
 	asker := tui.Asker{
 		Ask: func(ctx context.Context, q agent.Question) (agent.Answer, error) {
@@ -164,7 +187,19 @@ func browse(stdout io.Writer, home, ref string) (err error) {
 		}
 		return files, again.Problems, nil
 	}
-	return tui.Run(files, repo.Problems, saved, asker)
+	outcome, err := tui.Run(files, repo.Problems, saved, asker)
+	if err != nil || report == "" {
+		return err
+	}
+	written = true
+	return review.WriteReport(report, review.Report{
+		Verdict:  outcome.Verdict,
+		Root:     repo.Root,
+		Ref:      saved.Base.Ref,
+		Base:     repo.Base,
+		Files:    outcome.Files, // of the diff as it was at the decision, e and ga included
+		Comments: outcome.Comments,
+	})
 }
 
 // opens reports whether browse opens the screen on files in the worktree at root: when a
