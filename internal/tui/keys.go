@@ -71,6 +71,7 @@ const (
 	keyCommand     = ":"
 	keyApply       = "y"
 	keyDrop        = "x"
+	keyBehind      = "b"
 	keyHelp        = "?"
 	keyQuit        = "q"
 	keyPickModel   = "^" // in the input box, at the start of a word
@@ -156,8 +157,8 @@ func (m *model) key(msg tea.KeyPressMsg) tea.Cmd {
 	return m.normalKey(k)
 }
 
-// emptyKey handles a key when no changed file is left: only q, ? and : do anything, so :undo
-// can bring back the change a fix took away.
+// emptyKey handles a key when no changed file is left: only q, ?, : and b do anything, so
+// :undo can bring back the change a fix took away and b still shows the screen under dr.
 func (m *model) emptyKey(k string) tea.Cmd {
 	switch k {
 	case keyQuit:
@@ -166,6 +167,8 @@ func (m *model) emptyKey(k string) tea.Cmd {
 		m.help = true
 	case keyCommand:
 		m.openCommand()
+	case keyBehind:
+		return m.showBehind()
 	}
 	return nil
 }
@@ -240,6 +243,8 @@ func (m *model) normalKey(k string) tea.Cmd {
 		return m.apply()
 	case keyDrop:
 		m.drop()
+	case keyBehind:
+		return m.showBehind()
 	case keyQuit:
 		return tea.Quit
 	}
@@ -493,7 +498,9 @@ var helpColumns = [2][]helpGroup{
 			{keyLabel(keyEnter), "send or save"}, {keyLabel(keyShiftEnter), "new line (⌥⏎, ^J)"},
 			{keyPickModel, "pick a model, word start"}, {keyLabels(keyEsc, keyCtrlC), "cancel"},
 		}},
-		{"OTHER", [][2]string{{keyHelp, "this help"}, {keyEsc, "clear a count or search"}, {keyQuit, "quit"}}},
+		{"OTHER", [][2]string{
+			{keyLabels(keyHelp, keyBehind), "help; screen under dr"}, {keyEsc, "clear a count or search"}, {keyQuit, "quit"},
+		}},
 	},
 }
 

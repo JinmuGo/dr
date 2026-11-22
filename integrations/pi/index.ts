@@ -1,6 +1,16 @@
 import { spawn } from "node:child_process";
 import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
 
+// lastFrame returns what fullscreen Pi shows now, for the main screen under dr, where dr's b
+// shows it: when it stops, fullscreen Pi leaves only its footer there. Pi on the main screen
+// leaves its transcript there itself and has no frame to give.
+function lastFrame(tui: { renderNow(): void }): string {
+  if (!("getScreenLines" in tui) || typeof tui.getScreenLines !== "function") return "";
+  tui.renderNow(); // without an overlay that just closed
+  const lines = tui.getScreenLines() as string[];
+  return `\x1b[?7l${lines.join("\r\n")}\x1b[0m\x1b[?7h\r\n`;
+}
+
 export default function (pi: ExtensionAPI) {
   pi.registerCommand("dr", {
     description: "Review changes in dr; quit dr to return to this session",
@@ -20,7 +30,9 @@ export default function (pi: ExtensionAPI) {
         const cwd = ctx.cwd;
         await ctx.ui.custom<void>(async (tui, _theme, _keys, done) => {
           // Give dr the real terminal, not a captured tool-output stream.
+          const frame = lastFrame(tui);
           tui.stop();
+          process.stdout.write(frame);
           try {
             await new Promise<void>((resolve, reject) => {
               const child = spawn("dr", ref ? [ref] : [], { cwd, stdio: "inherit" });
