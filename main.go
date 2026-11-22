@@ -18,6 +18,7 @@ import (
 	"os"
 	"runtime/debug"
 	"slices"
+	"strconv"
 	"strings"
 
 	"github.com/JinmuGo/dr/internal/agent"
@@ -70,9 +71,26 @@ func run(args []string, stdout, stderr io.Writer, userHome func() (string, error
 	if err == nil {
 		err = cmd(home)
 	}
+	if errors.Is(err, errNoChanges) {
+		return emptyStatus(os.Getenv("DR_EMPTY_STATUS"))
+	}
 	if err != nil {
 		_, _ = fmt.Fprintln(stderr, "dr:", err)
 		return 1
+	}
+	return 0
+}
+
+// errNoChanges is what browse returns when it has no screen to open, after saying so on
+// stdout.
+var errNoChanges = errors.New("no changed files")
+
+// emptyStatus returns the exit code of dr with no screen to open: the one DR_EMPTY_STATUS
+// names, from 3 to 125, and else 0. A harness such as the Pi extension sets it to tell
+// that from a review that ended, as it draws over what dr printed.
+func emptyStatus(env string) int {
+	if n, err := strconv.Atoi(env); err == nil && n >= 3 && n <= 125 {
+		return n
 	}
 	return 0
 }
@@ -124,14 +142,16 @@ func versionOf(ldflags string, info *debug.BuildInfo) string {
 // directory. The screen holds the lock on the worktree while it is open, so only one dr
 // applies fixes to it; when it cannot take the lock, the screen opens without applying
 // fixes. With no changed file, it opens only when :undo can revert the last fix dr applied,
-// and otherwise says so on stdout. The agents' session logs are read under home.
+// and otherwise says so on stdout and returns errNoChanges. The agents' session logs are read under home.
 func browse(stdout io.Writer, home, ref, report string) (err error) {
 	worktree := "."
 	written := false // the report was written with what the screen decided
 	if report != "" {
 		defer func() {
-			if err == nil && !written {
-				err = review.WriteReport(report, review.Report{Verdict: review.VerdictNone})
+			if (err == nil || errors.Is(err, errNoChanges)) && !written {
+				if werr := review.WriteReport(report, review.Report{Verdict: review.VerdictNone}); werr != nil {
+					err = werr
+				}
 			}
 		}()
 	}
@@ -159,7 +179,7 @@ func browse(stdout io.Writer, home, ref, report string) (err error) {
 	saved.View = os.Getenv("DR_VIEW")
 	if !opens(repo.Root, files, saved.Log) {
 		_, _ = fmt.Fprintln(stdout, "No changed files")
-		return nil
+		return errNoChanges
 	}
 	saved.Base = compared(repo.Root, ref, repo.Base)
 	saved.Review = report != ""

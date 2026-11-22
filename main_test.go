@@ -74,6 +74,19 @@ func TestRun(t *testing.T) {
 			}
 		})
 	}
+	// DR_EMPTY_STATUS sets the exit code with no changed file, from 3 to 125, for a harness
+	// that draws over what dr printed; any other value leaves it 0.
+	for env, code := range map[string]int{"3": 3, "125": 125, "": 0, "1": 0, "2": 0, "126": 0, "x": 0} {
+		t.Setenv("DR_EMPTY_STATUS", env)
+		for _, args := range [][]string{nil, {"--review", filepath.Join(tmp, "out", "e.json")}} {
+			var stdout, stderr strings.Builder
+			if got := run(args, &stdout, &stderr, func() (string, error) { return home, nil }); got != code || stdout.String() != "No changed files\n" {
+				t.Errorf("run(%q) with DR_EMPTY_STATUS=%q: got %d, stdout %q; want %d", args, env, got, stdout.String(), code)
+			}
+		}
+	}
+	t.Setenv("DR_EMPTY_STATUS", "")
+
 	// --review with nothing to review still writes the report, with no decision, so the
 	// caller that waits for it reads one.
 	data, err := os.ReadFile(filepath.Join(tmp, "out", "r.json"))
