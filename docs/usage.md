@@ -148,6 +148,7 @@ export DR_VIEW=split
 | `ga` | Open the session that wrote the line in its agent, in this terminal |
 | `:` | Type a command. A list shows each command and what it would do now |
 | `Esc` | Clear a pending count or key, else the search |
+| `b` | Show the screen under dr, such as the Pi session that opened it. Any key comes back |
 | `?` | Help |
 | `q` | Quit |
 

@@ -346,6 +346,10 @@ func (m *model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.listed(msg)
 	case editedMsg:
 		cmd = m.edited(msg)
+	case behindMsg:
+		if msg.err != nil {
+			m.fail("showing the screen under dr: " + review.Visible(msg.err.Error()))
+		}
 	case reloadedMsg:
 		m.reloaded(msg)
 	case tickMsg:
