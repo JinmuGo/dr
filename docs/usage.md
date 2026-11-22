@@ -111,6 +111,8 @@ export DR_VIEW=split
 
 `DR_VIEW` takes `unified` (the default) or `split`. The split view needs a diff at least 100 cells wide, so on a narrower screen dr shows the unified view until there is room. `s` still switches between the two.
 
+With no changed file to show, dr prints `No changed files` and exits 0. A harness that draws over what dr printed, such as the Pi extension, sets `DR_EMPTY_STATUS` to an exit code from 3 to 125 for that case, to tell it from a review that ended.
+
 ## Peeking at a file with `space`
 
 `space` opens the diff of the file under the cursor in a box over the screen, without the file tree and the other files. The keys that move stay in the file, `h` and `l` go to the previous and the next file, `s` switches between the split and the unified view, and `v` marks the file viewed. The box is wider than the diff beside the tree, so it shows the split view on screens where the diff stays unified. `space`, `Esc` or `q` closes it with the cursor where you left it. The box shows only the lines: comments, origin cards and search stay in the diff.
